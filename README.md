@@ -216,6 +216,217 @@ cd web
 npm run build
 ```
 
+## 传统服务器部署
+
+以下指南适用于 CentOS / Ubuntu 等 Linux 服务器，使用 **Nginx 反向代理 + PM2 进程管理** 的经典方案。
+
+### 架构
+
+```
+客户端 → Nginx(:80/:443) → Express(:3001)
+                    ↘ 静态文件(/dist)
+```
+
+### 1. 服务器环境准备
+
+```bash
+# 安装 Node.js 18 LTS
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# 安装 MySQL 8.0
+sudo apt install -y mysql-server
+sudo mysql_secure_installation
+
+# 安装 Nginx
+sudo apt install -y nginx
+
+# 安装 PM2（Node 进程管理器）
+sudo npm install -g pm2
+```
+
+### 2. 上传项目代码
+
+```bash
+# 方式一：Git 克隆（推荐）
+cd /opt
+git clone https://github.com/li-ze-yi/fund-tracker.git
+cd fund-tracker
+
+# 方式二：scp 上传
+# scp -r ./realtime user@your-server:/opt/fund-tracker
+```
+
+### 3. 初始化数据库
+
+```bash
+# 登录 MySQL 创建用户（如需要）
+sudo mysql -u root -p
+
+# 在 MySQL shell 中
+# CREATE USER 'fundtracker'@'localhost' IDENTIFIED BY 'your_password';
+# GRANT ALL PRIVILEGES ON real_time.* TO 'fundtracker'@'localhost';
+# FLUSH PRIVILEGES;
+# EXIT;
+
+# 导入建表 SQL
+mysql -u root -p < doc/init_db.sql
+```
+
+### 4. 配置后端
+
+```bash
+cd /opt/fund-tracker/server
+
+# 安装依赖
+npm install --production
+
+# 创建 .env 文件
+cat > .env << 'EOF'
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=fundtracker
+MYSQL_PASSWORD=your_password
+MYSQL_DATABASE=real_time
+JWT_SECRET=your_random_jwt_secret_at_least_32_chars
+PORT=3001
+EOF
+
+# 同步基金基础数据
+node scripts/syncFunds.js
+```
+
+### 5. 构建前端
+
+```bash
+cd /opt/fund-tracker/web
+
+# 安装依赖
+npm install
+
+# 构建生产版本（输出到 web/dist 目录）
+npm run build
+```
+
+### 6. 配置 Nginx 反向代理
+
+```bash
+sudo vim /etc/nginx/sites-available/fund-tracker
+```
+
+写入以下配置：
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;  # 替换为你的域名或 IP
+
+    # 前端静态文件
+    location / {
+        root /opt/fund-tracker/web/dist;
+        index index.html;
+        try_files $uri $uri/ /index.html;  # SPA 路由回退
+    }
+
+    # 后端 API 反向代理
+    location /api/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+
+        # 文件上传大小限制（导入 Excel）
+        client_max_body_size 10m;
+    }
+
+    # Gzip 压缩
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml;
+    gzip_min_length 1024;
+
+    # 静态资源缓存
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
+        root /opt/fund-tracker/web/dist;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+}
+```
+
+启用配置并重启 Nginx：
+
+```bash
+sudo ln -s /etc/nginx/sites-available/fund-tracker /etc/nginx/sites-enabled/
+sudo nginx -t          # 检查配置语法
+sudo systemctl reload nginx
+```
+
+### 7. 使用 PM2 启动后端
+
+```bash
+cd /opt/fund-tracker/server
+
+# 启动服务
+pm2 start app.js --name fund-tracker
+
+# 查看状态
+pm2 status
+
+# 查看日志
+pm2 logs fund-tracker
+
+# 设置开机自启
+pm2 startup
+pm2 save
+```
+
+### 8. 配置 HTTPS（推荐）
+
+```bash
+# 安装 Certbot
+sudo apt install -y certbot python3-certbot-nginx
+
+# 申请免费 SSL 证书（需域名已解析到服务器 IP）
+sudo certbot --nginx -d your-domain.com
+
+# 自动续期（Certbot 默认已配置定时任务）
+sudo certbot renew --dry-run
+```
+
+### 9. 防火墙配置
+
+```bash
+# 仅开放必要端口
+sudo ufw allow 22/tcp     # SSH
+sudo ufw allow 80/tcp     # HTTP
+sudo ufw allow 443/tcp    # HTTPS
+sudo ufw enable
+```
+
+### 常用运维命令
+
+```bash
+# 更新代码后重新部署
+cd /opt/fund-tracker
+git pull origin main
+
+# 重新构建前端
+cd web && npm install && npm run build
+
+# 重启后端
+pm2 restart fund-tracker
+
+# 查看后端日志
+pm2 logs fund-tracker --lines 100
+
+# 查看 Nginx 访问日志
+sudo tail -f /var/log/nginx/access.log
+```
+
 ## 设计系统
 
 采用 **墨玉金（Jade Gold）** 深色主题，以深色为底、金色为点缀，传递专业、高端、可信赖的品牌调性。
