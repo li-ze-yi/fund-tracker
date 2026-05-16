@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const globalCache = require('../services/globalCache');
 
 var SINA = {
   '000001': 's_sh000001', '000016': 's_sh000016',
@@ -20,6 +21,16 @@ var TX = {
   'KS11': 'krKS11', 'KOSDAQ': 'krKOSDAQ',
 };
 
+var TX_A = {
+  '000001': 'sh000001', '000016': 'sh000016',
+  '399001': 'sz399001', '399002': 'sz399002', '399003': 'sz399003', '399004': 'sz399004',
+  '399005': 'sz399005', '399006': 'sz399006', '399305': 'sz399305', '399306': 'sz399306',
+  '399673': 'sz399673', '399330': 'sz399330', '399332': 'sz399332',
+  '000300': 'sh000300', '000905': 'sh000905', '000906': 'sh000906',
+  '000852': 'sh000852', '000688': 'sh000688',
+  '931091': 'sh931091', '000984': 'sh000984', '399310': 'sz399310',
+};
+
 function pS(line) {
   if (!line) return null;
   var f = line.split(',');
@@ -38,149 +49,338 @@ function pT(line) {
   return { point: Math.round(pt * 100) / 100, change: Math.round((parseFloat(f[31]) || 0) * 100) / 100, cp: Math.round((parseFloat(f[32]) || 0) * 100) / 100 };
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    return response;
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') {
+      console.error(`[Indices] 请求超时 (${timeoutMs}ms): ${url}`);
+    }
+    throw e;
+  }
+}
+
+function getTxCode(code) {
+  if (TX_A[code]) return TX_A[code];
+  if (TX[code]) return TX[code];
+  return null;
+}
+
 router.get('/', async (req, res) => {
-  var codes = req.query.codes ? req.query.codes.split(',') : Object.keys(SINA).concat(Object.keys(TX));
-  var r = {};
+  var codes = req.query.codes ? req.query.codes.split(',') : Object.keys(TX_A).concat(Object.keys(TX));
+  var cacheKey = `indices:${codes.sort().join(',')}`;
 
-  var sl = codes.filter(function(c) { return SINA[c]; });
-  if (sl.length > 0) {
-    try {
-      var sr = await fetch('http://hq.sinajs.cn/list=' + sl.map(function(c){return SINA[c]}).join(','), { headers: { Referer: 'http://finance.sina.com.cn' } });
-      var st = await sr.text();
-      sl.forEach(function(c) {
-        var m = st.match(new RegExp('hq_str_' + SINA[c] + '="(.*)"'));
-        if (m && m[1]) { var d = pS(m[1]); if (d) r[c] = d; }
+  try {
+    var cachedData = await globalCache.getOrFetch(cacheKey, async () => {
+      var r = {};
+
+      var txCodes = codes.filter(function(c) { return getTxCode(c); });
+      if (txCodes.length > 0) {
+        try {
+          var txCodeList = txCodes.map(function(c) { return getTxCode(c); }).join(',');
+          var tr = await fetchWithTimeout(
+            'http://qt.gtimg.cn/q=' + txCodeList,
+            { headers: { Referer: 'http://finance.qq.com' } },
+            8000
+          );
+          var tt = await tr.text();
+          if (tt && tt.length > 10) {
+            txCodes.forEach(function(c) {
+              var txc = getTxCode(c);
+              var m = tt.match(new RegExp('v_' + txc + '="(.*)"'));
+              if (!m) m = tt.match(new RegExp('"([^"]*' + txc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^"]*)"', 'i'));
+              if (m && m[1]) { var d = pT(m[1]); if (d) r[c] = d; }
+            });
+          } else {
+            console.warn('[Indices] 腾讯返回空数据，可能被服务器IP限制');
+          }
+        } catch(e) {
+          console.error('[Indices] 腾讯实时指数请求失败:', e.message);
+        }
+      }
+
+      var sl = codes.filter(function(c) { return SINA[c] && !r[c]; });
+      if (sl.length > 0) {
+        try {
+          var sr = await fetchWithTimeout(
+            'http://hq.sinajs.cn/list=' + sl.map(function(c){return SINA[c]}).join(','),
+            { headers: { Referer: 'http://finance.sina.com.cn' } },
+            8000
+          );
+          var st = await sr.text();
+          if (st && st.length > 10) {
+            sl.forEach(function(c) {
+              var m = st.match(new RegExp('hq_str_' + SINA[c] + '="(.*)"'));
+              if (m && m[1]) { var d = pS(m[1]); if (d) r[c] = d; }
+            });
+          }
+        } catch(e) {
+          console.error('[Indices] 新浪实时指数请求失败(备用):', e.message);
+        }
+      }
+
+      var result = codes.map(function(c) {
+        var v = r[c];
+        return v ? {code:c, point:v.point, change:v.change, changePercent:v.cp} : {code:c, point:0, change:0, changePercent:0};
       });
-    } catch(e) {}
-  }
 
-  var tl = codes.filter(function(c) { return TX[c]; });
-  if (tl.length > 0) {
-    try {
-      var tr = await fetch('http://qt.gtimg.cn/q=' + tl.map(function(c){return TX[c]}).join(','), { headers: { Referer: 'http://finance.qq.com' } });
-      var tt = await tr.text();
-      tl.forEach(function(c) {
-        var m = tt.match(new RegExp('v_' + TX[c] + '="(.*)"'));
-        if (!m) m = tt.match(new RegExp('"([^"]*' + TX[c] + '[^"]*)"', 'i'));
-        if (m && m[1]) { var d = pT(m[1]); if (d) r[c] = d; }
-      });
-    } catch(e) {}
-  }
+      var hitCount = result.filter(function(item) { return item.point > 0; }).length;
+      console.log(`[Indices] 实时快照: ${hitCount}/${codes.length} 个指数获取成功`);
 
-  res.json({ indices: codes.map(function(c) {
-    var v = r[c];
-    return v ? {code:c, point:v.point, change:v.change, changePercent:v.cp} : {code:c, point:0, change:0, changePercent:0};
-  })});
+      return result;
+    }, { type: 'realtime' });
+
+    res.json({ indices: cachedData });
+  } catch(e) {
+    console.error('[Indices] 获取指数数据异常:', e.message);
+    res.json({ indices: codes.map(function(c) { return {code:c, point:0, change:0, changePercent:0}; }) });
+  }
 });
 
 router.get('/:code/intraday', async (req, res) => {
   const code = req.params.code;
   const date = req.query.date || new Date().toISOString().split('T')[0].replace(/-/g, '');
+  const cacheKey = `indices:intraday:${code}:${date}`;
 
-  let data = null;
+  try {
+    var data = await globalCache.getOrFetch(cacheKey, async () => {
+      let result = null;
 
-  if (SINA[code]) {
-    try {
-      const secid = getEastMoneySecid(code);
-      const emUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=1&fqt=1&end=${date}&lmt=240`;
-      const emResponse = await fetch(emUrl, { headers: { Referer: 'https://data.eastmoney.com' } });
-      const result = await emResponse.json();
-      if (result.data && result.data.klines && result.data.klines.length > 0) {
-        data = parseEastMoneyMinuteKline(result.data.klines);
-        console.log(`✅ EastMoney real intraday for ${code}: ${data.times.length} points`);
-      }
-    } catch(e) {
-      console.error('EastMoney failed:', e.message);
-    }
-
-    if (!data) {
-      try {
-        const sinaMinUrl = `http://finance.sina.com.cn/realstock/company/${SINA[code]}/nc.shtml`;
-        const sinaResponse = await fetch(sinaMinUrl, { headers: { Referer: 'http://finance.sina.com.cn' } });
-        const sinaText = await sinaResponse.text();
-
-        const klineMatch = sinaText.match(/var Data_MarketKLine=\[([\s\S]*?)\];/);
-        if (klineMatch && klineMatch[1]) {
-          data = parseSinaKlineData(klineMatch[1], code);
-          if (data) console.log(`✅ Sina K-line for ${code}: ${data.times.length} points`);
+      if (TX_A[code]) {
+        try {
+          const txc = TX_A[code];
+          const txMinUrl = `http://web.ifzq.gtimg.cn/appstock/app/minute/query?_var=min_data_${txc}&code=${txc}`;
+          const txMinRes = await fetchWithTimeout(txMinUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
+          const txMinText = await txMinRes.text();
+          result = parseTencentMinuteData(txMinText, code);
+          if (result) console.log(`[Indices] ✅ 腾讯分时 ${code}: ${result.times.length} 个数据点`);
+        } catch(e) {
+          console.error('[Indices] 腾讯分时失败:', e.message);
         }
-      } catch(e) {
-        console.error('Sina K-line failed:', e.message);
-      }
-    }
 
-    if (!data) {
-      try {
-        const tushareUrl = `https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${SINA[code]}&scale=1&ma=no&datalen=240`;
-        const tushareRes = await fetch(tushareUrl, { headers: { Referer: 'http://finance.sina.com.cn' } });
-        const tushareJson = await tushareRes.json();
-        if (Array.isArray(tushareJson) && tushareJson.length > 0) {
-          data = parseSinaMinuteData(tushareJson);
-          if (data) console.log(`✅ Sina minute API for ${code}: ${data.times.length} points`);
+        if (!result) {
+          try {
+            const txc = TX_A[code];
+            const txKlineUrl = `http://ifq.gtimg.cn/appstock/app/kline/kline?param=${txc},m1,,,240,qfq`;
+            const txRes = await fetchWithTimeout(txKlineUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
+            const txText = await txRes.text();
+            result = parseTencentMinuteKline(txText, code);
+            if (result) console.log(`[Indices] ✅ 腾讯分钟K线 ${code}: ${result.times.length} 个数据点`);
+          } catch(e) {
+            console.error('[Indices] 腾讯分钟K线失败:', e.message);
+          }
         }
-      } catch(e) {
-        console.error('Sina minute API failed:', e.message);
       }
-    }
-  }
 
-  if (!data && TX[code]) {
-    try {
-      const txSecid = TX[code];
-      const txKlineUrl = `http://ifq.gtimg.cn/appstock/app/kline/kline?param=${txSecid},day,,,30,qfq`;
-      const txRes = await fetch(txKlineUrl, { headers: { Referer: 'http://finance.qq.com' } });
-      const txText = await txRes.text();
-      data = parseTencentKlineHistory(txText, code);
-      if (data) console.log(`✅ Tencent history for ${code}: ${data.times.length} points`);
-    } catch(e) {
-      console.error('Tencent history failed:', e.message);
-    }
+      if (!result && SINA[code]) {
+        try {
+          const secid = getEastMoneySecid(code);
+          const emUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=1&fqt=1&end=${date}&lmt=240`;
+          const emResponse = await fetchWithTimeout(emUrl, { headers: { Referer: 'https://data.eastmoney.com' } }, 10000);
+          const emResult = await emResponse.json();
+          if (emResult.data && emResult.data.klines && emResult.data.klines.length > 0) {
+            result = parseEastMoneyMinuteKline(emResult.data.klines);
+            if (result) console.log(`[Indices] ✅ 东方财富分时 ${code}: ${result.times.length} 个数据点`);
+          }
+        } catch(e) {
+          console.error('[Indices] 东方财富分时失败:', e.message);
+        }
+
+        if (!result) {
+          try {
+            const sinaMinUrl = `http://finance.sina.com.cn/realstock/company/${SINA[code]}/nc.shtml`;
+            const sinaResponse = await fetchWithTimeout(sinaMinUrl, { headers: { Referer: 'http://finance.sina.com.cn' } }, 10000);
+            const sinaText = await sinaResponse.text();
+            const klineMatch = sinaText.match(/var Data_MarketKLine=\[([\s\S]*?)\];/);
+            if (klineMatch && klineMatch[1]) {
+              result = parseSinaKlineData(klineMatch[1], code);
+              if (result) console.log(`[Indices] ✅ 新浪K线 ${code}: ${result.times.length} 个数据点`);
+            }
+          } catch(e) {
+            console.error('[Indices] 新浪K线失败:', e.message);
+          }
+        }
+
+        if (!result) {
+          try {
+            const tushareUrl = `https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${SINA[code]}&scale=1&ma=no&datalen=240`;
+            const tushareRes = await fetchWithTimeout(tushareUrl, { headers: { Referer: 'http://finance.sina.com.cn' } }, 10000);
+            const tushareJson = await tushareRes.json();
+            if (Array.isArray(tushareJson) && tushareJson.length > 0) {
+              result = parseSinaMinuteData(tushareJson);
+              if (result) console.log(`[Indices] ✅ 新浪分钟API ${code}: ${result.times.length} 个数据点`);
+            }
+          } catch(e) {
+            console.error('[Indices] 新浪分钟API失败:', e.message);
+          }
+        }
+      }
+
+      if (!result && TX[code]) {
+        try {
+          const txSecid = TX[code];
+          const txKlineUrl = `http://ifq.gtimg.cn/appstock/app/kline/kline?param=${txSecid},day,,,30,qfq`;
+          const txRes = await fetchWithTimeout(txKlineUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
+          const txText = await txRes.text();
+          result = parseTencentKlineHistory(txText, code);
+          if (result) console.log(`[Indices] ✅ 腾讯历史 ${code}: ${result.times.length} 个数据点`);
+        } catch(e) {
+          console.error('[Indices] 腾讯历史失败:', e.message);
+        }
+
+        if (!result) {
+          try {
+            const txRealtimeUrl = `http://qt.gtimg.cn/q=${TX[code]}`;
+            const txRealRes = await fetchWithTimeout(txRealtimeUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
+            const txRealText = await txRealRes.text();
+            result = parseTencentRealtimeSnapshot(txRealText, code);
+            if (result) console.log(`[Indices] ✅ 腾讯快照 ${code}: ${result.times.length} 个数据点`);
+          } catch(e) {
+            console.error('[Indices] 腾讯快照失败:', e.message);
+          }
+        }
+      }
+
+      if (!result) {
+        console.warn(`[Indices] ⚠️ ${code} 所有数据源失败，使用降级方案`);
+        try {
+          result = await generateFallbackIntraday(code);
+          if (result) {
+            console.log(`[Indices] ✅ 降级方案 ${code}: ${result.times.length} 个数据点`);
+          }
+        } catch(e) {
+          console.error('[Indices] 降级方案失败:', e.message);
+        }
+      }
+
+      return result;
+    }, { type: 'history_recent' });
 
     if (!data) {
-      try {
-        const txRealtimeUrl = `http://qt.gtimg.cn/q=${TX[code]}`;
-        const txRealRes = await fetch(txRealtimeUrl, { headers: { Referer: 'http://finance.qq.com' } });
-        const txRealText = await txRealRes.text();
-        data = parseTencentRealtimeSnapshot(txRealText, code);
-        if (data) console.log(`✅ Tencent snapshot for ${code}: ${data.times.length} points`);
-      } catch(e) {
-        console.error('Tencent snapshot failed:', e.message);
-      }
+      return res.status(500).json({ error: 'Failed to generate intraday data', code });
     }
-  }
 
-  if (!data) {
-    console.warn(`⚠️ All real data sources failed for ${code}, using fallback with market params`);
-    try {
-      data = await generateFallbackIntraday(code);
-      if (data) {
-        console.log(`✅ Fallback intraday for ${code}: ${data.times.length} points (based on realtime params)`);
-      }
-    } catch(e) {
-      console.error('Fallback generation failed:', e.message);
-    }
+    res.json({
+      code,
+      date,
+      data,
+      source: data.source || 'unknown',
+      pointCount: data.times?.length || 0
+    });
+  } catch(e) {
+    console.error('[Indices] 分时数据异常:', e.message);
+    res.status(500).json({ error: 'Failed to generate intraday data', code });
   }
-
-  if (!data) {
-    return res.status(500).json({ error: 'Failed to generate intraday data', code });
-  }
-
-  res.json({
-    code,
-    date,
-    data,
-    source: data.source || 'unknown',
-    pointCount: data.times?.length || 0
-  });
 });
+
+function parseTencentMinuteData(text, code) {
+  try {
+    const varMatch = text.match(/min_data_\w+\s*=\s*(\{[\s\S]*\})/);
+    if (!varMatch) return null;
+    const json = JSON.parse(varMatch[1]);
+    const txc = TX_A[code];
+    const data = json.data && json.data[txc];
+    if (!data || !data.data) return null;
+
+    const minuteData = data.data;
+    const times = [];
+    const prices = [];
+
+    if (typeof minuteData === 'string') {
+      const points = minuteData.split(';');
+      points.forEach(p => {
+        const parts = p.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const time = parts[0];
+          const price = parseFloat(parts[1]);
+          if (time && price > 0) {
+            times.push(time.substring(0, 5));
+            prices.push(Number(price.toFixed(2)));
+          }
+        }
+      });
+    } else if (Array.isArray(minuteData)) {
+      minuteData.forEach(item => {
+        if (item.t && item.p) {
+          times.push(item.t.substring(0, 5));
+          prices.push(Number(parseFloat(item.p).toFixed(2)));
+        }
+      });
+    }
+
+    return times.length > 0 ? { times, prices, source: 'tencent_minute' } : null;
+  } catch(e) {
+    return null;
+  }
+}
+
+function parseTencentMinuteKline(text, code) {
+  try {
+    const json = JSON.parse(text);
+    const txc = TX_A[code];
+    const data = json.data && json.data[txc];
+    if (!data || !data.day) return null;
+
+    const klines = data.day;
+    if (!Array.isArray(klines) || klines.length === 0) return null;
+
+    const times = [];
+    const prices = [];
+
+    klines.forEach(kline => {
+      if (Array.isArray(kline) && kline.length >= 2) {
+        const datetime = String(kline[0]);
+        const timePart = datetime.includes(' ') ? datetime.split(' ')[1] : datetime;
+        const price = parseFloat(kline[1]);
+        if (timePart && price > 0) {
+          times.push(timePart.substring(0, 5));
+          prices.push(Number(price.toFixed(2)));
+        }
+      }
+    });
+
+    return times.length > 0 ? { times, prices, source: 'tencent_minute_kline' } : null;
+  } catch(e) {
+    return null;
+  }
+}
 
 async function generateFallbackIntraday(code) {
   let marketData = null;
 
-  if (SINA[code]) {
+  var txc = getTxCode(code);
+  if (txc) {
+    try {
+      const url = `http://qt.gtimg.cn/q=${txc}`;
+      const response = await fetchWithTimeout(url, { headers: { Referer: 'http://finance.qq.com' } }, 8000);
+      const text = await response.text();
+      const match = text.match(new RegExp(txc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '="(.*)"'));
+      if (match && match[1]) {
+        const fields = match[1].split('~');
+        if (fields.length >= 35 && parseFloat(fields[3]) > 0) {
+          marketData = {
+            current: parseFloat(fields[3]),
+            open: parseFloat(fields[2]),
+            high: parseFloat(fields[33] || fields[3] * 1.01),
+            low: parseFloat(fields[34] || fields[3] * 0.99),
+            preClose: parseFloat(fields[32] || fields[3])
+          };
+        }
+      }
+    } catch(e) {
+      console.error('[Indices] 降级-腾讯获取失败:', e.message);
+    }
+  }
+
+  if (!marketData && SINA[code]) {
     try {
       const url = `http://hq.sinajs.cn/list=${SINA[code]}`;
-      const response = await fetch(url, { headers: { Referer: 'http://finance.sina.com.cn' } });
+      const response = await fetchWithTimeout(url, { headers: { Referer: 'http://finance.sina.com.cn' } }, 8000);
       const text = await response.text();
       const match = text.match(new RegExp('hq_str_' + SINA[code] + '="(.*)"'));
       if (match && match[1]) {
@@ -196,30 +396,7 @@ async function generateFallbackIntraday(code) {
         }
       }
     } catch(e) {
-      console.error('Sina fallback fetch failed:', e.message);
-    }
-  }
-
-  if (!marketData && TX[code]) {
-    try {
-      const url = `http://qt.gtimg.cn/q=${TX[code]}`;
-      const response = await fetch(url, { headers: { Referer: 'http://finance.qq.com' } });
-      const text = await response.text();
-      const match = text.match(new RegExp(TX[code] + '="(.*)"'));
-      if (match && match[1]) {
-        const fields = match[1].split('~');
-        if (fields.length >= 35 && parseFloat(fields[3]) > 0) {
-          marketData = {
-            current: parseFloat(fields[3]),
-            open: parseFloat(fields[2]),
-            high: parseFloat(fields[33] || fields[3] * 1.01),
-            low: parseFloat(fields[34] || fields[3] * 0.99),
-            preClose: parseFloat(fields[32] || fields[3])
-          };
-        }
-      }
-    } catch(e) {
-      console.error('Tencent fallback fetch failed:', e.message);
+      console.error('[Indices] 降级-新浪获取失败:', e.message);
     }
   }
 
