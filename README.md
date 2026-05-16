@@ -177,7 +177,11 @@ PORT=3001
 
 ### 3. 初始化数据库
 
-参考 `doc/PRD.md` 附录 B 中的 SQL 语句创建数据库和表。
+```bash
+mysql -u root -p < doc/init_db.sql
+```
+
+SQL 文件位于 [doc/init_db.sql](doc/init_db.sql)，包含建库语句及全部 10 张表的建表语句（含索引、外键约束、注释）。
 
 ### 4. 同步基金数据
 
