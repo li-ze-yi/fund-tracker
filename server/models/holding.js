@@ -3,7 +3,8 @@ const pool = require('../config/database');
 const Holding = {
   async findByUserId(userId) {
     const [rows] = await pool.query(
-      `SELECT h.id, h.user_id, h.fund_code, h.group_id, h.shares, h.cost_price, h.created_at, h.updated_at,
+      `SELECT h.id, h.user_id, h.fund_code, h.group_id, h.shares, h.cost_price,
+              h.confirmed_nav, h.confirmed_nav_date, h.created_at, h.updated_at,
               f.name as fund_name, f.type as fund_type
        FROM holdings h
        JOIN funds f ON h.fund_code = f.code
@@ -22,11 +23,11 @@ const Holding = {
     return rows[0] || null;
   },
 
-  async create({ userId, fundCode, shares, costPrice, groupId }) {
+  async create({ userId, fundCode, shares, costPrice, groupId, confirmedNav, confirmedNavDate }) {
     const [result] = await pool.query(
-      `INSERT INTO holdings (user_id, fund_code, shares, cost_price, group_id)
-       VALUES (?, ?, ?, ?, ?)`,
-      [userId, fundCode, shares, costPrice, groupId || null]
+      `INSERT INTO holdings (user_id, fund_code, shares, cost_price, group_id, confirmed_nav, confirmed_nav_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, fundCode, shares, costPrice, groupId || null, confirmedNav || null, confirmedNavDate || null]
     );
     return result.insertId;
   },
@@ -41,7 +42,11 @@ const Holding = {
         cost_price: 'cost_price',
         costPrice: 'cost_price',
         group_id: 'group_id',
-        groupId: 'group_id'
+        groupId: 'group_id',
+        confirmed_nav: 'confirmed_nav',
+        confirmedNav: 'confirmed_nav',
+        confirmed_nav_date: 'confirmed_nav_date',
+        confirmedNavDate: 'confirmed_nav_date'
       };
       const col = columnMap[key] || key;
       fields.push(`${col} = ?`);

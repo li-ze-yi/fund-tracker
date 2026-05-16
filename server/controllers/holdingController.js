@@ -56,67 +56,57 @@ exports.create = async (req, res, next) => {
 
     let netValue = 0;
     let netValueSource = 'unknown';
+    let confirmedNavDate = null;
     
     try {
       const today = new Date().toISOString().slice(0, 10);
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      
       const historyCacheKey = `history_${fundCode}_${today}`;
-      let recentHistory = null;
       
       try {
-        recentHistory = await globalCache.getOrFetch(
+        const recentHistory = await globalCache.getOrFetch(
           historyCacheKey,
           () => fundService.getHistoryNetValues(fundCode, thirtyDaysAgo, today),
           { type: 'history_recent' }
         );
-      } catch (e) {
-        console.warn(`[HoldingController] 获取历史净值失败，继续尝试: ${e.message}`);
-      }
-      
-      if (recentHistory && recentHistory.length > 0) {
-        const latestConfirmed = recentHistory[0];
-        if (latestConfirmed.nav) {
-          netValue = parseFloat(latestConfirmed.nav) || 0;
-        } else if (latestConfirmed.netValue) {
-          netValue = parseFloat(latestConfirmed.netValue) || 0;
-        }
         
-        if (netValue > 0) {
-          netValueSource = `confirmed(${latestConfirmed.date})`;
-          console.log(`[HoldingController] 使用确认净值: ${netValue} (${latestConfirmed.date})`);
+        if (recentHistory && recentHistory.length > 0) {
+          const latestConfirmed = recentHistory[0];
+          if (latestConfirmed.nav) {
+            netValue = parseFloat(latestConfirmed.nav) || 0;
+          } else if (latestConfirmed.netValue) {
+            netValue = parseFloat(latestConfirmed.netValue) || 0;
+          }
+          
+          if (netValue > 0) {
+            netValueSource = `confirmed(${latestConfirmed.date})`;
+            confirmedNavDate = latestConfirmed.date;
+            console.log(`[HoldingController] 使用确认净值: ${netValue} (${latestConfirmed.date})`);
+          }
         }
+      } catch (e) {
+        console.warn(`[HoldingController] 获取历史净值失败: ${e.message}`);
       }
       
       if (netValue <= 0) {
         const realtimeCacheKey = `realtime_${fundCode}`;
-        const realTime = await globalCache.getOrFetch(
-          realtimeCacheKey,
-          () => fundService.getRealTimeValue(fundCode),
-          { type: 'realtime' }
-        );
-        if (realTime && realTime.netValue > 0) {
-          netValue = realTime.netValue;
-          netValueSource = 'realtime(estimated)';
-          console.warn(`[HoldingController] 无确认净值，使用实时估值: ${netValue}`);
+        try {
+          const realTime = await globalCache.getOrFetch(
+            realtimeCacheKey,
+            () => fundService.getRealTimeValue(fundCode),
+            { type: 'realtime' }
+          );
+          if (realTime && realTime.netValue > 0) {
+            netValue = realTime.netValue;
+            netValueSource = 'realtime';
+            console.log(`[HoldingController] 无确认净值，使用实时估值: ${netValue}`);
+          }
+        } catch (e) {
+          console.warn(`[HoldingController] 获取实时估值也失败: ${e.message}`);
         }
       }
     } catch (error) {
-      console.error(`[HoldingController] 获取确认净值失败:`, error.message);
-      try {
-        const realtimeCacheKey = `realtime_${fundCode}`;
-        const realTime = await globalCache.getOrFetch(
-          realtimeCacheKey,
-          () => fundService.getRealTimeValue(fundCode),
-          { type: 'realtime' }
-        );
-        if (realTime && realTime.netValue > 0) {
-          netValue = realTime.netValue;
-          netValueSource = 'realtime(fallback)';
-        }
-      } catch (e2) {
-        console.error(`[HoldingController] 实时估值也获取失败:`, e2.message);
-      }
+      console.error(`[HoldingController] 获取净值失败:`, error.message);
     }
 
     if (netValue <= 0) {
@@ -139,7 +129,9 @@ exports.create = async (req, res, next) => {
       fundCode,
       shares,
       costPrice,
-      groupId
+      groupId,
+      confirmedNav: netValue,
+      confirmedNavDate
     });
 
     await Transaction.create({
