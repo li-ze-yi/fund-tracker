@@ -119,10 +119,10 @@ exports.create = async (req, res, next) => {
 
     const currentValue = amount;
     const shares = currentValue / netValue;
-    const cost = amount - (totalReturn || 0);
-    const costPrice = shares > 0 ? cost / shares : 0;
+    const totalCost = amount - (totalReturn || 0);
+    const costPrice = shares > 0 ? totalCost / shares : 0;
 
-    console.log(`[HoldingController] 计算结果: shares=${shares.toFixed(2)}, costPrice=${costPrice.toFixed(4)}, netValue=${netValue}`);
+    console.log(`[HoldingController] 计算结果: shares=${shares.toFixed(2)}, costPrice=${costPrice.toFixed(4)}, totalCost=${totalCost}, netValue=${netValue}`);
 
     const id = await Holding.create({
       userId: req.user.id,
@@ -131,7 +131,8 @@ exports.create = async (req, res, next) => {
       costPrice,
       groupId,
       confirmedNav: netValue,
-      confirmedNavDate
+      confirmedNavDate,
+      totalCost
     });
 
     await Transaction.create({

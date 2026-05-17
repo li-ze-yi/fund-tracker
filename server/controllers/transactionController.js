@@ -83,10 +83,12 @@ exports.buy = async (req, res, next) => {
 
     const oldShares = parseFloat(holding.shares);
     const oldCostPrice = parseFloat(holding.cost_price);
+    const oldTotalCost = parseFloat(holding.total_cost) || oldShares * oldCostPrice;
     const totalShares = oldShares + newShares;
     const newCostPrice = totalShares ? (oldShares * oldCostPrice + amount) / totalShares : 0;
+    const newTotalCost = oldTotalCost + amount;
 
-    await Holding.update(holding.id, req.user.id, { shares: totalShares, cost_price: newCostPrice });
+    await Holding.update(holding.id, req.user.id, { shares: totalShares, cost_price: newCostPrice, totalCost: newTotalCost });
 
     await Transaction.create({
       userId: req.user.id,
@@ -135,10 +137,14 @@ exports.sell = async (req, res, next) => {
     const actualAmount = sellAmount - feeAmount;
 
     const newShares = parseFloat(holding.shares) - sellShares;
+    const oldTotalCost = parseFloat(holding.total_cost) || parseFloat(holding.shares) * parseFloat(holding.cost_price);
+    const costPerShare = oldTotalCost / parseFloat(holding.shares);
+    const newTotalCost = costPerShare * newShares;
+
     if (newShares <= 0) {
       await Holding.delete(holding.id, req.user.id);
     } else {
-      await Holding.update(holding.id, req.user.id, { shares: newShares });
+      await Holding.update(holding.id, req.user.id, { shares: newShares, totalCost: Math.round(newTotalCost * 100) / 100 });
     }
 
     await Transaction.create({

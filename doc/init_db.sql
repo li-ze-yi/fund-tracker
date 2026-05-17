@@ -1,7 +1,7 @@
 -- ============================================================
 -- 养基发财 - Fund Tracker 数据库初始化脚本
 -- 数据库：real_time | 字符集：utf8mb4 | 引擎：InnoDB
--- 生成时间：2026-05-16（v2 - 新增 confirmed_nav/confirmed_nav_date）
+-- 生成时间：2026-05-16（v3 - 新增 total_cost/total_return）
 -- ============================================================
 
 CREATE DATABASE IF NOT EXISTS `real_time`
@@ -65,6 +65,8 @@ CREATE TABLE `holdings` (
   `cost_price` decimal(18,4) NOT NULL,
   `confirmed_nav` decimal(18,4) DEFAULT NULL COMMENT '最近确认净值',
   `confirmed_nav_date` date DEFAULT NULL COMMENT '确认净值日期',
+  `total_cost` decimal(18,4) DEFAULT '0.0000' COMMENT '投入成本（市值-累计收益）',
+  `total_return` decimal(18,4) DEFAULT '0.0000' COMMENT '累计收益',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),

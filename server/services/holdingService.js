@@ -201,7 +201,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false) {
 function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, confirmedNav = 0, marketStatus = { isMarketOpen: true }) {
   const shares = parseFloat(holding.shares) || 0;
   const costPrice = parseFloat(holding.cost_price) || 0;
-  const totalCost = shares * costPrice;
+  const totalCost = parseFloat(holding.total_cost) || shares * costPrice;
 
   let marketValue = 0;
   let dailyGain = 0;
