@@ -70,10 +70,17 @@ export default function GroupSwitcher({ activeId, onChange }: GroupSwitcherProps
       className="group-switcher-container"
       style={{
         display: 'flex',
-        flexWrap: 'wrap',
+        flexWrap: 'nowrap',
         gap: 8,
         padding: '12px 16px',
         alignItems: 'flex-start',
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        WebkitOverflowScrolling: 'touch',
+        scrollbarWidth: 'thin',
+        scrollbarColor: 'var(--border-subtle) transparent',
+        minWidth: 0,
+        width: '100%',
       }}
     >
       {allGroups.map((g, idx) => {
@@ -129,15 +136,43 @@ export default function GroupSwitcher({ activeId, onChange }: GroupSwitcherProps
 
       {/* 移动端响应式优化 */}
       <style>{`
+        .group-switcher-container {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+
+        .group-switcher-container::-webkit-scrollbar {
+          height: 6px;
+          width: 6px;
+        }
+
+        .group-switcher-container::-webkit-scrollbar-track {
+          background: transparent;
+          border-radius: 3px;
+        }
+
+        .group-switcher-container::-webkit-scrollbar-thumb {
+          background: var(--border-subtle);
+          border-radius: 3px;
+          transition: background 0.2s ease;
+        }
+
+        .group-switcher-container::-webkit-scrollbar-thumb:hover {
+          background: var(--border-strong);
+        }
+
         @media screen and (max-width: 768px) {
           .group-switcher-container {
             padding: 8px 12px !important;
             gap: 6px !important;
+            -webkit-overflow-scrolling: touch;
+            scroll-snap-type: x mandatory;
           }
 
           .group-switcher-container > div {
             padding: 6px 14px !important;
             font-size: 12px !important;
+            scroll-snap-align: start;
           }
 
           /* 隐藏分组金额 */

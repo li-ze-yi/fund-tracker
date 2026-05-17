@@ -1099,6 +1099,89 @@ export default function MyComponent() {
     </Button>
   );
 }
+
+---
+
+### Q6: 持仓金额与输入不一致或盘中波动 ⭐ v2.5新增
+
+**问题现象**:
+```
+- 用户输入持仓金额100，显示99.97
+- 盘中实时估值变化时，持仓金额跟着变
+- 累计收益输入5.5，显示5.49
+```
+
+**根本原因**:
+1. 添加时用确认净值算份额，显示时用实时估值算市值 → 金额不一致
+2. `shares × costPrice` 反推的 totalCost 有浮点精度丢失 → 累计收益不精确
+3. 累计收益存入DB后不变，净值涨了/减仓了都不更新
+
+**解决方案** (v2.5已修复):
+
+```javascript
+// 1. 市值始终用确认净值计算（不受实时估值影响）
+const effectiveNav = latestHistoryNav > 0 ? latestHistoryNav : dbConfirmedNav;
+const marketValue = shares * effectiveNav;
+
+// 2. 存total_cost而非total_return，累计收益动态计算
+const totalCost = parseFloat(holding.total_cost) || shares * costPrice;
+const cumulativeReturn = marketValue - totalCost;  // 动态，随净值变化
+
+// 3. 加减仓同步更新total_cost
+// 加仓: newTotalCost = oldTotalCost + amount
+// 减仓: newTotalCost = (oldTotalCost / oldShares) * newShares
+```
+
+**关键原则**:
+
+| 原则 | 说明 |
+|------|------|
+| 市值用确认净值 | 盘中不受实时估值波动影响 |
+| 存成本不存收益 | 收益是动态值，`marketValue - totalCost` |
+| effectiveNav API优先 | API返回最新净值，DB作为回退 |
+| 净值更新用日期比较 | `apiDate > dbDate` 就更新，不依赖isConfirmed |
+
+---
+
+### Q7: 确认净值如何存储和自动更新 ⭐ v2.5新增
+
+**问题场景**:
+- 添加持仓时获取到的确认净值，后续查询时如何复用？
+- 新一天确认净值发布后，如何自动更新？
+
+**解决方案** (v2.5已实现):
+
+```javascript
+// 添加持仓时：存入DB
+await Holding.create({
+  confirmedNav: netValue,          // 确认净值
+  confirmedNavDate: latestDate,    // 净值日期
+  totalCost: amount - totalReturn  // 投入成本
+});
+
+// 查询持仓时：API优先 + 自动更新DB
+const latestHistoryNav = historyData[0]?.nav || 0;
+const latestHistoryDate = historyData[0]?.date;
+const dbConfirmedNav = parseFloat(holding.confirmed_nav) || 0;
+const dbConfirmedNavDate = holding.confirmed_nav_date;
+
+// effectiveNav: API优先，DB回退
+let effectiveNav = latestHistoryNav > 0 ? latestHistoryNav : dbConfirmedNav;
+
+// 自动更新DB：API日期比DB日期新
+if (latestHistoryNav > 0 && latestHistoryDate > dbConfirmedNavDate) {
+  Holding.update(holding.id, holding.user_id, {
+    confirmedNav: latestHistoryNav,
+    confirmedNavDate: latestHistoryDate
+  });  // 异步，不阻塞响应
+}
+```
+
+**数据流**:
+```
+添加 → confirmedNav存DB → 市值 = shares × confirmedNav（固定）
+                              ↓
+         enrichment发现新净值 → 异步更新DB → 下次查询市值更新
 ```
 
 ---
@@ -1143,5 +1226,5 @@ export default function MyComponent() {
 ---
 
 **文档维护者**: Frontend Team  
-**最后更新**: 2026-05-13 (v2.4)  
+**最后更新**: 2026-05-16 (v2.5)  
 **关联文档**: [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) | [COMPONENTS_CHANGELOG.md](./COMPONENTS_CHANGELOG.md)

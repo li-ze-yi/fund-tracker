@@ -8,6 +8,8 @@ import {
   InfoCircleOutlined,
   LogoutOutlined,
   MessageOutlined,
+  AndroidOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '@/store/authStore';
 
@@ -65,6 +67,14 @@ export default function ProfilePage() {
           }
 
           /* 菜单列表 */
+          .profile-download-card {
+            margin-bottom: 14px !important;
+          }
+
+          .profile-download-card > .ant-card-body {
+            padding: 14px 12px !important;
+          }
+
           .profile-menu-card {
             margin-bottom: 14px !important;
           }
@@ -126,6 +136,51 @@ export default function ProfilePage() {
               注册时间: {user?.created_at ? new Date(user.created_at).toLocaleDateString('zh-CN') : '-'}
             </div>
           </div>
+        </div>
+      </Card>
+
+      <Card
+        className="profile-download-card"
+        style={{
+          marginBottom: 20,
+          background: 'linear-gradient(135deg, #3DDC84 0%, #00A86B 100%)',
+          borderColor: '#3DDC84',
+          cursor: 'pointer',
+          transition: 'transform var(--transition-fast), box-shadow var(--transition-fast)',
+        }}
+        onClick={() => window.open('/download/app-release.apk', '_blank')}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'translateY(-2px)';
+          e.currentTarget.style.boxShadow = '0 8px 24px rgba(61, 220, 132, 0.3)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'translateY(0)';
+          e.currentTarget.style.boxShadow = 'none';
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '8px 0' }}>
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 12,
+              background: 'rgba(255, 255, 255, 0.2)',
+              backdropFilter: 'blur(10px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 24,
+              color: '#fff',
+              flexShrink: 0,
+            }}
+          >
+            <AndroidOutlined />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 2 }}>下载安卓客户端</div>
+            <div style={{ fontSize: 13, color: 'rgba(255, 255, 255, 0.85)' }}>随时随地管理您的投资组合</div>
+          </div>
+          <DownloadOutlined style={{ fontSize: 20, color: 'rgba(255, 255, 255, 0.9)' }} />
         </div>
       </Card>
 

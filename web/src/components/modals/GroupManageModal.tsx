@@ -223,135 +223,481 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
       {/* 移动端响应式优化样式 */}
       <style>{`
         @media screen and (max-width: 768px) {
+          /* 全局盒模型设置 */
+          .group-manage-modal *,
+          .group-manage-modal *::before,
+          .group-manage-modal *::after {
+            box-sizing: border-box !important;
+          }
+
           /* 模态框本身 */
           .group-manage-modal .ant-modal {
-            max-width: 95vw !important;
-            margin: 8px auto !important;
+            max-width: 98vw !important;
+            margin: 4px auto !important;
+            top: 4px !important;
+            max-height: 96vh !important;
           }
 
           .group-manage-modal .ant-modal-content {
-            max-height: 90vh !important;
+            max-height: 96vh !important;
+            border-radius: 12px !important;
+            overflow: hidden !important;
           }
 
           .group-manage-modal .ant-modal-header {
-            padding: 12px 16px !important;
+            padding: 10px 12px !important;
+            border-radius: 12px 12px 0 0 !important;
+            min-height: 44px !important;
           }
 
           .group-manage-modal .ant-modal-body {
-            padding: 10px 14px !important;
-            max-height: calc(90vh - 60px) !important;
+            padding: 8px 10px !important;
+            max-height: calc(96vh - 56px) !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            -webkit-overflow-scrolling: touch !important;
+          }
+
+          .group-manage-modal .ant-modal-close {
+            top: 6px !important;
+            right: 6px !important;
+            width: 32px !important;
+            height: 32px !important;
+            font-size: 16px !important;
           }
 
           .group-modal-title {
-            font-size: clamp(16px, 4.5vw, 18px) !important;
+            font-size: clamp(15px, 4vw, 18px) !important;
+            letter-spacing: -0.2px !important;
           }
 
-          /* Tabs 标签页 */
+          /* Tabs 标签页 - 紧凑模式 */
           .group-manage-modal .ant-tabs {
-            margin-bottom: 10px !important;
+            margin-bottom: 6px !important;
           }
 
           .group-manage-modal .ant-tabs-nav {
             margin-bottom: 8px !important;
+            padding: 0 2px !important;
           }
 
           .group-manage-modal .ant-tabs-tab {
-            font-size: clamp(13px, 3.2vw, 16px) !important;
-            padding: 8px 12px !important;
+            font-size: clamp(12px, 2.8vw, 14px) !important;
+            padding: 6px 10px !important;
+            gap: 4px !important;
           }
 
-          /* 创建分组输入区域 */
+          .group-manage-modal .ant-tabs-tab-btn span {
+            padding: 6px 10px !important;
+            border-radius: 5px !important;
+            gap: 4px !important;
+          }
+
+          .group-manage-modal .ant-tabs-tab-btn span .anticon {
+            font-size: 14px !important;
+          }
+
+          .group-manage-modal .ant-tabs-nav-list {
+            gap: 4px !important;
+          }
+
+          .group-manage-modal .ant-tabs-ink-bar {
+            height: 2px !important;
+          }
+
+          .group-manage-modal .ant-tabs-nav-operations {
+            display: none !important;
+          }
+
+          /* 创建分组输入区域 - 超紧凑 */
           .group-create-section {
-            padding: 12px !important;
-            margin-bottom: 14px !important;
+            padding: 10px !important;
+            margin-bottom: 12px !important;
             flex-direction: column !important;
             gap: 8px !important;
+            border-radius: 8px !important;
           }
 
           .group-create-section .ant-input {
-            font-size: clamp(13px, 3.2vw, 14px) !important;
-            height: 40px !important;
+            font-size: clamp(13px, 3vw, 14px) !important;
+            height: 38px !important;
+            border-radius: 6px !important;
+          }
+
+          .group-create-section .ant-input-lg {
+            height: 38px !important;
+            padding: 6px 10px !important;
           }
 
           .group-create-section .ant-btn-primary {
             width: 100% !important;
-            height: 40px !important;
-            font-size: clamp(13px, 3.2vw, 15px) !important;
+            height: 38px !important;
+            font-size: clamp(13px, 3vw, 14px) !important;
+            font-weight: 600 !important;
+            border-radius: 6px !important;
+            min-width: unset !important;
           }
 
-          /* 分组列表项 */
+          .group-create-section .ant-btn-primary .anticon {
+            font-size: 14px !important;
+          }
+
+          /* 分组列表项 - 紧凑显示 */
           .group-list-item {
             margin-bottom: 6px !important;
             border-radius: 8px !important;
+            overflow: hidden !important;
           }
 
           .group-list-item .ant-list-item {
             padding: 10px 12px !important;
+            min-height: 48px !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+          }
+
+          .group-list-item .ant-list-item-meta {
+            flex: 1 !important;
+            min-width: 0 !important;
+            overflow: hidden !important;
           }
 
           .group-item-name {
-            font-size: clamp(14px, 3.5vw, 15px) !important;
+            font-size: clamp(13px, 3.2vw, 15px) !important;
+            word-break: break-word !important;
+            line-height: 1.3 !important;
+            display: -webkit-box !important;
+            -webkit-line-clamp: 2 !important;
+            -webkit-box-orient: vertical !important;
+            overflow: hidden !important;
           }
 
           .group-item-icon {
             font-size: clamp(16px, 4vw, 18px) !important;
+            width: 20px !important;
+            height: 20px !important;
+            flex-shrink: 0 !important;
           }
 
-          /* 操作按钮 */
-          .group-action-btn {
-            font-size: clamp(12px, 3vw, 14px) !important;
-            padding: 4px 8px !important;
-            height: 32px !important;
+          /* 操作按钮 - 紧凑型 */
+          .group-list-item .ant-list-item-action {
+            margin-left: 6px !important;
+            gap: 4px !important;
+            flex-wrap: nowrap !important;
+            flex-shrink: 0 !important;
+          }
+
+          .group-list-item .ant-list-item-action > li {
+            padding-inline-start: 0 !important;
+          }
+
+          .group-list-item .ant-list-item-action-split {
+            display: none !important;
+          }
+
+          .group-list-item .ant-btn {
+            font-size: clamp(10px, 2.5vw, 12px) !important;
+            padding: 3px 8px !important;
+            height: 30px !important;
+            line-height: 1 !important;
+            border-radius: 5px !important;
+            white-space: nowrap !important;
+            min-width: 50px !important;
+          }
+
+          .group-list-item .ant-btn-icon-only {
+            width: 30px !important;
+            min-width: 30px !important;
+          }
+
+          .group-list-item .ant-btn .anticon {
+            font-size: 12px !important;
+          }
+
+          /* 编辑输入框 */
+          .group-list-item .ant-input-lg {
+            width: 100% !important;
+            max-width: none !important;
+            font-size: clamp(13px, 3.2vw, 14px) !important;
+            height: 36px !important;
+            padding: 6px 10px !important;
           }
 
           /* 基金管理选择器 */
           .fund-selector-section {
             padding: 10px 12px !important;
+            margin-bottom: 10px !important;
             flex-direction: column !important;
             gap: 8px !important;
-            align-items: flex-start !important;
+            align-items: stretch !important;
+            border-radius: 8px !important;
           }
 
           .fund-selector-label {
-            font-size: clamp(13px, 3.2vw, 14px) !important;
+            font-size: clamp(12px, 3vw, 14px) !important;
+            font-weight: 600 !important;
           }
 
           .fund-selector-select {
             width: 100% !important;
             max-width: none !important;
+            min-width: unset !important;
           }
 
-          /* 基金卡片 */
+          .fund-selector-select .ant-select-selector {
+            height: 36px !important;
+            font-size: clamp(12px, 3vw, 13px) !important;
+          }
+
+          /* 基金卡片 - 紧凑布局 */
           .fund-card-item {
-            padding: 8px 12px !important;
+            padding: 8px 10px !important;
             border-radius: 8px !important;
-          }
-
-          .fund-card-name {
-            font-size: clamp(14px, 3.5vw, 17px) !important;
+            margin-bottom: 5px !important;
+            overflow: hidden !important;
           }
 
           .fund-card-code {
-            font-size: clamp(11px, 2.8vw, 12px) !important;
-            padding: 2px 6px !important;
+            display: none !important;
+          }
+
+          .fund-card-detail {
+            display: none !important;
+          }
+
+          .fund-card-name {
+            font-size: clamp(13px, 3.2vw, 15px) !important;
+            word-break: break-word !important;
+            line-height: 1.25 !important;
+            display: -webkit-box !important;
+            -webkit-line-clamp: 1 !important;
+            -webkit-box-orient: vertical !important;
+            overflow: hidden !important;
           }
 
           .fund-card-data {
-            font-size: clamp(12px, 3vw, 14px) !important;
-            gap: 16px !important;
+            font-size: clamp(11px, 2.7vw, 13px) !important;
+            gap: 8px !important;
+            flex-wrap: wrap !important;
           }
 
-          /* 移动按钮组 */
+          .fund-card-data > div:last-child {
+            gap: 8px !important;
+            font-size: clamp(10px, 2.5vw, 12px) !important;
+            flex-wrap: wrap !important;
+          }
+
+          /* 移动按钮组和删除按钮容器 - 垂直排列 */
+          .fund-card-item > div > div:last-child {
+            flex-direction: row !important;
+            gap: 6px !important;
+            width: auto !important;
+            flex-shrink: 0 !important;
+          }
+
           .fund-move-btn-group {
             flex-direction: column !important;
-            gap: 4px !important;
-            min-width: 70px !important;
+            gap: 3px !important;
+            width: 100% !important;
+            min-width: 60px !important;
           }
 
-          .fund-move-btn {
-            font-size: clamp(11px, 2.8vw, 12px) !important;
-            padding: 4px 8px !important;
+          .fund-move-btn,
+          .fund-card-item .ant-select {
+            width: 100% !important;
+            max-width: none !important;
+            min-width: unset !important;
+          }
+
+          .fund-move-btn,
+          .fund-card-item .ant-btn-dangerous {
+            font-size: clamp(10px, 2.5vw, 11px) !important;
+            padding: 3px 6px !important;
+            height: 28px !important;
+            min-height: 28px !important;
+            border-radius: 5px !important;
+          }
+
+          .fund-card-item .ant-select {
+            min-height: 28px !important;
+          }
+
+          .fund-card-item .ant-select-selector {
+            height: 28px !important;
+            min-height: 28px !important;
+            font-size: clamp(10px, 2.5vw, 11px) !important;
+            padding: 0 6px !important;
+          }
+
+          /* Popconfirm 弹窗 - 紧凑型 */
+          .group-manage-modal .ant-popconfirm {
+            max-width: 90vw !important;
+          }
+
+          .group-manage-modal .ant-popconfirm-message-title {
+            font-size: clamp(12px, 3vw, 13px) !important;
+          }
+
+          .group-manage-modal .ant-popconfirm-message {
+            font-size: clamp(11px, 2.7vw, 12px) !important;
+          }
+
+          .group-manage-modal .ant-popconfirm-buttons {
+            gap: 4px !important;
+          }
+
+          .group-manage-modal .ant-popconfirm-buttons button {
+            font-size: clamp(10px, 2.5vw, 12px) !important;
             height: 30px !important;
+            padding: 0 10px !important;
+            border-radius: 5px !important;
+          }
+
+          /* Empty 状态 */
+          .group-manage-modal .ant-empty {
+            padding: 28px 12px !important;
+          }
+
+          .group-manage-modal .ant-empty-description {
+            font-size: clamp(11px, 2.7vw, 13px) !important;
+          }
+
+          /* Spin 加载状态 */
+          .group-manage-modal .ant-spin-nested-loading {
+            min-height: 100px !important;
+          }
+        }
+
+        @media screen and (max-width: 480px) {
+          /* 超小屏幕极限优化 */
+          .group-manage-modal .ant-modal-body {
+            padding: 6px 8px !important;
+          }
+
+          .group-manage-modal .ant-modal-header {
+            padding: 8px 10px !important;
+          }
+
+          .group-create-section {
+            padding: 8px !important;
+            gap: 6px !important;
+            margin-bottom: 10px !important;
+          }
+
+          .group-create-section .ant-input,
+          .group-create-section .ant-btn-primary {
+            height: 34px !important;
+            font-size: clamp(12px, 3vw, 13px) !important;
+          }
+
+          .group-list-item .ant-list-item {
+            padding: 8px 10px !important;
+            min-height: 44px !important;
+          }
+
+          .group-list-item .ant-btn {
+            font-size: 10px !important;
+            padding: 3px 6px !important;
+            height: 28px !important;
+            min-width: 44px !important;
+          }
+
+          .group-list-item .ant-input-lg {
+            height: 32px !important;
+            font-size: clamp(12px, 3vw, 13px) !important;
+          }
+
+          .fund-card-item {
+            padding: 6px 8px !important;
+          }
+
+          .fund-card-item > div {
+            gap: 6px !important;
+          }
+
+          .fund-card-item > div > div:last-child {
+            width: auto !important;
+            flex-direction: row !important;
+            justify-content: flex-end !important;
+            gap: 4px !important;
+          }
+
+          .fund-move-btn,
+          .fund-card-item .ant-btn-dangerous {
+            height: 26px !important;
+            min-height: 26px !important;
+            font-size: 9px !important;
+          }
+
+          .fund-card-item .ant-select {
+            width: auto !important;
+            min-width: 64px !important;
+            min-height: 26px !important;
+          }
+
+          .fund-card-item .ant-select-selector {
+            height: 26px !important;
+            min-height: 26px !important;
+          }
+
+          .fund-selector-section {
+            padding: 8px 10px !important;
+            gap: 6px !important;
+          }
+
+          .fund-selector-select .ant-select-selector {
+            height: 34px !important;
+          }
+
+          .group-item-name {
+            font-size: clamp(12px, 3vw, 14px) !important;
+            -webkit-line-clamp: 1 !important;
+          }
+
+          .fund-card-name {
+            font-size: clamp(12px, 3vw, 14px) !important;
+          }
+
+          .group-manage-modal .ant-tabs-tab {
+            padding: 5px 8px !important;
+            font-size: clamp(11px, 2.7vw, 13px) !important;
+          }
+
+          .group-manage-modal .ant-tabs-tab-btn span {
+            padding: 5px 8px !important;
+          }
+        }
+
+        @media screen and (max-width: 360px) {
+          /* 极小屏幕（iPhone SE 等）*/
+          .group-manage-modal .ant-modal {
+            max-width: 99vw !important;
+            margin: 2px auto !important;
+          }
+
+          .group-manage-modal .ant-modal-body {
+            padding: 5px 6px !important;
+          }
+
+          .group-create-section {
+            padding: 6px !important;
+            gap: 5px !important;
+          }
+
+          .group-list-item .ant-list-item {
+            padding: 6px 8px !important;
+          }
+
+          .group-list-item .ant-btn {
+            font-size: 9px !important;
+            padding: 2px 5px !important;
+            height: 26px !important;
+            min-width: 40px !important;
+          }
+
+          .fund-card-item {
+            padding: 5px 6px !important;
           }
         }
       `}</style>
@@ -700,7 +1046,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                                 </span>
                               </div>
 
-                              <div style={{
+                              <div className="fund-card-detail" style={{
                                 display: 'flex',
                                 gap: 24,
                                 fontSize: 14,
@@ -736,7 +1082,8 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                             <div style={{
                               display: 'flex',
                               gap: 8,
-                              flexShrink: 0
+                              flexShrink: 0,
+                              alignItems: 'center'
                             }}>
                               <Select
                                 value={undefined}
@@ -753,14 +1100,23 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                                   </span>
                                 }
                                 size="middle"
-                                style={{ width: 130 }}
+                                style={{ width: 130, height: 32 }}
+                                popupMatchSelectWidth={false}
+                                dropdownStyle={{ minWidth: 140 }}
                                 loading={movingFundId === fund.id}
                                 onChange={(targetGroupId) => targetGroupId !== undefined && moveFundToGroup(fund.id, targetGroupId)}
                                 options={availableGroupsForMove.map(g => ({
                                   value: g.id,
                                   label: (
-                                    <span style={{ fontWeight: 500 }}>
-                                      <ArrowRightOutlined style={{ marginRight: 4, color: 'var(--accent-gold)' }} />
+                                    <span style={{
+                                      fontWeight: 500,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis'
+                                    }}>
+                                      <ArrowRightOutlined style={{ marginRight: 4, color: 'var(--accent-gold)', flexShrink: 0 }} />
                                       {g.name}
                                     </span>
                                   )
@@ -788,7 +1144,8 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                                   style={{
                                     fontWeight: 600,
                                     borderRadius: 8,
-                                    borderWidth: 1.5
+                                    borderWidth: 1.5,
+                                    height: 32
                                   }}
                                 >
                                   删除

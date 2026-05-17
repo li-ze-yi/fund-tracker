@@ -333,9 +333,74 @@ onMouseLeave={(e) => {
 `web/src/components/GroupSwitcher.tsx`
 
 ### 变更概述
-- **变更类型**: 🐛 **Bug修复**
-- **问题**: React key重复警告
-- **修复方式**: 优化key生成逻辑
+- **变更类型**: 🔄 **功能增强 + 移动端适配**
+- **问题**: 分组过多时换行显示，占用大量垂直空间
+- **解决方案**: 水平滚动 + 自定义滚动条 + 移动端隐藏分组金额
+
+---
+
+### 核心改动
+
+#### 1. 水平滚动功能
+
+```tsx
+// 之前
+style={{
+  display: 'flex',
+  flexWrap: 'wrap',        // 允许换行
+}}
+
+// 现在
+style={{
+  display: 'flex',
+  flexWrap: 'nowrap',       // 禁止换行
+  overflowX: 'auto',       // 启用水平滚动
+  WebkitOverflowScrolling: 'touch',  // iOS惯性滚动
+  scrollbarWidth: 'thin',  // Firefox细滚动条
+  scrollbarColor: 'var(--border-subtle) transparent',
+  width: '100%',
+}}
+```
+
+#### 2. 自定义滚动条样式
+
+```css
+.group-switcher-container::-webkit-scrollbar {
+  height: 6px;             /* 细长滚动条 */
+}
+
+.group-switcher-container::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.group-switcher-container::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 3px;
+}
+```
+
+#### 3. 移动端优化
+
+| 属性 | 桌面端 | 移动端 (≤768px) |
+|------|--------|---------------|
+| **分组金额** | 显示 | 隐藏 (`display: none`) |
+| **内边距** | `12px 16px` | `8px 12px` |
+| **间距** | `8px` | `6px` |
+| **字号** | 13px | 12px |
+
+---
+
+### 布局结构
+
+```
+PortfolioPage (父组件)
+  └─ .portfolio-group-switcher (flex 容器)
+       ├─ div (flex: 1, minWidth: 0, overflow: hidden)
+       │    └─ GroupSwitcher (width: 100%, overflow-x: auto)
+       │         └─ [全部] [111] [22] [3333] ... (可水平滑动)
+       └─ Button ⚙️ (flexShrink: 0) ← 设置按钮始终可见
+```
 
 ---
 
@@ -1559,3 +1624,86 @@ v2.4后：
 ### AddHoldingModal
 - [ ] Label是否显示"持仓金额（当前市值）"？
 - [ ] Placeholder是否为"输入当前持仓金额"？
+
+---
+
+# v2.5 后端逻辑变更详情 ⭐ 2026-05-16
+
+> **变更主题**: 持仓净值计算体系重构 + 累计收益精度修复 + 加减仓成本同步
+
+## 📋 变更概览
+
+本次v2.5变更主要涉及后端计算逻辑，前端组件无UI变更，但数据显示行为有重要变化。
+
+| 模块 | 变更类型 | 影响范围 | 优先级 |
+|------|---------|---------|--------|
+| holding.js (Model) | Schema更新 | DB读写 | 🔴 高 |
+| holdingController.js | 逻辑重构 | 添加持仓 | 🔴 高 |
+| holdingService.js | 核心重构 | 持仓显示 | 🔴 高 |
+| transactionController.js | 逻辑增强 | 加减仓 | 🟠 中 |
+
+---
+
+## 1. 数据显示行为变更
+
+### 1.1 持仓金额（market_value）
+
+| 场景 | v2.4行为 | v2.5行为 | 变化 |
+|------|---------|---------|------|
+| 盘中实时估值波动 | 跟随实时估值变化 | 始终基于确认净值，不变 | 🔴 重大变更 |
+| 确认净值更新 | 跟随确认净值变化 | 跟随确认净值变化 | 无变化 |
+| 添加后立即查看 | 可能与输入有差异 | 与输入完全一致 | 🔴 修复 |
+
+### 1.2 累计收益（accumulated_profit）
+
+| 场景 | v2.4行为 | v2.5行为 | 变化 |
+|------|---------|---------|------|
+| 确认净值上涨 | 不变（存DB值） | 自动增加（动态计算） | 🔴 重大变更 |
+| 确认净值下跌 | 不变（存DB值） | 自动减少（动态计算） | 🔴 重大变更 |
+| 减仓 | 不变（存DB值） | 按比例减少 | 🔴 重大变更 |
+| 加仓 | 不变（存DB值） | 成本增加，收益不变 | 🔴 修复 |
+
+### 1.3 当日收益（daily_profit）
+
+无变化，仍基于实时估值涨幅计算。
+
+---
+
+## 2. 数据库字段变更
+
+### 新增字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `confirmed_nav` | DECIMAL(18,4) | 确认净值（添加时存入，enrichment时自动更新） |
+| `confirmed_nav_date` | DATE | 确认净值日期 |
+| `total_cost` | DECIMAL(18,4) | 投入成本（= 市值 - 累计收益） |
+
+### 废弃字段
+
+| 字段 | 说明 |
+|------|------|
+| `total_return` | 已被 `total_cost` 替代 |
+
+---
+
+## 3. API返回数据变更
+
+### GET /api/holdings
+
+```diff
+{
+  "market_value": 100,          // 始终基于确认净值，盘中不变
+  "accumulated_profit": 5,      // 动态计算: marketValue - totalCost
+  "daily_profit": 1.96,         // 无变化
+  "net_value": 1.2207,          // 始终为确认净值
+- "total_return": 5             // 已移除
++ // DB中新增 confirmed_nav, confirmed_nav_date, total_cost（不直接返回前端）
+}
+```
+
+---
+
+**文档维护者**: Backend Team  
+**最后更新**: 2026-05-16 (v2.5)  
+**关联文档**: [CHANGE_SUMMARY_v2.5.md](./CHANGE_SUMMARY_v2.5.md) | [PRD.md 附录G](./PRD.md)

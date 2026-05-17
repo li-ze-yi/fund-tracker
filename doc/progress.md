@@ -698,3 +698,250 @@
 3. 设置页样式目前只优化了FrequencySetting组件（未来推广到其他设置项）
 
 ---
+
+### Session 8：持仓净值计算体系重构 + 累计收益精度修复（v2.5）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-16 |
+| **执行角色** | Agent |
+| **涉及文件** | server/models/holding.js, server/controllers/holdingController.js, server/services/holdingService.js, server/controllers/transactionController.js |
+| **文档更新** | CHANGE_SUMMARY_v2.5.md |
+
+---
+
+#### 完成内容：
+
+**1. 🔴 致命Bug修复（2个）**
+
+1. **添加持仓失败**
+   - **问题**: 服务器运行旧版代码，旧版holdingController.js存在bug导致净值计算为0
+   - **修复**: 重启服务器加载最新代码
+
+2. **持仓金额与输入不一致**
+   - **问题**: 添加时用确认净值算份额，显示时用实时估值算市值，两者差异导致金额不一致
+   - **修复**: 市值始终用确认净值计算，实时估值仅影响当日收益
+
+**2. 🌟 核心重构（2项）**
+
+1. **确认净值存储与自动更新体系**
+   - 数据库新增 `confirmed_nav`、`confirmed_nav_date` 字段
+   - 添加持仓时将确认净值和日期存入DB
+   - 查询持仓时：API返回的净值日期 > DB日期 → 异步更新DB
+   - `effectiveNav` 优先使用API返回值，API不可用时回退DB
+   - 市值始终用确认净值计算，盘中不受实时估值波动影响
+
+2. **累计收益精度修复 — total_return → total_cost**
+   - **旧方案**: 存 `total_return`（累计收益）到DB，显示时直接用DB值
+     - 问题：净值涨了累计收益不变，减仓了累计收益也不变
+   - **新方案**: 存 `total_cost`（投入成本）到DB，累计收益动态计算
+     - `cumulativeReturn = marketValue - totalCost`
+     - 净值更新 → marketValue变化 → 累计收益自动变化 ✅
+     - 减仓 → totalCost按比例减少 → 累计收益减少 ✅
+     - 精度：totalCost是精确值，不存在 shares × costPrice 的精度丢失 ✅
+
+**3. 🟠 加减仓成本同步**
+
+1. **加仓（buy）**: `newTotalCost = oldTotalCost + amount`
+2. **减仓（sell）**: `newTotalCost = costPerShare × newShares`（按比例减少）
+
+**4. 🔵 缓存集成优化**
+
+1. 添加持仓接口接入 `globalCache.getOrFetch`
+2. 历史净值查询范围从6+年缩减到30天（API请求从75+次降到1次）
+3. 查询持仓时历史净值范围从today~today改为最近3天~today
+
+---
+
+#### 数据库变更：
+
+| 表 | 字段 | 类型 | 说明 |
+|----|------|------|------|
+| `holdings` | `confirmed_nav` | DECIMAL(18,4) | 确认净值 |
+| `holdings` | `confirmed_nav_date` | DATE | 确认净值日期 |
+| `holdings` | `total_cost` | DECIMAL(18,4) | 投入成本（替代total_return） |
+
+---
+
+#### 验证结果：
+
+| 测试场景 | 结果 |
+|---------|------|
+| 添加持仓 amount=100, return=0 → 显示金额100, 收益0 | ✅ |
+| 添加持仓 amount=100, return=5.5 → 显示金额100, 收益5.5 | ✅ |
+| 添加持仓 amount=100, return=1.23 → 显示金额100, 收益1.23 | ✅ |
+| 确认净值上涨(1.2207→1.25) → 累计收益从5增到7.4 | ✅ |
+| 盘中实时估值波动 → 持仓金额不变，当日收益变化 | ✅ |
+| 减仓一半 → 累计收益从5减到2.5 | ✅ |
+
+---
+
+#### 决策记录：
+
+1. **市值用确认净值而非实时估值** — 用户输入的金额基于确认净值，用确认净值计算才能保证一致性
+2. **存total_cost而非total_return** — 累计收益是动态值，存入DB后无法反映净值和仓位变化
+3. **effectiveNav API优先** — API返回的净值最新，优先使用；API不可用时回退DB
+4. **净值更新用日期比较而非isConfirmed** — 只要API日期比DB日期新就更新，不依赖"今天是否确认"
+
+---
+
+### Session 9：移动端全面优化 + UI/UX体验提升 + 图表显示优化（v2.6）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-15 |
+| **执行角色** | Agent（使用 mobile-responsive-optimizer 技能）|
+| **涉及文件** | web/src/services/holdingService.ts, web/src/pages/portfolio/PortfolioPage.tsx, web/src/components/Header.tsx, web/src/pages/fund/FundDetailPage.tsx, web/src/pages/stats/StatsPage.tsx, web/src/pages/market/MarketDetailPage.tsx, web/src/App.css, server/controllers/holdingController.js, server/services/holdingService.js |
+| **文档更新** | CHANGE_SUMMARY_v2.6.md (新建) |
+
+---
+
+#### 完成内容：
+
+**1. ⭐ 核心功能修复：估算涨幅刷新问题**
+
+- 前端 `holdingService.ts`: getHoldings() 支持 forceRefresh 参数
+- 后端 `holdingController.js`: 解析 req.query.forceRefresh 参数
+- 后端 `holdingService.js`: 强制刷新时 cache.clear() 清除所有缓存
+- 效果：用户设置的刷新频率（15s/30s/60s/120s）现在完全生效
+
+**2. 搜索框组件全面优化**
+
+- 三层溢出控制：内联style(最高优) → 组件媒体查询 → App.css全局样式
+- 搜索图标四层Flex嵌套居中：容器→前缀→图标→SVG
+- 下拉推荐移动端优化：
+  - 宽度: calc(100vw - 24px) 几乎全屏
+  - 高度: min(70vh, calc(100vh-140px))
+  - 列表项高度: 72px → 60px (节省20%)
+  - 字体/间距整体缩小15-30%
+- 清除按钮X图标优化: 14px字体、text-secondary颜色、完全可见
+- 修复Web端搜索功能失效问题（移除destroyOnHidden和getPopupContainer）
+
+**3. 操作按钮单行显示**
+- FundDetailPage.tsx: Grid两列布局 → Flex三列等宽
+- 移动端三个按钮（加仓/减仓/定投）一行显示
+
+**4. 图表显示多项优化**
+
+**走势图 (FundDetailPage.tsx)**:
+- X轴标签永不旋转（原移动端30°）
+- 折线变细: 2/2.5px → 1.5/2px (↓25%/20%)
+- 标记点变小: 10px → 6/8px (↓40%/20%)
+- 去掉白边: borderColor='transparent', borderWidth=0
+- Grid边距调整: 左42/58px（显示Y轴百分比），右8/15px
+
+**统计柱状图 (StatsPage.tsx)**:
+- X轴标签永不旋转 + 平均分布（约6个标签）
+- Grid边距优化: 左42/55px（金额Y轴），右38/48px（百分比Y轴）
+- 柱子宽度变窄: 日12→10、月20→16、年40→30 (↓17%)
+- 新增间距属性: barGap=10%/5%, barCategoryGap=20%/15%
+
+**5. UI细节打磨**
+
+- 模块间距减小20%-40%（数据网格/走势图/操作按钮）
+- 数据信息栏移除时间范围项（3项→2项）
+- 数据信息栏强制单行显示（flex-wrap: nowrap）
+- 输入框全局优化（App.css）：前缀/后缀/图标/SVG居中对齐
+- Dropdown全局移动端优化（App.css）：全宽+iOS惯性滚动
+
+**6. Bug修复清单（8个）**
+
+| # | 文件 | 错误 | 修复方式 |
+|---|------|------|---------|
+| 1-4 | MarketDetailPage.tsx | intradayData可能为null | 非空断言`!` |
+| 5 | Header.tsx | getPopupContainer返回类型错误 | 类型断言`as HTMLElement` |
+| 6 | Header.tsx | 未使用的useCallback导入 | 删除未使用导入 |
+| 7 | App.css | touch-action-manipulation无效CSS | 删除该属性 |
+| 8 | MarketDetailPage.tsx | alignItems字符串未闭合 | 修正为'center' |
+
+#### 修改文件统计：
+
+| 类别 | 数量 | 主要文件 |
+|------|------|---------|
+| **前端文件** | 7个 | holdingService, PortfolioPage, Header, FundDetailPage, StatsPage, MarketDetailPage, App.css |
+| **后端文件** | 2个 | holdingController, holdingService |
+| **新建文档** | 1个 | CHANGE_SUMMARY_v2.6.md |
+
+#### 关键技术决策：
+
+1. **强制刷新 vs 动态TTL**: 选择forceRefresh参数方案（简单直接、前后端职责清晰）
+2. **三层溢出控制策略**: 内联style > 组件媒体查询 > 全局CSS（渐进增强）
+3. **图表响应式策略**: isMobile变量用于配置、clamp()用于尺寸、@media用于布局
+
+#### 验证结果：
+
+✅ TypeScript编译: 0 errors  
+✅ Web端搜索功能: 正常（模糊匹配推荐恢复）  
+✅ 移动端搜索功能: 正常  
+✅ 走势图X轴: 水平显示不旋转  
+✅ 统计图柱状图: 不拥挤、两边Y轴完整可见  
+✅ 操作按钮: 移动端一行三列  
+✅ 清除按钮X图标: 清晰可见  
+
+---
+
+### Session 10：分组切换器滑动 + 分组管理弹窗移动端深度优化（v2.6.1）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-17 |
+| **执行角色** | Agent（使用 mobile-responsive-optimizer 技能）|
+| **涉及文件** | web/src/components/GroupSwitcher.tsx, web/src/components/modals/GroupManageModal.tsx, web/src/pages/portfolio/PortfolioPage.tsx, doc/CHANGE_SUMMARY_v2.6.md, doc/COMPONENTS_CHANGELOG.md |
+
+**完成内容：**
+
+**1. GroupSwitcher 水平滑动功能**
+   - ✅ 禁用换行 (`flexWrap: 'nowrap'`) + 启用水平滚动 (`overflowX: 'auto'`)
+   - ✅ 自定义滚动条样式（6px高度、半透明、圆角）
+   - ✅ iOS惯性滚动支持 (`WebkitOverflowScrolling: touch`)
+   - ✅ 移动端滚动吸附效果 (`scroll-snap-type: x mandatory`)
+   - ✅ 修复设置按钮位置偏移问题（父容器 `minWidth: 0; overflow: hidden`）
+
+**2. GroupManageModal 移动端全面优化（三层断点策略）**
+   
+   **≤768px 标准紧凑模式:**
+   - 模态框宽度98vw、高度96vh
+   - Tabs标签紧凑化（字号13-14px、间距6px）
+   - 创建输入区域垂直布局、全宽按钮
+   - 分组列表项48px高、操作按钮30px高
+   - 基金卡片只显示名称（隐藏代码和持仓信息）
+   
+   **≤480px 极限压缩模式:**
+   - 所有元素再缩小10-15%
+   - 输入框/按钮34px高
+   - 基金卡片纯垂直布局
+   
+   **≤360px 超小屏适配:**
+   - 内边距5-6px
+   - 按钮26px高
+   - 宽度利用99vw
+
+**3. 关键Bug修复**
+   - 设置按钮位置偏移 → Flex布局约束修复
+   - 基金代码未隐藏 → CSS规则冲突修复（移除重复的display:inline-block）
+   - 移动/删除按钮不等高 → 统一height+min-height属性
+   - 下拉选择框长文本换行 → whiteSpace nowrap + textOverflow ellipsis
+
+**4. 技术亮点**
+   - 全局盒模型修复（box-sizing: border-box）
+   - 智能文本截断（-webkit-line-clamp控制行数）
+   - Flex防溢出（minWidth:0 + overflow:hidden）
+   - 零JS开销纯CSS实现
+
+**文档更新：**
+- ✅ CHANGE_SUMMARY_v2.6.md 新增第9章 v2.6.1增量更新（120+行）
+- ✅ COMPONENTS_CHANGELOG.md 更新GroupSwitcher章节（65行新增）
+
+**验证结果：**
+- ✅ 分组标签单行显示 + 水平滑动正常
+- ✅ 设置按钮始终可见且位置正确
+- ✅ 移动端基金卡片只显示名称
+- ✅ 操作按钮等高对齐
+- ✅ 下拉选择框长文本不换行
+- ✅ 桌面端显示不受影响
+
+**遗留问题：**
+- 无
+
+---
+---

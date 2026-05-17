@@ -27,7 +27,8 @@ exports.register = async (req, res, next) => {
     await UserSetting.upsert(userId, 30);
 
     const token = jwt.sign({ id: userId, username }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
-    res.json({ token, user: { id: userId, username } });
+    const newUser = await User.findById(userId);
+    res.json({ token, user: { id: newUser.id, username: newUser.username, created_at: newUser.created_at } });
   } catch (err) {
     next(err);
   }
@@ -52,7 +53,7 @@ exports.login = async (req, res, next) => {
     }
 
     const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
-    res.json({ token, user: { id: user.id, username: user.username } });
+    res.json({ token, user: { id: user.id, username: user.username, created_at: user.created_at } });
   } catch (err) {
     next(err);
   }

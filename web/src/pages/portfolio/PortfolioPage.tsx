@@ -210,7 +210,7 @@ export default function PortfolioPage() {
       {!error && holdings.length > 0 && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 12px' }} className="portfolio-group-switcher">
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
               <GroupSwitcher activeId={activeGroup} onChange={setActiveGroup} />
             </div>
             <Button

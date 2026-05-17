@@ -2669,3 +2669,119 @@ ADD UNIQUE KEY uk_user_date (user_id, date);
 - `data_source`: ENUM - 数据来源
 
 ---
+
+## 附录 G：持仓净值计算体系重构与累计收益精度修复（v2.5, 2026-05-16 更新）
+
+### G.1 背景与问题
+
+v2.5 之前，持仓金额和累计收益的计算存在以下问题：
+
+1. **添加持仓失败**：旧版代码bug导致净值计算为0
+2. **持仓金额与输入不一致**：添加时用确认净值算份额，显示时用实时估值算市值
+3. **盘中持仓金额波动**：实时估值变化时持仓金额跟着变
+4. **累计收益精度丢失**：`shares × costPrice` 反推的 totalCost 不精确
+5. **累计收益不随净值变化**：存入DB后不变，净值涨了累计收益不变
+6. **减仓后累计收益不变**：减仓只更新 shares，不更新 totalCost
+
+### G.2 解决方案概览
+
+| 问题 | 解决方案 |
+|------|---------|
+| 持仓金额不一致 | 市值始终用确认净值计算 |
+| 盘中持仓金额波动 | 确认净值存入DB，不依赖实时估值 |
+| 累计收益精度丢失 | 存 `total_cost`（投入成本），累计收益动态计算 |
+| 累计收益不随净值变化 | `cumulativeReturn = marketValue - totalCost` 动态计算 |
+| 减仓后累计收益不变 | 加减仓同步更新 `total_cost` |
+
+### G.3 数据库Schema变更
+
+```sql
+ALTER TABLE holdings ADD COLUMN confirmed_nav DECIMAL(18,4) DEFAULT NULL COMMENT '确认净值';
+ALTER TABLE holdings ADD COLUMN confirmed_nav_date DATE DEFAULT NULL COMMENT '确认净值日期';
+ALTER TABLE holdings ADD COLUMN total_cost DECIMAL(18,4) DEFAULT 0 COMMENT '投入成本（市值-累计收益）';
+```
+
+### G.4 核心计算公式
+
+#### 添加持仓
+
+```
+输入: amount(当前市值), totalReturn(累计收益)
+
+1. 获取确认净值: confirmedNav (优先确认净值 → 实时估值回退)
+2. shares    = amount / confirmedNav
+3. totalCost = amount - totalReturn
+4. costPrice = totalCost / shares
+5. 写入DB: shares, costPrice, confirmedNav, confirmedNavDate, totalCost
+```
+
+#### 查询持仓（显示）
+
+```
+1. effectiveNav = API最新净值 > 0 ? API值 : DB中的confirmed_nav
+2. marketValue       = shares × effectiveNav
+3. cumulativeReturn  = marketValue - totalCost
+4. dailyProfit       = marketValue × gainPercent / (100 + gainPercent)
+```
+
+#### 确认净值自动更新
+
+```
+if (API最新净值日期 > DB中的confirmed_nav_date) {
+  effectiveNav = API最新净值;
+  异步更新DB: confirmed_nav = API最新净值, confirmed_nav_date = API日期;
+}
+```
+
+#### 加仓
+
+```
+newTotalCost = oldTotalCost + amount;
+newCostPrice = (oldShares × oldCostPrice + amount) / totalShares;
+```
+
+#### 减仓
+
+```
+costPerShare  = oldTotalCost / oldShares;
+newTotalCost  = costPerShare × newShares;
+```
+
+### G.5 关键设计决策
+
+| 决策 | 选项 | 选择 | 理由 |
+|------|------|------|------|
+| 市值计算净值来源 | A.实时估值 B.确认净值 | B | 用户输入基于确认净值，保持一致性 |
+| DB存储字段 | A.total_return B.total_cost | B | 累计收益是动态值，存入DB后无法反映变化 |
+| effectiveNav优先级 | A.DB优先 B.API优先 | B | API数据最新，DB作为回退 |
+| 净值更新判断 | A.isConfirmed B.日期比较 | B | 日期比较更通用，周末/节假日也能触发 |
+
+### G.6 数据流图
+
+```
+添加持仓 → confirmedNav存入DB → 市值 = shares × confirmedNav（固定不变）
+                                    ↓
+                  enrichment发现新净值日期 > DB日期 → 异步更新DB → 下次查询市值更新
+
+盘中实时估值波动 → 只影响当日收益，不影响持仓金额和累计收益
+```
+
+### G.7 API接口变更
+
+| 接口 | 变更类型 | 说明 |
+|------|---------|------|
+| `POST /api/holdings` | **增强** | 新增 confirmed_nav/confirmed_nav_date/total_cost 写入 |
+| `GET /api/holdings` | **逻辑变更** | 市值用确认净值计算，累计收益用 totalCost 动态计算 |
+| `POST /api/transactions/buy` | **增强** | 同步更新 total_cost |
+| `POST /api/transactions/sell` | **增强** | 同步更新 total_cost |
+
+### G.8 文件变更清单
+
+| 文件 | 变更类型 | 主要改动 |
+|------|---------|---------|
+| `server/models/holding.js` | Schema更新 | 新增 confirmed_nav/confirmed_nav_date/total_cost |
+| `server/controllers/holdingController.js` | 逻辑重构 | 净值获取 + 缓存集成 + 存储确认净值和投入成本 |
+| `server/services/holdingService.js` | 核心重构 | 市值用确认净值 + 累计收益用totalCost + 净值自动更新 |
+| `server/controllers/transactionController.js` | 逻辑增强 | 加减仓同步更新total_cost |
+
+---
