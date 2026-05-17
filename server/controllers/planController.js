@@ -30,6 +30,27 @@ exports.create = async (req, res, next) => {
   }
 };
 
+exports.update = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { amount, frequency, dayOfWeek, dayOfMonth } = req.body;
+
+    const data = {};
+    if (amount !== undefined) data.amount = amount;
+    if (frequency !== undefined) {
+      data.frequency = frequency;
+      data.day_of_week = dayOfWeek || null;
+      data.day_of_month = dayOfMonth || null;
+      data.next_run_date = calcNextRunDate(new Date(), frequency);
+    }
+
+    await InvestmentPlan.update(id, req.user.id, data);
+    res.json({ message: '定投计划更新成功' });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.updateStatus = async (req, res, next) => {
   try {
     const { id } = req.params;

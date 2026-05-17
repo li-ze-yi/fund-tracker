@@ -14,6 +14,13 @@ export const planService = {
   updatePlanStatus: (id: number, status: string) =>
     api.put(`/plans/${id}/status`, { status }).then((r) => r.data),
 
+  updatePlan: (id: number, data: {
+    amount?: number;
+    frequency?: string;
+    dayOfWeek?: number;
+    dayOfMonth?: number;
+  }) => api.put(`/plans/${id}`, data).then((r) => r.data),
+
   deletePlan: (id: number) =>
     api.delete(`/plans/${id}`).then((r) => r.data),
 };

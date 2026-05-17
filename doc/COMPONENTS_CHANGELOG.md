@@ -1707,3 +1707,303 @@ v2.4后：
 **文档维护者**: Backend Team  
 **最后更新**: 2026-05-16 (v2.5)  
 **关联文档**: [CHANGE_SUMMARY_v2.5.md](./CHANGE_SUMMARY_v2.5.md) | [PRD.md 附录G](./PRD.md)
+
+---
+
+# v2.7 定投组件变更详情 ⭐ 2026-05-17
+
+> **变更主题**: 定投功能增强 — 默认基金 + 界面优化 + 编辑功能
+> **涉及组件**: CreatePlanModal, EditPlanModal(新建), InvestmentPlanPage
+
+## 📋 变更概览
+
+| 组件 | 变更类型 | 影响范围 | 优先级 |
+|------|---------|---------|--------|
+| CreatePlanModal | Props扩展 | 基金详情页定投入口 | 🔴 高 |
+| **EditPlanModal** | **新建** | 定投计划编辑功能 | 🔴 高 |
+| InvestmentPlanPage | 重大重构 | 定投计划列表页整体体验 | 🔴 高 |
+
+---
+
+## 1. CreatePlanModal 组件 v2.7 更新
+
+### 文件位置
+`web/src/components/modals/CreatePlanModal.tsx`
+
+### 变更统计
+- **代码行数**: ~169行 → **~185行** (+16行)
+- **新增导入**: `useEffect`
+- **Props 扩展**: +2 可选属性
+
+### 1.1 Props 接口扩展
+
+```typescript
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+  fundCode?: string;   // ✨ 新增：预选基金代码（可选）
+  fundName?: string;   // ✨ 新增：预选基金名称（可选）
+}
+```
+
+### 1.2 自动填充逻辑
+
+```typescript
+useEffect(() => {
+  if (open && fundCode) {
+    form.setFieldValue('fundCode', fundCode);
+    setFundOptions([{ value: fundCode, label: fundName ? `${fundCode} - ${fundName}` : fundCode }]);
+  }
+}, [open, fundCode, fundName, form]);
+```
+
+### 1.3 使用场景对比
+
+| 调用方 | fundCode/fundName | 行为 |
+|--------|-------------------|------|
+| FundDetailPage（基金详情页）| ✅ 传入 | 弹窗打开时自动选中当前基金 |
+| InvestmentPlanPage（定投计划页）| ❌ 不传 | 用户需手动搜索选择基金 |
+
+---
+
+## 2. EditPlanModal 组件 ⭐ 新建
+
+### 文件位置
+`web/src/components/modals/EditPlanModal.tsx`
+
+### 变更统计
+- **代码行数**: **~140行**（新建）
+- **新增依赖**: planService, Input (antd), CalendarOutlined/DollarOutlined/SyncOutlined (icons)
+
+### 2.1 Props 接口
+
+```typescript
+interface PlanData {
+  id: number;
+  fund_code: string;
+  fund_name?: string;
+  amount: number;
+  frequency: string;
+  day_of_week?: number | null;
+  day_of_month?: number | null;
+}
+
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+  plan: PlanData | null;  // 当前编辑的定投计划数据
+}
+```
+
+### 2.2 表单结构
+
+```
+┌─────────────────────────────────────┐
+│ 修改定投计划                    ✕  │
+├─────────────────────────────────────┤
+│ 基金                                │
+│ ┌─────────────────────────────────┐ │
+│ │ 000123 - 天弘中证机器人ETF联接C  │ │ ← 只读 disabled
+│ └─────────────────────────────────┘ │
+│                                     │
+│ 定投金额                            │
+│ ┌───[¥] [1000]───────────────────┐ │
+│                                     │
+│ 定投频率                            │
+│ ┌───[每日 ▼]─────────────────────┐ │
+│                                     │
+│ （频率=weekly 时显示）              │
+│ 选择周几                            │
+│ ┌───[周一 ▼]─────────────────────┐ │
+│                                     │
+│         [取消]        [确定]       │
+└─────────────────────────────────────┘
+```
+
+### 2.3 数据回填机制
+
+```typescript
+useEffect(() => {
+  if (open && plan) {
+    form.setFieldsValue({
+      amount: plan.amount,
+      frequency: plan.frequency,
+      dayOfWeek: plan.day_of_week,
+      dayOfMonth: plan.day_of_month,
+    });
+  }
+}, [open, plan, form]);
+```
+
+### 2.4 提交逻辑
+
+```typescript
+const onSubmit = async () => {
+  const values = await form.validateFields();
+  await planService.updatePlan(plan.id, {
+    amount: values.amount,
+    frequency: values.frequency,
+    dayOfWeek: values.frequency === 'weekly' ? values.dayOfWeek : undefined,
+    dayOfMonth: values.frequency === 'monthly' ? values.dayOfMonth : undefined,
+  });
+};
+```
+
+### 2.5 移动端响应式
+
+| 元素 | 桌面端 | ≤768px |
+|------|--------|--------|
+| Modal 宽度 | 默认520px | 95vw |
+| 输入框/选择器高度 | 32px | 42px |
+| 字号 | 14px | clamp(14px, 3.5vw, 15px) |
+| 内边距 | 20px | 16px |
+
+---
+
+## 3. InvestmentPlanPage 组件 v2.7 重大重构
+
+### 文件位置
+`web/src/pages/plans/InvestmentPlanPage.tsx`
+
+### 变更统计
+- **代码行数**: ~177行 → **~355行** (+178行, +100.6%)
+- **核心变更**: Ant Design List → 自定义卡片布局
+- **新增状态**: editModalOpen, editingPlan
+- **新增组件引用**: EditPlanModal, EditOutlined
+
+### 3.1 布局重构对比
+
+#### 修改前（Ant Design List）
+```tsx
+<List dataSource={plans} renderItem={(plan) => (
+  <List.Item actions={[<Button>暂停</Button>, <Button>删除</Button>]}>
+    <List.Item.Meta title={...} description={...} />
+  </List.Item>
+)} />
+```
+
+#### 修改后（自定义卡片）
+```tsx
+{plans.map((plan) => (
+  <div className="plan-card" key={plan.id}>
+    <div className="plan-card-header">
+      <span>{plan.fund_name}</span>
+      <Tag color="green">进行中</Tag>
+    </div>
+    <div>
+      <span><DollarOutlined /> ¥{amount}</span>
+      <span><SyncOutlined /> {freqText}</span>
+      <span><CalendarOutlined /> {date}</span>
+    </div>
+    <div>
+      <button onClick={() => edit(plan)}><EditOutlined /></button>
+      <button onClick={() => toggle(plan)}>暂停</button>
+      <button onClick={() => delete(plan)}><DeleteOutlined /></button>
+    </div>
+  </div>
+))}
+```
+
+### 3.2 操作按钮样式体系
+
+| 按钮 | 类名 | 图标 | 默认色 | 悬停色 |
+|------|------|------|--------|--------|
+| 编辑 | `plan-action-edit` | EditOutlined | text-muted | accent-gold (金色) |
+| 暂停/恢复 | `plan-action-toggle` | PauseCircleOutlined / PlayCircleOutlined | text-secondary | gain (红色暂停) / accent-gold (恢复) |
+| 删除 | `plan-action-delete` | DeleteOutlined | text-muted | gain (红色) |
+
+### 3.3 骨架屏设计
+
+```tsx
+// 替换 Ant Design Skeleton，使用与卡片一致的骨架屏
+{[1, 2, 3].map((i) => (
+  <div key={i} style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+    {/* 标题行骨架 */}
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+      <div style={{ width: 160, height: 20, background: 'var(--border-default)', borderRadius: 6 }} />
+      <div style={{ width: 60, height: 22, background: 'var(--border-default)', borderRadius: 4 }} />
+    </div>
+    {/* 信息行骨架 */}
+    <div style={{ display: 'flex', gap: 16 }}>
+      <div style={{ width: 100, height: 16, background: 'var(--border-subtle)', borderRadius: 4 }} />
+      <div style={{ width: 80, height: 16, background: 'var(--border-subtle)', borderRadius: 4 }} />
+      <div style={{ width: 120, height: 16, background: 'var(--border-subtle)', borderRadius: 4 }} />
+    </div>
+  </div>
+))}
+```
+
+### 3.4 空状态设计
+
+```tsx
+<div className="plan-empty-wrap">
+  <SyncOutlined className="plan-empty-icon" />     {/* 48px 半透明图标 */}
+  <div className="plan-empty-text">暂无定投计划</div>
+  <div className="plan-empty-sub">点击右上角「新建定投」开始创建</div>
+</div>
+```
+
+### 3.5 状态管理扩展
+
+```typescript
+// 新增编辑相关状态
+const [editModalOpen, setEditModalOpen] = useState(false);
+const [editingPlan, setEditingPlan] = useState<any>(null);
+
+// 编辑按钮处理
+const handleEdit = (plan: any) => {
+  setEditingPlan(plan);
+  setEditModalOpen(true);
+};
+
+// 编辑弹窗关闭时清理
+<EditPlanModal
+  open={editModalOpen}
+  onClose={() => { setEditModalOpen(false); setEditingPlan(null); }}
+  onSuccess={loadPlans}
+  plan={editingPlan}
+/>
+```
+
+---
+
+## 📊 v2.7 组件变更汇总表
+
+| 组件 | 变更类型 | 代码行数变化 | 影响用户 | 优先级 |
+|------|---------|-----------|---------|--------|
+| **CreatePlanModal** | Props扩展 | +16行 | 从基金详情页创建定投的用户 | 🔴 高 |
+| **EditPlanModal** | **新建** | **+140行** | 需要修改定投计划的用户 | 🔴 高 |
+| **InvestmentPlanPage** | **重大重构** | **+178行** | 所有查看/管理定投的用户 | 🔴 高 |
+| **总计** | - | **+334行** | **全部定投用户** | - |
+
+---
+
+## ✅ 测试检查清单
+
+### CreatePlanModal
+- [ ] 从基金详情页打开时是否自动选中当前基金？
+- [ ] 从定投计划页打开时是否仍需手动搜索？
+- [ ] 不传 fundCode 时行为是否与之前一致？
+
+### EditPlanModal
+- [ ] 打开时表单是否正确回填当前计划数据？
+- [ ] 基金字段是否为只读且不可修改？
+- [ ] 修改金额后提交是否成功更新？
+- [ ] 修改频率后 next_run_date 是否自动重算？
+- [ ] 关闭弹窗后 editingPlan 是否清理？
+
+### InvestmentPlanPage
+- [ ] 卡片悬停是否有背景和边框变化？
+- [ ] 编辑按钮悬停是否显示金色？
+- [ ] 日期格式是否为 YYYY-MM-DD？
+- [ ] 空状态是否显示引导文案？
+- [ ] 加载时骨架屏是否与卡片布局一致？
+- [ ] 移动端各元素尺寸是否正确缩小？
+
+---
+
+**文档维护者**: Frontend Team  
+**最后更新**: 2026-05-17 (v2.7)  
+**关联文档**: [CHANGE_SUMMARY_v2.6.md](./CHANGE_SUMMARY_v2.6.md) | [progress.md](./progress.md)

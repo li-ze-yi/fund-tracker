@@ -635,6 +635,196 @@ width: '100%',                // 明确宽度约束
 
 ---
 
+## 10. v2.7 增量更新：定投功能增强 — 默认基金 + 界面优化 + 编辑功能
+
+> **更新日期**: 2026-05-17
+> **涉及文件**: CreatePlanModal.tsx, EditPlanModal.tsx (新建), FundDetailPage.tsx, InvestmentPlanPage.tsx, planService.ts, plans.js (路由), planController.js
+
+### 变更概览
+
+| 指标 | 数值 |
+|------|------|
+| 涉及文件 | 7个（后端3 + 前端4）|
+| 新建文件 | 1个（EditPlanModal.tsx） |
+| 新增功能 | 3个（默认基金、界面重构、编辑定投） |
+| API接口新增 | 1个（PUT /api/plans/:id） |
+
+---
+
+### 10.1 基金详情页定投默认选中当前基金
+
+**问题**: 从基金详情页点击"定投"按钮时，CreatePlanModal 弹窗中的基金选择器为空，用户需手动搜索选择当前基金。
+
+**解决方案**:
+
+```tsx
+// CreatePlanModal Props 扩展
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+  fundCode?: string;   // ✨ 可选
+  fundName?: string;   // ✨ 可选
+}
+
+// useEffect 自动填充
+useEffect(() => {
+  if (open && fundCode) {
+    form.setFieldValue('fundCode', fundCode);
+    setFundOptions([{ value: fundCode, label: `${fundCode} - ${fundName}` }]);
+  }
+}, [open, fundCode, fundName, form]);
+
+// FundDetailPage 调用
+<CreatePlanModal
+  open={planModalOpen}
+  onClose={() => setPlanModalOpen(false)}
+  onSuccess={loadData}
+  fundCode={code || ''}           // ✨ 传入
+  fundName={fund.name || code || ''} // ✨ 传入
+/>
+```
+
+---
+
+### 10.2 定投计划界面显示全面重构
+
+#### 布局对比
+
+```
+修改前（Ant Design List.Item）:     修改后（自定义卡片式布局）:
+┌──────────────────────────────┐     ┌─────────────────────────────┐
+│ [基金名] [进行中]             │     │ [基金名称]          [进行中] │
+│ ¥1,000 / 每日 | 下次: ISO日期 │     │                             │
+│            [暂停] [删除]      │     │ 💰 ¥1,000  🔄 每日  📅 05-17│
+└──────────────────────────────┘     │              [✏️][暂停][🗑️]  │
+                                     └─────────────────────────────┘
+```
+
+#### 核心样式
+
+```css
+.plan-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  margin-bottom: 12px;
+  transition: all var(--transition-fast);
+}
+.plan-card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-sm);
+}
+```
+
+#### 信息项图标化
+
+| 信息项 | 图标 | 颜色 | 字体 |
+|--------|------|------|------|
+| 定投金额 | DollarOutlined | 金色 accent-gold | 等宽 font-mono |
+| 定投频率 | SyncOutlined | 主色 text-primary | - |
+| 下次执行日 | CalendarOutlined | 主色 text-primary | - |
+
+#### 日期格式修复
+
+```typescript
+// 修复前: "2026-05-17T16:00:00.000Z"
+// 修复后: "2026-05-17"
+function formatDate(dateStr: string) {
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+```
+
+---
+
+### 10.3 修改定投计划功能（完整实现）
+
+#### 后端 API
+
+```
+PUT /api/plans/:id
+Body: { amount?: number, frequency?: string, dayOfWeek?: number, dayOfMonth?: number }
+Response: { message: '定投计划更新成功' }
+```
+
+#### 控制器逻辑
+
+```javascript
+exports.update = async (req, res, next) => {
+  const data = {};
+  if (amount !== undefined) data.amount = amount;
+  if (frequency !== undefined) {
+    data.frequency = frequency;
+    data.day_of_week = dayOfWeek || null;
+    data.day_of_month = dayOfMonth || null;
+    data.next_run_date = calcNextRunDate(new Date(), frequency); // 自动重算
+  }
+  await InvestmentPlan.update(id, req.user.id, data); // 复用Model通用方法
+};
+```
+
+#### EditPlanModal 组件设计
+
+| 特性 | 说明 |
+|------|------|
+| 基金字段 | 只读 Input 展示 `代码 - 名称` |
+| 可编辑字段 | 金额、频率、定投日 |
+| 数据回填 | useEffect 监听 plan prop 自动设置表单值 |
+| 移动端适配 | 完整 @media 768px 断点优化 |
+
+#### 页面集成
+
+```tsx
+// InvestmentPlanPage 新增状态和编辑按钮
+const [editModalOpen, setEditModalOpen] = useState(false);
+const [editingPlan, setEditingPlan] = useState<any>(null);
+
+// 卡片操作区新增编辑按钮
+<button className="plan-action-edit" onClick={() => { setEditingPlan(plan); setEditModalOpen(true); }}>
+  <EditOutlined />
+</button>
+
+// 渲染 EditPlanModal
+<EditPlanModal open={editModalOpen} onClose={() => { setEditModalOpen(false); setEditingPlan(null); }} onSuccess={loadPlans} plan={editingPlan} />
+```
+
+---
+
+### 10.4 文件变更清单
+
+#### 后端文件（2个）
+
+| 文件路径 | 修改类型 | 主要改动 |
+|---------|---------|---------|
+| `server/routes/plans.js` | 路由新增 | `PUT /:id` → ctrl.update |
+| `server/controllers/planController.js` | 方法新增 | `exports.update` — 动态字段更新 + 频率变更时重算下次执行日期 |
+
+#### 前端文件（5个）
+
+| 文件路径 | 修改类型 | 主要改动 |
+|---------|---------|---------|
+| `web/src/services/planService.ts` | 方法新增 | `updatePlan(id, data)` → PUT /plans/:id |
+| `web/src/components/modals/CreatePlanModal.tsx` | Props扩展 | fundCode/fundName 可选属性 + useEffect 自动填充 |
+| `web/src/components/modals/EditPlanModal.tsx` | **新建** | 编辑弹窗组件（基金只读 + 金额/频率/定投日可编辑） |
+| `web/src/pages/fund/FundDetailPage.tsx` | 参数传递 | CreatePlanModal 传入 fundCode/fundName |
+| `web/src/pages/plans/InvestmentPlanPage.tsx` | **重大重构** | 卡片式布局 + 编辑按钮 + EditPlanModal 集成 |
+
+---
+
+### 10.5 技术决策
+
+| 决策 | 选择 | 理由 |
+|------|------|------|
+| CreatePlanModal 复用 vs 新建编辑组件 | Props 可选属性扩展复用 | 不破坏现有调用方，创建/预选两种模式兼容 |
+| EditPlanModal 独立 vs 复用 CreatePlanModal | 独立新建 | 表单逻辑差异大（搜索选基金 vs 基金只读），独立更清晰 |
+| 列表组件 Ant Design List vs 自定义卡片 | 自定义卡片 | 更精细的视觉控制、更好的主题一致性、信息层级更清晰 |
+| 更新接口 PUT /:id vs PATCH /:id | PUT | 与 RESTful 规范一致，复用 Model 层已有 update 方法 |
+
+---
+
 ## 版本历史
 
 | 版本 | 日期 | 主要变更 |
@@ -644,6 +834,7 @@ width: '100%',                // 明确宽度约束
 | v2.5 | 2026-05-16 | 净值计算体系重构 + 累计收益精度修复 |
 | v2.6 | 2026-05-15 | 移动端全面优化 + UI/UX提升 + 图表优化 |
 | **v2.6.1** | **2026-05-17** | **分组滑动 + 分组管理弹窗移动端优化** |
+| **v2.7** | **2026-05-17** | **定投功能增强：默认基金 + 界面优化 + 编辑功能** |
 
 ---
 

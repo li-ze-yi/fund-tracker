@@ -1149,6 +1149,8 @@ export default function FundDetailPage() {
         open={planModalOpen}
         onClose={() => setPlanModalOpen(false)}
         onSuccess={loadData}
+        fundCode={code || ''}
+        fundName={fund.name || code || ''}
       />
     </div>
   );

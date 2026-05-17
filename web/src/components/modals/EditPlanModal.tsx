@@ -1,56 +1,57 @@
 import { useState, useEffect } from 'react';
 import { Modal, Form, InputNumber, Select, Input, App } from 'antd';
 import { planService } from '@/services/planService';
-import { fundService } from '@/services/fundService';
-import type { FundInfo } from '@/services/fundService';
+
+interface PlanData {
+  id: number;
+  fund_code: string;
+  fund_name?: string;
+  amount: number;
+  frequency: string;
+  day_of_week?: number | null;
+  day_of_month?: number | null;
+}
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  fundCode?: string;
-  fundName?: string;
+  plan: PlanData | null;
 }
 
-export default function CreatePlanModal({ open, onClose, onSuccess, fundCode, fundName }: Props) {
+export default function EditPlanModal({ open, onClose, onSuccess, plan }: Props) {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [fundOptions, setFundOptions] = useState<{ value: string; label: string }[]>([]);
   const { message } = App.useApp();
 
   useEffect(() => {
-    if (open && fundCode) {
-      form.setFieldValue('fundCode', fundCode);
-      setFundOptions([{ value: fundCode, label: fundName ? `${fundCode} - ${fundName}` : fundCode }]);
+    if (open && plan) {
+      form.setFieldsValue({
+        amount: plan.amount,
+        frequency: plan.frequency,
+        dayOfWeek: plan.day_of_week,
+        dayOfMonth: plan.day_of_month,
+      });
     }
-  }, [open, fundCode, fundName, form]);
-
-  const searchFund = (keyword: string) => {
-    if (!keyword.trim()) return;
-    fundService.searchFunds(keyword).then((data) => {
-      const funds: FundInfo[] = data.funds || data || [];
-      setFundOptions(funds.map((f) => ({ value: f.code, label: `${f.code} - ${f.name}` })));
-    }).catch(() => {});
-  };
+  }, [open, plan, form]);
 
   const onSubmit = async () => {
+    if (!plan) return;
     try {
       const values = await form.validateFields();
       setLoading(true);
-      await planService.createPlan({
-        fundCode: values.fundCode,
+      await planService.updatePlan(plan.id, {
         amount: values.amount,
         frequency: values.frequency,
         dayOfWeek: values.frequency === 'weekly' ? values.dayOfWeek : undefined,
         dayOfMonth: values.frequency === 'monthly' ? values.dayOfMonth : undefined,
       });
-      message.success('定投计划创建成功');
+      message.success('定投计划更新成功');
       onSuccess();
       onClose();
-      form.resetFields();
     } catch (e: any) {
       if (e?.errorFields) return;
-      message.error(e?.response?.data?.message || '创建失败');
+      message.error(e?.response?.data?.message || '更新失败');
     } finally {
       setLoading(false);
     }
@@ -58,61 +59,51 @@ export default function CreatePlanModal({ open, onClose, onSuccess, fundCode, fu
 
   return (
     <Modal
-      className="create-plan-modal"
-      title="新建定投计划"
+      className="edit-plan-modal"
+      title="修改定投计划"
       open={open}
       onCancel={onClose}
       onOk={onSubmit}
       confirmLoading={loading}
       destroyOnHidden
     >
-      {/* 移动端响应式优化样式 */}
       <style>{`
         @media screen and (max-width: 768px) {
-          .create-plan-modal .ant-modal {
+          .edit-plan-modal .ant-modal {
             max-width: 95vw !important;
             margin: 8px auto !important;
           }
 
-          .create-plan-modal .ant-modal-header {
+          .edit-plan-modal .ant-modal-header {
             padding: 14px 18px !important;
           }
 
-          .create-plan-modal .ant-modal-title {
+          .edit-plan-modal .ant-modal-title {
             font-size: clamp(15px, 4vw, 17px) !important;
           }
 
-          .create-plan-modal .ant-modal-body {
+          .edit-plan-modal .ant-modal-body {
             padding: 16px !important;
           }
 
-          /* 表单项 */
-          .create-plan-modal .ant-form-item {
+          .edit-plan-modal .ant-form-item {
             margin-bottom: 14px !important;
           }
 
-          .create-plan-modal .ant-form-item-label > label {
+          .edit-plan-modal .ant-form-item-label > label {
             font-size: clamp(13px, 3.2vw, 14px) !important;
             height: auto !important;
           }
 
-          /* 输入框和选择器 */
-          .create-plan-modal .ant-input-number,
-          .create-plan-modal .ant-select {
+          .edit-plan-modal .ant-input-number,
+          .edit-plan-modal .ant-select {
             height: 42px !important;
             font-size: clamp(14px, 3.5vw, 15px) !important;
             border-radius: var(--radius-md) !important;
           }
 
-          /* 下拉选项 */
-          .create-plan-modal .ant-select-dropdown .ant-select-item {
-            padding: 6px 12px !important;
-            font-size: clamp(13px, 3.2vw, 14px) !important;
-          }
-
-          /* 底部按钮 */
-          .create-plan-modal .ant-btn-primary,
-          .create-plan-modal .ant-btn-default {
+          .edit-plan-modal .ant-btn-primary,
+          .edit-plan-modal .ant-btn-default {
             height: 42px !important;
             font-size: clamp(13px, 3.2vw, 14px) !important;
             border-radius: var(--radius-md) !important;
@@ -121,13 +112,16 @@ export default function CreatePlanModal({ open, onClose, onSuccess, fundCode, fu
       `}</style>
 
       <Form form={form} layout="vertical">
-        <Form.Item name="fundCode" label="选择基金" rules={[{ required: true, message: '请选择基金' }]}>
-          <Select showSearch onSearch={searchFund} filterOption={false} placeholder="搜索基金代码或名称" options={fundOptions} />
+        <Form.Item label="基金">
+          <Input
+            value={plan ? `${plan.fund_code} - ${plan.fund_name || ''}` : ''}
+            disabled
+          />
         </Form.Item>
         <Form.Item name="amount" label="定投金额" rules={[{ required: true, message: '请输入金额' }]}>
           <InputNumber prefix="¥" min={1} step={100} style={{ width: '100%' }} placeholder="输入定投金额" />
         </Form.Item>
-        <Form.Item name="frequency" label="定投频率" rules={[{ required: true, message: '请选择频率' }]} initialValue="monthly">
+        <Form.Item name="frequency" label="定投频率" rules={[{ required: true, message: '请选择频率' }]}>
           <Select
             options={[
               { value: 'daily', label: '每日' },

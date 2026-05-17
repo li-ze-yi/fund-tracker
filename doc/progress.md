@@ -944,4 +944,72 @@
 - 无
 
 ---
+
+### Session 11：定投功能增强 — 默认基金 + 界面优化 + 编辑功能（v2.7）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-17 |
+| **执行角色** | Agent |
+| **涉及文件** | web/src/components/modals/CreatePlanModal.tsx, web/src/components/modals/EditPlanModal.tsx (新建), web/src/pages/fund/FundDetailPage.tsx, web/src/pages/plans/InvestmentPlanPage.tsx, web/src/services/planService.ts, server/routes/plans.js, server/controllers/planController.js |
+
+**完成内容：**
+
+1. **基金详情页定投默认选中当前基金 ⭐**
+   - `CreatePlanModal` Props 新增可选属性 `fundCode?` 和 `fundName?`
+   - `useEffect` 监听弹窗打开，自动设置表单默认值和选项列表
+   - `FundDetailPage` 调用 `<CreatePlanModal>` 时传入当前基金的 code 和 name
+   - 与 BuyModal/SellModal 的调用方式保持一致
+   - 定投计划列表页（InvestmentPlanPage）不传这两个参数，行为不变
+
+2. **定投计划界面显示全面重构 ⭐**
+   - 从 Ant Design `List.Item` 扁平布局改为独立卡片式设计
+   - 卡片样式：`var(--bg-card)` 背景 + `var(--border-subtle)` 边框 + `var(--radius-lg)` 圆角
+   - 悬停效果：背景色变化 + 边框高亮 + 阴影
+   - 信息层级重构：
+     - 顶部行：基金名称（加粗主色）+ 状态标签（圆角药丸）
+     - 底部行：三个图标信息项（💰金额金色高亮 / 🔄频率 / 📅下次执行日期）
+   - 日期格式修复：ISO 格式 `2026-05-17T16:00:00.000Z` → 可读格式 `2026-05-17`
+   - 操作按钮样式优化：
+     - 编辑按钮 ✏️ 金色悬停效果
+     - 暂停/恢复按钮 红色悬停（暂停）/ 金色悬停（恢复）
+     - 删除按钮 红色警示悬停
+   - 空状态从 Ant Design Empty 改为自定义带引导文案的空状态
+   - 加载骨架屏与卡片布局一致
+   - 完整移动端响应式适配
+
+3. **修改定投计划功能（完整实现）⭐**
+   - 后端路由新增 `PUT /:id`，复用 Model 层已有的通用 `update()` 方法
+   - 后端控制器新增 `exports.update` 方法，支持修改 amount/frequency/dayOfWeek/dayOfMonth
+   - 修改频率时自动重算 next_run_date
+   - 前端 planService 新增 `updatePlan(id, data)` API 方法
+   - 新建 `EditPlanModal` 组件：
+     - 基金字段只读展示（编辑时不可更换基金）
+     - 可修改：定投金额、定投频率、定投日
+     - 打开时自动回填当前计划数据
+     - 包含移动端响应式样式
+   - InvestmentPlanPage 每个卡片新增 ✏️ 编辑按钮，点击打开 EditPlanModal
+
+**文件变更清单：**
+
+| 文件 | 操作 | 主要改动 |
+|------|------|---------|
+| `server/routes/plans.js` | 修改 | 新增 `PUT /:id` 路由 |
+| `server/controllers/planController.js` | 修改 | 新增 `exports.update` 控制器方法 |
+| `web/src/services/planService.ts` | 修改 | 新增 `updatePlan()` API方法 |
+| `web/src/components/modals/CreatePlanModal.tsx` | 修改 | 新增 fundCode/fundName 可选属性 + useEffect 自动填充 |
+| `web/src/components/modals/EditPlanModal.tsx` | **新建** | 编辑定投计划弹窗组件 |
+| `web/src/pages/fund/FundDetailPage.tsx` | 修改 | CreatePlanModal 调用时传入 fundCode/fundName |
+| `web/src/pages/plans/InvestmentPlanPage.tsx` | **重大重构** | 卡片式布局 + 编辑按钮 + EditPlanModal集成 |
+
+**验证结果：**
+- Vite 构建：成功 ✅ (3729 modules, built in 1m37s)
+- TypeScript 编译：0 errors（仅有 import.meta.env 的已有配置问题）✅
+
+**决策记录：**
+- CreatePlanModal 通过可选属性支持"创建"和"创建并预选基金"两种模式，不破坏现有调用方
+- EditPlanModal 作为独立组件而非复用 CreatePlanModal，因为两者的表单逻辑差异较大（创建需搜索选择基金 vs 编辑时基金固定只读）
+- 卡片式布局替代 Ant Design List，获得更精细的视觉控制和更好的主题一致性
+
+---
 ---
