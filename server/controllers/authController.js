@@ -26,9 +26,10 @@ exports.register = async (req, res, next) => {
     const userId = await User.create(username, hashedPassword);
     await UserSetting.upsert(userId, 30);
 
-    const token = jwt.sign({ id: userId, username }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
     const newUser = await User.findById(userId);
-    res.json({ token, user: { id: newUser.id, username: newUser.username, created_at: newUser.created_at } });
+    const role = newUser.role || 'user';
+    const token = jwt.sign({ id: userId, username, role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
+    res.json({ token, user: { id: newUser.id, username: newUser.username, role, created_at: newUser.created_at } });
   } catch (err) {
     next(err);
   }
@@ -52,8 +53,9 @@ exports.login = async (req, res, next) => {
       return res.status(400).json({ message: '用户名或密码错误' });
     }
 
-    const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
-    res.json({ token, user: { id: user.id, username: user.username, created_at: user.created_at } });
+    const role = user.role || 'user';
+    const token = jwt.sign({ id: user.id, username: user.username, role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
+    res.json({ token, user: { id: user.id, username: user.username, role, created_at: user.created_at } });
   } catch (err) {
     next(err);
   }
@@ -65,7 +67,7 @@ exports.me = async (req, res, next) => {
     if (!user) {
       return res.status(404).json({ message: '用户不存在' });
     }
-    res.json({ user });
+    res.json({ user: { id: user.id, username: user.username, role: user.role || 'user', created_at: user.created_at } });
   } catch (err) {
     next(err);
   }

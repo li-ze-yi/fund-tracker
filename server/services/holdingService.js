@@ -41,16 +41,16 @@ async function checkMarketStatus(holdings) {
       for (const result of results) {
         if (result.status === 'fulfilled' && result.value) {
           const data = result.value;
-          
+
+          if (data.updateTime) {
+            const updateTime = new Date(data.updateTime);
+            if (!latestUpdateTime || updateTime > latestUpdateTime) {
+              latestUpdateTime = updateTime;
+            }
+          }
+
           if (data.netValue && data.netValue > 0) {
             validDataCount++;
-            
-            if (data.updateTime) {
-              const updateTime = new Date(data.updateTime);
-              if (!latestUpdateTime || updateTime > latestUpdateTime) {
-                latestUpdateTime = updateTime;
-              }
-            }
           } else {
             emptyDataCount++;
           }
@@ -59,17 +59,31 @@ async function checkMarketStatus(holdings) {
         }
       }
 
+      const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
       let status;
-      
+
       if (validDataCount === 0 && emptyDataCount > 0) {
         const hour = now.getHours();
-        
+
         if (hour >= 9 && hour < 15) {
-          status = { isMarketOpen: true, reason: 'trading_hours_no_data' };
+          let isLikelyHoliday = false;
+          if (latestUpdateTime) {
+            const hoursDiff = (now - latestUpdateTime) / (1000 * 60 * 60);
+            isLikelyHoliday = hoursDiff > 20;
+          }
+          if (isLikelyHoliday) {
+            status = {
+              isMarketOpen: false,
+              reason: 'holiday',
+              dayOfWeek: dayNames[now.getDay()],
+              message: '非交易日(节假日)'
+            };
+          } else {
+            status = { isMarketOpen: true, reason: 'trading_hours_no_data' };
+          }
         } else if (hour >= 15 || hour < 9) {
-          const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-          status = { 
-            isMarketOpen: false, 
+          status = {
+            isMarketOpen: false,
             reason: 'holiday',
             dayOfWeek: dayNames[now.getDay()],
             message: '非交易日'
@@ -80,11 +94,12 @@ async function checkMarketStatus(holdings) {
       } else if (latestUpdateTime) {
         const timeDiff = now - latestUpdateTime;
         const hoursDiff = timeDiff / (1000 * 60 * 60);
-        
-        if (hoursDiff > 48 && emptyDataCount > 0) {
-          const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-          status = { 
-            isMarketOpen: false, 
+        const hour = now.getHours();
+        const isInTradingHours = hour >= 9 && hour < 15;
+
+        if (hoursDiff > 72 || (isInTradingHours && hoursDiff > 20)) {
+          status = {
+            isMarketOpen: false,
             reason: 'stale_data',
             dayOfWeek: dayNames[now.getDay()],
             message: '数据未更新'
@@ -292,5 +307,6 @@ function clearAllCache() {
 module.exports = {
   enrichHoldingsWithRealTimeData,
   calculateHoldingMetrics,
-  clearAllCache  // 导出供测试和管理接口使用
+  checkMarketStatus,
+  clearAllCache
 };

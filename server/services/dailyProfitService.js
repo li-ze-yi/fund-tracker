@@ -1,5 +1,6 @@
 const DailyProfit = require('../models/dailyProfit');
 const fundService = require('./fundService');
+const holdingService = require('./holdingService');
 
 /**
  * 日收益计算服务 v3.0
@@ -18,17 +19,19 @@ class DailyProfitService {
   }
 
   /**
-   * ★ 检查今天是否为交易日
+   * ★ 检查今天是否为交易日（统一使用checkMarketStatus，支持节假日检测）
+   * @param {Array} holdings - 持仓列表（用于采样判断）
    * @returns {boolean} 是否为交易日
    */
-  isTradingDay(date = new Date()) {
-    const dayOfWeek = date.getDay();
-    // 周六(6)和周日(0)不是交易日
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      return false;
+  async isTradingDay(holdings) {
+    try {
+      const marketStatus = await holdingService.checkMarketStatus(holdings);
+      return marketStatus.isMarketOpen;
+    } catch (error) {
+      console.error('[DailyProfit] checkMarketStatus 失败，降级为周末检查:', error.message);
+      const dayOfWeek = new Date().getDay();
+      return !(dayOfWeek === 0 || dayOfWeek === 6);
     }
-    // TODO: 可以扩展检查法定节假日列表
-    return true;
   }
 
   /**
@@ -55,10 +58,10 @@ class DailyProfitService {
 
       console.log(`\n[DailyProfit] ===== 开始处理用户 ${userId} (${today}) =====`);
 
-      // ★ 第零步：检查是否为交易日
-      if (!this.isTradingDay(now)) {
+      // ★ 第零步：检查是否为交易日（统一使用checkMarketStatus）
+      if (!await this.isTradingDay(holdingsWithRealTimeData)) {
         const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-        console.log(`[DailyProfit] ⏸️ 今天是${dayNames[now.getDay()]}，非交易日，跳过计算`);
+        console.log(`[DailyProfit] ⏸️ 今天是${dayNames[now.getDay()]}或节假日，非交易日，跳过计算`);
         return null;
       }
 

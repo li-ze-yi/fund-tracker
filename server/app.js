@@ -20,6 +20,7 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/import-export', require('./routes/importExport'));
 app.use('/api/feedback', require('./routes/feedback'));
 app.use('/api/indices', require('./routes/indices'));
+app.use('/api/admin', require('./routes/admin'));
 
 // 全局错误处理
 app.use((err, req, res, next) => {

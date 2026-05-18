@@ -2,11 +2,7 @@ const Fund = require('../models/fund');
 const Holding = require('../models/holding');
 const Favorite = require('../models/favorite');
 const fundService = require('../services/fundService');
-
-function isWeekend(date) {
-  const day = date.getDay();
-  return day === 0 || day === 6;
-}
+const holdingService = require('../services/holdingService');
 
 exports.search = async (req, res, next) => {
   try {
@@ -40,18 +36,20 @@ exports.getByCode = async (req, res, next) => {
       update_time: realTime ? realTime.updateTime : null,
     };
 
-    // ★ 计算更新状态（与holdingService保持一致）
+    // ★ 计算更新状态（与holdingService统一使用checkMarketStatus）
     const now = new Date();
     const updateTime = realTime ? realTime.updateTime : null;
     const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
-    // ★ 先检查市场状态（周末/节假日 → market_closed）
-    if (isWeekend(now)) {
+    // ★ 使用统一的checkMarketStatus判断（支持节假日检测）
+    const marketStatus = await holdingService.checkMarketStatus([{ fund_code: code }]);
+
+    if (!marketStatus.isMarketOpen) {
       result.last_updated = updateTime || null;
       result.data_source = 'actual';
       result.is_fresh = false;
       result.update_status = 'market_closed';
-      result.day_of_week = dayNames[now.getDay()];
+      result.day_of_week = marketStatus.dayOfWeek || dayNames[now.getDay()];
     } else {
       // ★ 工作日：检查是否有确认净值
       let isConfirmed = false;
