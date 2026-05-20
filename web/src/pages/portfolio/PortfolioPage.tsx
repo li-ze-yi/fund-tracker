@@ -85,6 +85,22 @@ export default function PortfolioPage() {
   }, [loadHoldings]);
 
   useEffect(() => {
+    const handleManualRefresh = () => {
+      loadHoldings(true);
+    };
+    const handleDataChanged = () => {
+      loadHoldings(true);
+    };
+
+    window.addEventListener('manual-refresh', handleManualRefresh);
+    window.addEventListener('data-changed', handleDataChanged);
+    return () => {
+      window.removeEventListener('manual-refresh', handleManualRefresh);
+      window.removeEventListener('data-changed', handleDataChanged);
+    };
+  }, [loadHoldings]);
+
+  useEffect(() => {
     if (refreshFreq <= 0) return;
     const timer = setInterval(() => loadHoldings(true), refreshFreq * 1000);
     return () => clearInterval(timer);

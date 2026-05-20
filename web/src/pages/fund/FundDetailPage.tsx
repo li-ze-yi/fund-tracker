@@ -6,6 +6,7 @@ import ReactECharts from 'echarts-for-react';
 import { fundService } from '@/services/fundService';
 import { transactionService } from '@/services/transactionService';
 import { favoriteService } from '@/services/favoriteService';
+import { useThemeStore } from '@/store/themeStore';
 import BuyModal from '@/components/modals/BuyModal';
 import SellModal from '@/components/modals/SellModal';
 import CreatePlanModal from '@/components/modals/CreatePlanModal';
@@ -254,6 +255,8 @@ export default function FundDetailPage() {
   const xAxisConfig = getXAxisConfig();
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+  const themeMode = useThemeStore((s) => s.mode);
+  const isLight = themeMode === 'light';
 
   const txColumns = [
     {
@@ -430,10 +433,10 @@ export default function FundDetailPage() {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
-      backgroundColor: 'rgba(17, 24, 39, 0.95)',
-      borderColor: '#D4A84B',
+      backgroundColor: isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(17, 24, 39, 0.95)',
+      borderColor: isLight ? 'rgba(148, 163, 184, 0.2)' : '#D4A84B',
       borderWidth: 1,
-      textStyle: { color: '#F1F5F9', fontSize: isMobile ? 11 : 13 },
+      textStyle: { color: isLight ? '#1E293B' : '#F1F5F9', fontSize: isMobile ? 11 : 13 },
       formatter: (params: any) => {
         const p = params[0];
         if (!p || p.value == null) return '';
@@ -442,10 +445,10 @@ export default function FundDetailPage() {
         // 查找排序后的原始净值用于tooltip显示
         const originalNav = sortedHistory[p.dataIndex]?.nav || sortedHistory[p.dataIndex]?.net_value || sortedHistory[p.dataIndex]?.净值 || '-';
         return `<div style="font-weight: 600; margin-bottom: ${isMobile ? '3px' : '4px'}; font-size: ${isMobile ? '12px' : '13px'};">${p.name}</div>
-                <div style="color: ${value >= 0 ? '#E53935' : '#43A047'}; font-weight: 600; font-size: ${isMobile ? '13px' : '14px'};">
+                <div style="color: ${value >= 0 ? (isLight ? '#DC2626' : '#E53935') : (isLight ? '#16A34A' : '#43A047')}; font-weight: 600; font-size: ${isMobile ? '13px' : '14px'};">
                   收益率: ${sign}${value.toFixed(2)}%
                 </div>
-                <div style="color: #94A3B8; font-size: ${isMobile ? '11px' : '12px'}; margin-top: ${isMobile ? '2px' : '4px'};">
+                <div style="color: ${isLight ? '#64748B' : '#94A3B8'}; font-size: ${isMobile ? '11px' : '12px'}; margin-top: ${isMobile ? '2px' : '4px'};">
                   净值: ${originalNav}
                 </div>`;
       },
@@ -455,14 +458,14 @@ export default function FundDetailPage() {
       data: sortedDates,
       axisLabel: {
         fontSize: isMobile ? 9 : 11,
-        color: '#94A3B8',
+        color: isLight ? '#64748B' : '#94A3B8',
         rotate: 0,  // ✅ 不旋转
-        interval: isMobile && sortedDates.length > 15 
+        interval: isMobile && sortedDates.length > 15
           ? Math.floor(sortedDates.length / 6)  // ✅ 平均分布，显示约6个标签
           : xAxisConfig.interval,
         formatter: xAxisConfig.formatter,
       },
-      axisLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.15)' } },
+      axisLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' } },
       axisTick: { show: false },
     },
     yAxis: {
@@ -470,7 +473,7 @@ export default function FundDetailPage() {
       scale: true,
       axisLabel: {
         fontSize: isMobile ? 10 : 11,
-        color: '#94A3B8',
+        color: isLight ? '#64748B' : '#94A3B8',
         formatter: (v: number) => {
           const sign = v >= 0 ? '+' : '';
           return `${sign}${v.toFixed(1)}%`;
@@ -478,7 +481,7 @@ export default function FundDetailPage() {
       },
       splitLine: {
         lineStyle: {
-          color: 'rgba(148, 163, 184, 0.08)',
+          color: isLight ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
           type: 'dashed',
         },
       },
@@ -490,9 +493,9 @@ export default function FundDetailPage() {
       smooth: false,
       symbol: isMobile ? 'none' : 'none',
       lineStyle: {
-        color: '#D4A84B',
+        color: isLight ? '#B8860B' : '#D4A84B',
         width: isMobile ? 1.5 : 2,  // ✅ 折线变细
-        shadowColor: 'rgba(212, 168, 75, 0.25)',
+        shadowColor: isLight ? 'rgba(184, 134, 11, 0.15)' : 'rgba(212, 168, 75, 0.25)',
         shadowBlur: isMobile ? 4 : 8,
         shadowOffsetY: isMobile ? 2 : 4,
       },
@@ -501,9 +504,9 @@ export default function FundDetailPage() {
           type: 'linear',
           x: 0, y: 0, x2: 0, y2: 1,
           colorStops: [
-            { offset: 0, color: 'rgba(212, 168, 75, 0.25)' },
-            { offset: 0.5, color: 'rgba(212, 168, 75, 0.08)' },
-            { offset: 1, color: 'rgba(212, 168, 75, 0.01)' },
+            { offset: 0, color: isLight ? 'rgba(184, 134, 11, 0.2)' : 'rgba(212, 168, 75, 0.25)' },
+            { offset: 0.5, color: isLight ? 'rgba(184, 134, 11, 0.06)' : 'rgba(212, 168, 75, 0.08)' },
+            { offset: 1, color: isLight ? 'rgba(184, 134, 11, 0.01)' : 'rgba(212, 168, 75, 0.01)' },
           ],
         },
       },
@@ -515,7 +518,7 @@ export default function FundDetailPage() {
           {
             yAxis: 0, // 0%位置
             lineStyle: {
-              color: 'rgba(148, 163, 184, 0.35)', // 灰色虚线
+              color: isLight ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.35)', // 灰色虚线
               width: 1,
               type: 'dashed',
             },
@@ -524,7 +527,7 @@ export default function FundDetailPage() {
               position: 'insideEndTop',
               formatter: '0%',
               fontSize: isMobile ? 10 : 11,
-              color: '#94A3B8',
+              color: isLight ? '#64748B' : '#94A3B8',
               fontWeight: 500,
             },
           },
@@ -572,8 +575,8 @@ export default function FundDetailPage() {
               symbol: 'circle',
               symbolSize: isMobile ? 6 : 8,
               itemStyle: {
-                color: t.type === 'buy' ? '#EF4444' : '#22C55E',
-                borderColor: 'transparent',  // ✅ 去掉白边
+                color: t.type === 'buy' ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'),
+                borderColor: isLight ? '#fff' : 'transparent',  // ✅ 去掉白边
                 borderWidth: 0,               // ✅ 无边框
               },
             };
@@ -590,8 +593,8 @@ export default function FundDetailPage() {
     dataZoom: [
       {
         type: 'inside',
-        backgroundColor: 'rgba(148, 163, 184, 0.1)',
-        fillerColor: 'rgba(212, 168, 75, 0.15)',
+        backgroundColor: isLight ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)',
+        fillerColor: isLight ? 'rgba(184, 134, 11, 0.12)' : 'rgba(212, 168, 75, 0.15)',
         borderColor: 'transparent',
       },
     ],
@@ -916,8 +919,8 @@ export default function FundDetailPage() {
         className="fund-detail-summary-card"
         style={{
           marginBottom: 12,  // ✅ 减小与上方模块的间距
-          background: 'linear-gradient(135deg, rgba(212, 168, 75, 0.05), rgba(17, 24, 39, 0.8))',
-          borderColor: 'rgba(212, 168, 75, 0.15)',
+          background: isLight ? 'linear-gradient(135deg, rgba(184, 134, 11, 0.04), rgba(255, 255, 255, 0.9))' : 'linear-gradient(135deg, rgba(212, 168, 75, 0.05), rgba(17, 24, 39, 0.8))',
+          borderColor: isLight ? 'rgba(184, 134, 11, 0.12)' : 'rgba(212, 168, 75, 0.15)',
           boxShadow: 'var(--shadow-lg)',
         }}
         styles={{ body: { padding: '20px 24px' } }}

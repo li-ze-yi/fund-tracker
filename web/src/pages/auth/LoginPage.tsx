@@ -104,8 +104,8 @@ export default function LoginPage() {
             prefix={<LockOutlined style={{ color: 'var(--text-muted)' }} />}
             placeholder="密码"
             iconRender={(visible) => (visible
-              ? <span style={{ color: '#eee8e8' }}>👁</span>
-              : <span style={{ color: '#eee8e8' }}>🙈</span>
+              ? <span style={{ color: 'var(--text-secondary)' }}>👁</span>
+              : <span style={{ color: 'var(--text-secondary)' }}>🙈</span>
             )}
           />
         </Form.Item>
@@ -114,7 +114,7 @@ export default function LoginPage() {
             登录
           </Button>
         </Form.Item>
-        <div className="login-register-link" style={{ textAlign: 'center', fontSize: 14, color: '#f3f1f1' }}>
+        <div className="login-register-link" style={{ textAlign: 'center', fontSize: 14, color: 'var(--text-secondary)' }}>
           还没有账号？<Link to="/register" style={{ color: 'var(--accent-gold-light)', fontWeight: 500 }}>去注册</Link>
         </div>
       </Form>

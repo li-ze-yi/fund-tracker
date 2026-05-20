@@ -25,7 +25,7 @@ export default function BottomTabBar() {
         left: 0,
         right: 0,
         height: 58,
-        background: 'rgba(11, 17, 32, 0.92)',
+        background: 'var(--bg-elevated)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
         borderTop: '1px solid var(--border-subtle)',

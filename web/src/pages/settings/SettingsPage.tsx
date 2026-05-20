@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Card, Upload, Button, App, Modal, Divider } from 'antd';
+import { Card, Upload, Button, App, Modal, Divider, Switch } from 'antd';
 import { UploadOutlined, DownloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { settingService } from '@/services/settingService';
 import { importExportService } from '@/services/importExportService';
+import { useThemeStore } from '@/store/themeStore';
 import FrequencySetting from '@/components/modals/FrequencySetting';
 import ImportPreviewModal from '@/components/modals/ImportPreviewModal';
 import ExportSettingModal from '@/components/modals/ExportSettingModal';
@@ -14,6 +15,8 @@ export default function SettingsPage() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const { message } = App.useApp();
+  const themeMode = useThemeStore((s) => s.mode);
+  const setThemeMode = useThemeStore((s) => s.setMode);
 
   useEffect(() => {
     settingService.getSettings().then((data) => {
@@ -108,6 +111,23 @@ export default function SettingsPage() {
       `}</style>
 
       <h2 className="settings-title" style={{ marginBottom: 20, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>设置</h2>
+
+      <Card
+        className="settings-card"
+        title="外观主题" style={{ marginBottom: 20, background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }} styles={{ title: { color: 'var(--text-primary)', fontWeight: 600 } }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)' }}>深色模式</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>切换界面为暗黑风格</div>
+          </div>
+          <Switch
+            checked={themeMode === 'dark'}
+            onChange={(checked) => setThemeMode(checked ? 'dark' : 'light')}
+            checkedChildren="🌙"
+            unCheckedChildren="☀"
+          />
+        </div>
+      </Card>
 
       <Card
         className="settings-card"

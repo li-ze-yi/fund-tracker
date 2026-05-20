@@ -92,6 +92,10 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
     }
   }, [open, activeTab, selectedGroupId, loadGroupFunds]);
 
+  const notifyDataChanged = () => {
+    window.dispatchEvent(new CustomEvent('data-changed', { detail: { type: 'group-changed' } }));
+  };
+
   const create = async () => {
     if (!newName || !newName.trim()) {
       msg.warning('请输入分组名称，不能为空');
@@ -104,6 +108,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
         msg.success('创建成功');
         setNewName('');
         loadGroups();
+        notifyDataChanged();
         onDataChange?.();
       }
     } catch (e: any) {
@@ -131,6 +136,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
         msg.success('修改成功');
         setEditingId(null);
         loadGroups();
+        notifyDataChanged();
         onDataChange?.();
       }
     } catch (e: any) {
@@ -147,6 +153,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
         msg.success('删除成功');
         if (selectedGroupId === id) setSelectedGroupId(-1);
         loadGroups();
+        notifyDataChanged();
         onDataChange?.();
       }
     } catch (e: any) {
@@ -727,7 +734,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                 padding: '10px 20px',
                 borderRadius: 8,
                 transition: 'all 0.3s ease',
-                color: activeTab === 'groups' ? 'var(--text-primary)' : '#f5f0f0',
+                color: activeTab === 'groups' ? 'var(--text-primary)' : 'var(--text-muted)',
                 background: activeTab === 'groups' ? 'linear-gradient(135deg, rgba(212, 168, 75, 0.12), rgba(212, 168, 75, 0.06))' : 'transparent',
               }}>
                 <FolderOpenOutlined style={{ fontSize: 18 }} />
@@ -926,7 +933,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                 padding: '10px 20px',
                 borderRadius: 8,
                 transition: 'all 0.3s ease',
-                color: activeTab === 'funds' ? 'var(--text-primary)' : '#f9f5f5',
+                color: activeTab === 'funds' ? 'var(--text-primary)' : 'var(--text-muted)',
                 background: activeTab === 'funds' ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(59, 130, 246, 0.06))' : 'transparent',
               }}>
                 <FundOutlined style={{ fontSize: 18 }} />
@@ -992,21 +999,21 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                           className="fund-card-item"
                           onMouseEnter={(e) => {
                             (e.currentTarget as HTMLElement).style.borderColor = 'rgba(212, 168, 75, 0.5)';
-                            (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 20px rgba(212, 168, 75, 0.18), 0 0 0 1px rgba(255, 255, 255, 0.8) inset';
+                            (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 20px rgba(212, 168, 75, 0.18), 0 0 0 1px var(--border-default)';
                             (e.currentTarget as HTMLElement).style.transform = 'translateY(-3px)';
                           }}
                           onMouseLeave={(e) => {
-                            (e.currentTarget as HTMLElement).style.borderColor = 'rgba(128, 128, 128, 0.18)';
-                            (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.5) inset';
+                            (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-default)';
+                            (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)';
                             (e.currentTarget as HTMLElement).style.transform = 'none';
                           }}
                           style={{
-                            background: 'linear-gradient(135deg, #ffffff 0%, #fafafa 100%)',
+                            background: 'var(--bg-elevated)',
                             borderRadius: 12,
-                            border: '1.5px solid rgba(128, 128, 128, 0.18)',
+                            border: '1.5px solid var(--border-default)',
                             padding: '7px 16px',
                             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.5) inset',
+                            boxShadow: 'var(--shadow-sm)',
                           }}
                         >
                           <div style={{
@@ -1025,7 +1032,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                                 <span className="fund-card-name" style={{
                                   fontSize: 17,
                                   fontWeight: 800,
-                                  color: '#1a1a1a',
+                                  color: 'var(--text-primary)',
                                   letterSpacing: '-0.4px',
                                   lineHeight: 1.3
                                 }}>
@@ -1034,13 +1041,13 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                                 <span className="fund-card-code" style={{
                                   fontSize: 12,
                                   fontWeight: 700,
-                                  color: '#4a5568',
+                                  color: 'var(--text-secondary)',
                                   fontFamily: '"SF Mono", "Consolas", monospace',
-                                  background: 'linear-gradient(135deg, #edf2f7, #e2e8f0)',
+                                  background: 'var(--flat-bg)',
                                   padding: '3px 10px',
                                   borderRadius: 6,
                                   letterSpacing: '0.5px',
-                                  border: '1px solid rgba(128, 128, 128, 0.15)'
+                                  border: '1px solid var(--border-subtle)'
                                 }}>
                                   {fund.fund_code}
                                 </span>
@@ -1051,13 +1058,13 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                                 gap: 24,
                                 fontSize: 14,
                                 fontWeight: 600,
-                                color: '#2d3748'
+                                color: 'var(--text-primary)'
                               }}>
                                 <span>
-                                  <span style={{ color: '#718096', marginRight: 6, fontWeight: 500 }}>持仓</span>
+                                  <span style={{ color: 'var(--text-muted)', marginRight: 6, fontWeight: 500 }}>持仓</span>
                                   <span style={{
                                     fontWeight: 800,
-                                    color: '#1a202c',
+                                    color: 'var(--text-primary)',
                                     fontFamily: '"SF Mono", "Consolas", monospace',
                                     fontSize: 15
                                   }}>
@@ -1066,10 +1073,10 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                                 </span>
                                 {fund.shares && (
                                   <span>
-                                    <span style={{ color: '#718096', marginRight: 6, fontWeight: 500 }}>份额</span>
+                                    <span style={{ color: 'var(--text-muted)', marginRight: 6, fontWeight: 500 }}>份额</span>
                                     <span style={{
                                       fontWeight: 700,
-                                      color: '#2d3748',
+                                      color: 'var(--text-secondary)',
                                       fontFamily: '"SF Mono", "Consolas", monospace'
                                     }}>
                                       {fund.shares.toFixed(2)}
@@ -1102,7 +1109,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                                 size="middle"
                                 style={{ width: 130, height: 32 }}
                                 popupMatchSelectWidth={false}
-                                dropdownStyle={{ minWidth: 140 }}
+                                styles={{ popup: { root: { minWidth: 140 } } }}
                                 loading={movingFundId === fund.id}
                                 onChange={(targetGroupId) => targetGroupId !== undefined && moveFundToGroup(fund.id, targetGroupId)}
                                 options={availableGroupsForMove.map(g => ({

@@ -274,9 +274,13 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
       update_status = 'estimating';
       data_source = 'estimated';
       is_fresh = true;
-    } else {
+    } else if (hour >= 15) {
       update_status = 'pending_confirm';
       data_source = 'estimated';
+      is_fresh = false;
+    } else {
+      update_status = 'market_closed';
+      data_source = 'actual';
       is_fresh = false;
     }
   }

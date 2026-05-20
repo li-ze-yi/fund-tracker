@@ -79,9 +79,13 @@ exports.getByCode = async (req, res, next) => {
           result.update_status = 'estimating';
           result.data_source = 'estimated';
           result.is_fresh = true;
-        } else {
+        } else if (hour >= 15) {
           result.update_status = 'pending_confirm';
           result.data_source = 'estimated';
+          result.is_fresh = false;
+        } else {
+          result.update_status = 'market_closed';
+          result.data_source = 'actual';
           result.is_fresh = false;
         }
       }

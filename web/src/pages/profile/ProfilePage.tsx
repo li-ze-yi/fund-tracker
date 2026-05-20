@@ -119,7 +119,7 @@ export default function ProfilePage() {
               height: 56,
               borderRadius: '50%',
               background: 'linear-gradient(135deg, var(--accent-gold), var(--accent-gold-light))',
-              color: '#0B1120',
+              color: 'var(--text-primary)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -143,15 +143,15 @@ export default function ProfilePage() {
         className="profile-download-card"
         style={{
           marginBottom: 20,
-          background: 'linear-gradient(135deg, #3DDC84 0%, #00A86B 100%)',
-          borderColor: '#3DDC84',
+          background: 'var(--accent-gold-dim)',
+          borderColor: 'var(--accent-gold)',
           cursor: 'pointer',
           transition: 'transform var(--transition-fast), box-shadow var(--transition-fast)',
         }}
         onClick={() => window.open('/download/app-release.apk', '_blank')}
         onMouseEnter={(e) => {
           e.currentTarget.style.transform = 'translateY(-2px)';
-          e.currentTarget.style.boxShadow = '0 8px 24px rgba(61, 220, 132, 0.3)';
+          e.currentTarget.style.boxShadow = 'var(--shadow-glow-gold)';
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.transform = 'translateY(0)';
@@ -164,8 +164,7 @@ export default function ProfilePage() {
               width: 48,
               height: 48,
               borderRadius: 12,
-              background: 'rgba(255, 255, 255, 0.2)',
-              backdropFilter: 'blur(10px)',
+              background: 'var(--accent-gold)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -177,10 +176,10 @@ export default function ProfilePage() {
             <AndroidOutlined />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 2 }}>下载安卓客户端</div>
-            <div style={{ fontSize: 13, color: 'rgba(255, 255, 255, 0.85)' }}>随时随地管理您的投资组合</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2 }}>下载安卓客户端</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>随时随地管理您的投资组合</div>
           </div>
-          <DownloadOutlined style={{ fontSize: 20, color: 'rgba(255, 255, 255, 0.9)' }} />
+          <DownloadOutlined style={{ fontSize: 20, color: 'var(--accent-gold)' }} />
         </div>
       </Card>
 

@@ -77,7 +77,7 @@ class GlobalCache {
     
     switch (status) {
       case 'trading':
-        return 60 * 1000;  // ✨ 盘中：60秒（原20秒，估值波动较慢）
+        return 28 * 1000;  // ✨ 盘中：28秒
         
       case 'after_hours': {
         const now = new Date();

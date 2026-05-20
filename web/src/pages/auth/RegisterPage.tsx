@@ -112,8 +112,8 @@ export default function RegisterPage() {
             prefix={<LockOutlined style={{ color: 'var(--text-muted)' }} />}
             placeholder="密码（至少6位）"
             iconRender={(visible) => (visible
-              ? <span style={{ color: '#f8f7f7' }}>👁</span>
-              : <span style={{ color: '#f8f7f7' }}>🙈</span>
+              ? <span style={{ color: 'var(--text-secondary)' }}>👁</span>
+              : <span style={{ color: 'var(--text-secondary)' }}>🙈</span>
             )}
           />
         </Form.Item>
@@ -122,8 +122,8 @@ export default function RegisterPage() {
             prefix={<LockOutlined style={{ color: 'var(--text-muted)' }} />}
             placeholder="确认密码"
             iconRender={(visible) => (visible
-              ? <span style={{ color: '#e3dede' }}>👁</span>
-              : <span style={{ color: '#e3dede' }}>🙈</span>
+              ? <span style={{ color: 'var(--text-secondary)' }}>👁</span>
+              : <span style={{ color: 'var(--text-secondary)' }}>🙈</span>
             )}
           />
         </Form.Item>
@@ -132,7 +132,7 @@ export default function RegisterPage() {
             注册
           </Button>
         </Form.Item>
-        <div className="register-login-link" style={{ textAlign: 'center', fontSize: 14, color: '#f8f6f6' }}>
+        <div className="register-login-link" style={{ textAlign: 'center', fontSize: 14, color: 'var(--text-secondary)' }}>
           已有账号？<Link to="/login" style={{ color: 'var(--accent-gold-light)', fontWeight: 500 }}>去登录</Link>
         </div>
       </Form>

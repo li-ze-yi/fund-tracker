@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, Segmented, Table, Skeleton, Empty } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { statsService } from '@/services/statsService';
+import { useThemeStore } from '@/store/themeStore';
 
 type Period = 'daily' | 'monthly' | 'yearly';
 
@@ -142,15 +143,17 @@ export default function StatsPage() {
   };
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+  const themeMode = useThemeStore((s) => s.mode);
+  const isLight = themeMode === 'light';
 
   const chartOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
-      backgroundColor: 'rgba(17, 24,39, 0.95)',
+      backgroundColor: isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(17, 24,39, 0.95)',
       borderColor: 'rgba(148, 163, 184, 0.2)',
       borderWidth: 1,
-      textStyle: { color: '#F1F5F9', fontSize: isMobile ? 11 : 13, fontWeight: 500 },
+      textStyle: { color: isLight ? '#1E293B' : '#F1F5F9', fontSize: isMobile ? 11 : 13, fontWeight: 500 },
       axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(148, 163, 184, 0.05)' } },
       formatter: (params: any) => {
         const p = params[0];
@@ -160,11 +163,11 @@ export default function StatsPage() {
         const unit = period === 'daily' || period === 'monthly' ? '元' : '万元';
         const displayValue = period === 'yearly' ? (value / 10000).toFixed(2) : value.toFixed(2);
         return `
-          <div style="font-weight: 600; margin-bottom: ${isMobile ? '4px' : '6px'}; color: #94A3B8; font-size: ${isMobile ? '12px' : '13px'};">${p.name}</div>
-          <div style="color: ${isPositive ? '#EF4444' : '#22C55E'}; font-weight: 700; font-size: ${isMobile ? '13px' : '14px'};">
+          <div style="font-weight: 600; margin-bottom: ${isMobile ? '4px' : '6px'}; color: ${isLight ? '#64748B' : '#94A3B8'}; font-size: ${isMobile ? '12px' : '13px'};">${p.name}</div>
+          <div style="color: ${isPositive ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E')}; font-weight: 700; font-size: ${isMobile ? '13px' : '14px'};">
             收益: ${isPositive ? '+' : ''}${unit === '万元' ? '' : '¥'}${displayValue}${unit}
           </div>
-          ${params[1] ? `<div style="color: #D4A84B; margin-top: ${isMobile ? '2px' : '4px'}; font-size: ${isMobile ? '11px' : '12px'};">收益率: ${Number(params[1].value).toFixed(2)}%</div>` : ''}
+          ${params[1] ? `<div style="color: ${isLight ? '#B8860B' : '#D4A84B'}; margin-top: ${isMobile ? '2px' : '4px'}; font-size: ${isMobile ? '11px' : '12px'};">收益率: ${Number(params[1].value).toFixed(2)}%</div>` : ''}
         `;
       },
     },
@@ -172,7 +175,7 @@ export default function StatsPage() {
       data: ['收益金额', '收益率'],
       top: 0,
       right: isMobile ? 10 : 20,
-      textStyle: { color: '#94A3B8', fontSize: isMobile ? 10 : 11 },
+      textStyle: { color: isLight ? '#64748B' : '#94A3B8', fontSize: isMobile ? 10 : 11 },
       itemWidth: isMobile ? 14 : 16,
       itemHeight: isMobile ? 6 : 8,
       itemGap: isMobile ? 15 : 20,
@@ -188,7 +191,7 @@ export default function StatsPage() {
       ),
       axisLabel: {
         fontSize: isMobile ? 9 : 11,
-        color: '#94A3B8',
+        color: isLight ? '#64748B' : '#94A3B8',
         rotate: 0,  // ✅ 不旋转
         interval: isMobile && data.length > 10
           ? Math.floor(data.length / 6)  // ✅ 平均分布，显示约6个标签
@@ -196,7 +199,7 @@ export default function StatsPage() {
             ? Math.floor(data.length / 8)
             : 0,
       },
-      axisLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.15)' } },
+      axisLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' } },
       axisTick: { show: false },
     },
     yAxis: [
@@ -206,13 +209,13 @@ export default function StatsPage() {
         position: 'left',
         axisLabel: {
           fontSize: isMobile ? 10 : 11,
-          color: '#94A3B8',
+          color: isLight ? '#64748B' : '#94A3B8',
           formatter: (v: number) => {
             if (Math.abs(v) >= 10000) return `${(v / 10000).toFixed(1)}万`;
             return v.toFixed(0);
           },
         },
-        splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.08)', type: 'dashed' } },
+        splitLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)', type: 'dashed' } },
         axisLine: { show: false },
         nameTextStyle: { color: '#64748B', fontSize: isMobile ? 9 : 10, padding: [0, 0, 0, -35] },
       },
@@ -222,7 +225,7 @@ export default function StatsPage() {
         position: 'right',
         axisLabel: {
           fontSize: isMobile ? 10 : 11,
-          color: '#94A3B8',
+          color: isLight ? '#64748B' : '#94A3B8',
           formatter: '{value}%',
         },
         splitLine: { show: false },
@@ -248,16 +251,16 @@ export default function StatsPage() {
               type: 'linear',
               x: 0, y: 0, x2: 0, y2: 1,
               colorStops: [
-                { offset: 0, color: 'rgba(239, 68, 68, 0.9)' },
-                { offset: 1, color: 'rgba(239, 68, 68, 0.4)' },
+                { offset: 0, color: isLight ? 'rgba(220, 38, 38, 0.85)' : 'rgba(239, 68, 68, 0.9)' },
+                { offset: 1, color: isLight ? 'rgba(220, 38, 38, 0.35)' : 'rgba(239, 68, 68, 0.4)' },
               ],
             };
             if (value < 0) return {
               type: 'linear',
               x: 0, y: 0, x2: 0, y2: 1,
               colorStops: [
-                { offset: 0, color: 'rgba(34, 197, 94, 0.4)' },
-                { offset: 1, color: 'rgba(34, 197, 94, 0.9)' },
+                { offset: 0, color: isLight ? 'rgba(22, 163, 74, 0.35)' : 'rgba(34, 197, 94, 0.4)' },
+                { offset: 1, color: isLight ? 'rgba(22, 163, 74, 0.85)' : 'rgba(34, 197, 94, 0.9)' },
               ],
             };
             return 'rgba(148, 163, 184, 0.3)';
@@ -273,11 +276,11 @@ export default function StatsPage() {
         symbol: 'circle',
         symbolSize: isMobile ? 4 : 6,
         lineStyle: {
-          color: '#D4A84B',
+          color: isLight ? '#B8860B' : '#D4A84B',
           width: isMobile ? 1.5 : 2,
         },
         itemStyle: {
-          color: '#D4A84B',
+          color: isLight ? '#B8860B' : '#D4A84B',
           borderWidth: isMobile ? 1.5 : 2,
           borderColor: '#fff',
         },
@@ -286,8 +289,8 @@ export default function StatsPage() {
             type: 'linear',
             x: 0, y: 0, x2: 0, y2: 1,
             colorStops: [
-              { offset: 0, color: 'rgba(212, 168, 75, 0.25)' },
-              { offset: 1, color: 'rgba(212, 168, 75, 0.02)' },
+              { offset: 0, color: isLight ? 'rgba(184, 134, 11, 0.2)' : 'rgba(212, 168, 75, 0.25)' },
+              { offset: 1, color: isLight ? 'rgba(184, 134, 11, 0.02)' : 'rgba(212, 168, 75, 0.02)' },
             ],
           },
         },
@@ -521,8 +524,8 @@ export default function StatsPage() {
         className="stats-summary-card"
         style={{
           marginBottom: 20,
-          background: 'linear-gradient(135deg, rgba(212, 168, 75, 0.05), rgba(17, 24, 39, 0.8))',
-          borderColor: 'rgba(212, 168, 75, 0.15)',
+          background: isLight ? 'linear-gradient(135deg, rgba(184, 134, 11, 0.04), rgba(255, 255, 255, 0.9))' : 'linear-gradient(135deg, rgba(212, 168, 75, 0.05), rgba(17, 24, 39, 0.8))',
+          borderColor: isLight ? 'rgba(184, 134, 11, 0.12)' : 'rgba(212, 168, 75, 0.15)',
           boxShadow: 'var(--shadow-lg)',
         }}
         styles={{ body: { padding: '24px' } }}
