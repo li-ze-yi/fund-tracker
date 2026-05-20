@@ -16,8 +16,7 @@ import FundDetailPage from './pages/fund/FundDetailPage';
 import MarketDetailPage from './pages/market/MarketDetailPage';
 import InvestmentPlanPage from './pages/plans/InvestmentPlanPage';
 import SettingsPage from './pages/settings/SettingsPage';
-import RefreshButtonShowcase from './showcase/RefreshButtonShowcase';
-import VisualCountdownShowcase from './showcase/VisualCountdownShowcase';
+
 import './App.css';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -104,63 +103,6 @@ export default function App() {
               <Route path="/market" element={<MarketDetailPage />} />
               <Route path="/plans" element={<InvestmentPlanPage />} />
               <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/showcase" element={
-                <div style={{
-                  minHeight: '100vh',
-                  background: 'linear-gradient(135deg, #0a0f1e 0%, #1a1a2e 50%, #16213e 100%)',
-                  padding: '40px 20px',
-                  boxSizing: 'border-box',
-                }}>
-                  <h1 style={{
-                    textAlign: 'center',
-                    color: '#fff',
-                    fontSize: 32,
-                    fontWeight: 800,
-                    marginBottom: 8,
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    backgroundClip: 'text',
-                  }}>
-                    ✨ 刷新按钮创意展示廊 ✨
-                  </h1>
-                  <p style={{
-                    textAlign: 'center',
-                    color: 'rgba(255,255,255,0.6)',
-                    fontSize: 16,
-                    marginBottom: 40,
-                  }}>
-                    6种前沿设计风格 · 点击任意按钮测试交互效果
-                  </p>
-                  <RefreshButtonShowcase
-                    countdown={30}
-                    refreshFreq={30}
-                    refreshing={false}
-                    progressPercent={0}
-                    onRefresh={() => {
-                      alert('刷新功能测试！');
-                    }}
-                  />
-                </div>
-              } />
-              <Route path="/visual-showcase" element={
-                <div style={{
-                  minHeight: '100vh',
-                  background: 'linear-gradient(135deg, #0a0a1a 0%, #1a1a3e 50%, #0a0a1a 100%)',
-                  padding: '40px 20px',
-                  boxSizing: 'border-box',
-                }}>
-                  <VisualCountdownShowcase
-                    countdown={30}
-                    refreshFreq={30}
-                    refreshing={false}
-                    progressPercent={50}
-                    onRefresh={() => {
-                      alert('视觉化倒计时测试！');
-                    }}
-                  />
-                </div>
-              } />
             </Route>
           </Routes>
         </BrowserRouter>
