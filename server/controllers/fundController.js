@@ -67,27 +67,25 @@ exports.getByCode = async (req, res, next) => {
 
       result.last_updated = updateTime || null;
 
-      if (isConfirmed) {
-        // ✅ 有确认净值 → 已确认
+      const hour = now.getHours();
+      if (hour < 9) {
+        // 盘前待开市：无论是否已确认，都显示待开市，清空涨幅
+        result.update_status = 'pre_market';
+        result.data_source = 'actual';
+        result.is_fresh = false;
+        result.estimated_change = null;
+      } else if (isConfirmed) {
         result.update_status = 'confirmed';
         result.data_source = 'actual';
         result.is_fresh = true;
+      } else if (hour >= 9 && hour < 15) {
+        result.update_status = 'estimating';
+        result.data_source = 'estimated';
+        result.is_fresh = true;
       } else {
-        // ⏳ 无确认净值 → 基于时间降级判断
-        const hour = now.getHours();
-        if (hour >= 9 && hour < 15) {
-          result.update_status = 'estimating';
-          result.data_source = 'estimated';
-          result.is_fresh = true;
-        } else if (hour >= 15) {
-          result.update_status = 'pending_confirm';
-          result.data_source = 'estimated';
-          result.is_fresh = false;
-        } else {
-          result.update_status = 'market_closed';
-          result.data_source = 'actual';
-          result.is_fresh = false;
-        }
+        result.update_status = 'pending_confirm';
+        result.data_source = 'estimated';
+        result.is_fresh = false;
       }
     }
 

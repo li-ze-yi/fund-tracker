@@ -1,11 +1,11 @@
 const pool = require('../config/database');
 
 const Transaction = {
-  async create({ userId, fundCode, type, shares, price, amount, fee, transactionDate }) {
+  async create({ userId, fundCode, type, shares, price, amount, fee, transactionDate, note }) {
     const [result] = await pool.query(
-      `INSERT INTO transactions (user_id, fund_code, type, shares, price, amount, fee, transaction_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, fundCode, type, shares, price, amount, fee || 0, transactionDate]
+      `INSERT INTO transactions (user_id, fund_code, type, shares, price, amount, fee, transaction_date, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, fundCode, type, shares, price, amount, fee || 0, transactionDate, note || null]
     );
     return result.insertId;
   },

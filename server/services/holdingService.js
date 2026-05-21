@@ -160,6 +160,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false) {
         const latestHistoryNav = historyData && historyData.length > 0 ? parseFloat(historyData[0].nav) || 0 : 0;
         const latestHistoryDate = historyData && historyData.length > 0 ? historyData[0].date : null;
         const isConfirmed = latestHistoryDate === today;
+        // ★ 提取昨日（上一交易日）净值，用于精确计算当日收益
+        const yesterdayNav = historyData && historyData.length > 1 ? parseFloat(historyData[1].nav) || 0 : 0;
 
         const dbConfirmedNav = parseFloat(holding.confirmed_nav) || 0;
         const dbConfirmedNavDate = holding.confirmed_nav_date ? holding.confirmed_nav_date.toISOString().slice(0, 10) : null;
@@ -177,7 +179,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false) {
           ...holding,
           realTimeData: realTimeData,
           _confirmed: isConfirmed,
-          _confirmedNav: effectiveNav
+          _confirmedNav: effectiveNav,
+          _yesterdayNav: yesterdayNav
         };
         
       } catch (error) {
@@ -186,7 +189,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false) {
           ...holding,
           realTimeData: null,
           _confirmed: false,
-          _confirmedNav: parseFloat(holding.confirmed_nav) || 0
+          _confirmedNav: parseFloat(holding.confirmed_nav) || 0,
+          _yesterdayNav: 0
         };
       }
     })
@@ -199,7 +203,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false) {
       holding.realTimeData, 
       holding._confirmed,
       holding._confirmedNav,
-      marketStatus
+      marketStatus,
+      holding._yesterdayNav
     )
   }));
 
@@ -213,7 +218,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false) {
   return result;
 }
 
-function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, confirmedNav = 0, marketStatus = { isMarketOpen: true }) {
+function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, confirmedNav = 0, marketStatus = { isMarketOpen: true }, yesterdayNav = 0) {
   const shares = parseFloat(holding.shares) || 0;
   const costPrice = parseFloat(holding.cost_price) || 0;
   const totalCost = parseFloat(holding.total_cost) || shares * costPrice;
@@ -231,7 +236,11 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     marketValue = shares * realTimeData.netValue;
   }
 
-  if (realTimeData && realTimeData.gainPercent != null) {
+  // ★ 当确认净值可用且有昨日净值时，用净值差精确计算当日收益
+  if (isConfirmed && confirmedNav > 0 && yesterdayNav > 0) {
+    dailyGain = shares * (confirmedNav - yesterdayNav);
+    gainPercent = ((confirmedNav - yesterdayNav) / yesterdayNav) * 100;
+  } else if (realTimeData && realTimeData.gainPercent != null) {
     gainPercent = realTimeData.gainPercent;
     if (marketValue > 0) {
       dailyGain = marketValue * gainPercent / (100 + gainPercent);
@@ -264,25 +273,26 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     };
   }
 
-  if (isConfirmed) {
+  const hour = now.getHours();
+  if (hour < 9) {
+    // 盘前待开市：无论是否已确认，都显示待开市，清空涨幅和收益
+    update_status = 'pre_market';
+    data_source = 'actual';
+    is_fresh = false;
+    gainPercent = null;
+    dailyGain = 0;
+  } else if (isConfirmed) {
     update_status = 'confirmed';
     data_source = 'actual';
     is_fresh = true;
+  } else if (hour >= 9 && hour < 15) {
+    update_status = 'estimating';
+    data_source = 'estimated';
+    is_fresh = true;
   } else {
-    const hour = now.getHours();
-    if (hour >= 9 && hour < 15) {
-      update_status = 'estimating';
-      data_source = 'estimated';
-      is_fresh = true;
-    } else if (hour >= 15) {
-      update_status = 'pending_confirm';
-      data_source = 'estimated';
-      is_fresh = false;
-    } else {
-      update_status = 'market_closed';
-      data_source = 'actual';
-      is_fresh = false;
-    }
+    update_status = 'pending_confirm';
+    data_source = 'estimated';
+    is_fresh = false;
   }
 
   return {

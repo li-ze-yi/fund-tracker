@@ -2,63 +2,98 @@ const InvestmentPlan = require('../models/investmentPlan');
 const Holding = require('../models/holding');
 const Transaction = require('../models/transaction');
 const fundService = require('./fundService');
+const pool = require('../config/database');
 
 async function executeDuePlans() {
+  const startTime = Date.now();
+  const today = new Date().toISOString().slice(0, 10);
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`[PlanService] 🚀 定投计划调度开始 | 日期: ${today} | 时间: ${new Date().toLocaleString('zh-CN')}`);
+  console.log(`${'='.repeat(60)}`);
+
   const plans = await InvestmentPlan.findActiveDueToday();
-  console.log(`[PlanService] 找到 ${plans.length} 个待执行定投计划`);
+  console.log(`[PlanService] 📋 查询到 ${plans.length} 个到期定投计划 (status=active AND next_run_date<=${today})`);
+
+  if (plans.length === 0) {
+    console.log(`[PlanService] ⏭️ 无到期计划，跳过执行`);
+    console.log(`${'='.repeat(60)}\n`);
+    return { success: 0, skipped: 0, failed: 0, pending: 0 };
+  }
+
+  // 打印所有到期计划摘要
+  plans.forEach((p, i) => {
+    console.log(`[PlanService]   ${i + 1}. Plan#${p.id} | user=${p.user_id} | fund=${p.fund_code} | freq=${p.frequency} | amount=¥${p.amount} | dayOfWeek=${p.day_of_week ?? '-'} | dayOfMonth=${p.day_of_month ?? '-'} | nextRun=${p.next_run_date}`);
+  });
+
+  let successCount = 0;
+  let skipCount = 0;
+  let failCount = 0;
+  let pendingCount = 0;
 
   for (const plan of plans) {
     try {
-      const today = new Date().toISOString().slice(0, 10);
+      // MySQL Decimal 类型返回字符串，必须 parseFloat 避免 + 运算时字符串拼接导致 NaN
+      const planAmount = parseFloat(plan.amount);
+      const planDayOfWeek = plan.day_of_week != null ? parseInt(plan.day_of_week) : null;
+      const planDayOfMonth = plan.day_of_month != null ? parseInt(plan.day_of_month) : null;
+
+      console.log(`\n[PlanService] ──▶ 开始处理 Plan#${plan.id} (fund=${plan.fund_code}, freq=${plan.frequency}, amount=¥${planAmount})`);
+
+      // ★ 防重复执行：检查今天是否已有该计划的自动定投交易记录
+      const [existingTx] = await pool.query(
+        `SELECT id FROM transactions
+         WHERE user_id = ? AND fund_code = ? AND type = 'buy' AND transaction_date = ?
+         AND note = ?
+         LIMIT 1`,
+        [plan.user_id, plan.fund_code, today, `auto_plan:${plan.id}`]
+      );
+      if (existingTx && existingTx.length > 0) {
+        console.log(`[PlanService]   [Plan#${plan.id}] ⏭️ 今日已有自动定投交易记录(id=${existingTx[0].id})，跳过防重复`);
+        // 已执行过，更新 next_run_date 避免下次再拾取
+        const nextDate = calcNextRunDate(new Date(), plan.frequency, planDayOfWeek, planDayOfMonth);
+        await InvestmentPlan.update(plan.id, plan.user_id, { next_run_date: nextDate });
+        console.log(`[PlanService]   [Plan#${plan.id}] 📅 下次执行日期已更新: ${nextDate}`);
+        skipCount++;
+        continue;
+      }
+
       let netValue = 0;
       let netValueSource = 'unknown';
 
-      // ✨ 修复v2.4.1: 定投计划必须使用确认净值（而非实时估值）
-      // 原因：自动执行时无法保证在收盘后运行，盘中执行会用到不准确的实时估值
       try {
-        // 策略1：查询今天的确认净值
+        // ★ 核心策略：只使用今日确认净值，不降级用旧净值
+        console.log(`[PlanService]   [Plan#${plan.id}] 查询今日(${today})确认净值...`);
         const history = await fundService.getHistoryNetValues(plan.fund_code, today, today);
-        
+
         if (history && history.length > 0) {
-          // 今天已有确认净值 → 使用它 ✅
+          // 今日确认净值已发布 → 使用它
           netValue = parseFloat(history[0].netValue) || parseFloat(history[0].nav) || 0;
           netValueSource = `confirmed(${today})`;
-          console.log(`[PlanService] 基金 ${plan.fund_code} 使用今日确认净值: ${netValue}`);
+          console.log(`[PlanService]   [Plan#${plan.id}] ✅ 今日确认净值已发布: ${netValue}`);
         } else {
-          // 策略2：今天未确认 → 查询最近一个交易日的确认净值
-          const recentHistory = await fundService.getHistoryNetValues(
-            plan.fund_code, 
-            '2020-01-01', 
-            today
-          );
-          
-          if (recentHistory && recentHistory.length > 0) {
-            const latestConfirmed = recentHistory[0];
-            netValue = parseFloat(latestConfirmed.netValue) || parseFloat(latestConfirmed.nav) || 0;
-            netValueSource = `confirmed(${latestConfirmed.date})`;
-            console.log(`[PlanService] 基金 ${plan.fund_code} 使用最近确认净值: ${netValue} (${latestConfirmed.date})`);
-          } else {
-            // 策略3：完全无历史数据 → 跳过本次执行（不定投）
-            console.warn(`[PlanService] ⚠️ 基金 ${plan.fund_code} 无任何历史净值数据，跳过定投执行`);
-            continue;  // 跳过这只基金，继续下一只
-          }
+          // 今日确认净值未发布 → 跳过本次执行，等待下次调度重试
+          console.warn(`[PlanService]   [Plan#${plan.id}] ⏳ 今日确认净值尚未发布，跳过本次执行（等待下次调度重试）`);
+          console.warn(`[PlanService]   [Plan#${plan.id}] 提示: 净值通常在18:00-20:00间确认，调度器将自动重试`);
+          pendingCount++;
+          continue;  // 不更新 next_run_date，下次调度会再次拾取
         }
       } catch (error) {
-        // 查询失败 → 跳过执行（安全第一）
-        console.error(`[PlanService] ❌ 获取基金 ${plan.fund_code} 净值失败:`, error.message);
-        continue;  // 跳过，不强制用实时估值
+        console.error(`[PlanService]   [Plan#${plan.id}] ❌ 净值查询失败: ${error.message}`);
+        skipCount++;
+        continue;
       }
 
       // 安全检查：净值必须有效
       if (netValue <= 0 || isNaN(netValue)) {
-        console.error(`[PlanService] ❌ 基金 ${plan.fund_code} 净值异常: ${netValue}, 跳过执行`);
+        console.error(`[PlanService]   [Plan#${plan.id}] ❌ 净值异常: ${netValue}, 跳过`);
+        skipCount++;
         continue;
       }
 
       // 计算份额（基于确认净值）
-      const shares = Math.round((plan.amount / netValue) * 10000) / 10000;  // 保留4位小数
-      
-      console.log(`[PlanService] 定投计算: fund=${plan.fund_code}, amount=¥${plan.amount}, nav=${netValue}(${netValueSource}), shares=${shares.toFixed(4)}份`);
+      const shares = Math.round((planAmount / netValue) * 10000) / 10000;  // 保留4位小数
+
+      console.log(`[PlanService]   [Plan#${plan.id}] 📊 定投计算: amount=¥${planAmount} ÷ nav=${netValue}(${netValueSource}) = ${shares.toFixed(4)}份`);
 
       const holding = await Holding.findByUserAndFund(plan.user_id, plan.fund_code);
 
@@ -67,63 +102,100 @@ async function executeDuePlans() {
         const oldShares = parseFloat(holding.shares);
         const oldCostPrice = parseFloat(holding.cost_price);
         const totalShares = oldShares + shares;
-        const newCostPrice = totalShares ? (oldShares * oldCostPrice + plan.amount) / totalShares : 0;
-        
+        const newCostPrice = totalShares ? (oldShares * oldCostPrice + planAmount) / totalShares : 0;
+
         await Holding.update(holding.id, plan.user_id, {
           shares: totalShares,
-          cost_price: Math.round(newCostPrice * 10000) / 10000  // 保留4位小数
+          cost_price: Math.round(newCostPrice * 10000) / 10000
         });
-        
-        console.log(`[PlanService] 加仓完成: oldShares=${oldShares}, newShares=${totalShares.toFixed(4)}, newCostPrice=${(Math.round(newCostPrice * 10000) / 10000).toFixed(4)}`);
+
+        console.log(`[PlanService]   [Plan#${plan.id}] 📈 加仓: ${oldShares}→${totalShares.toFixed(4)}份, 成本价: ${oldCostPrice}→${(Math.round(newCostPrice * 10000) / 10000).toFixed(4)}`);
       } else {
         // 无持仓 → 新建（使用确认净值作为成本价）
         await Holding.create({
           userId: plan.user_id,
           fundCode: plan.fund_code,
           shares: shares,
-          costPrice: netValue  // ✅ 使用确认净值
+          costPrice: netValue
         });
-        
-        console.log(`[PlanService] 新建持仓: shares=${shares.toFixed(4)}, costPrice=${netValue}`);
+
+        console.log(`[PlanService]   [Plan#${plan.id}] 🆕 新建持仓: ${shares.toFixed(4)}份, 成本价=${netValue}`);
       }
 
-      // 创建交易记录（使用确认净值作为成交价）
+      // 创建交易记录
       await Transaction.create({
         userId: plan.user_id,
         fundCode: plan.fund_code,
         type: 'buy',
         shares: shares,
-        price: netValue,  // ✅ 使用确认净值（不是实时估值）
-        amount: plan.amount,
+        price: netValue,
+        amount: planAmount,
         fee: 0,
         transactionDate: today,
-        metadata: JSON.stringify({ 
-          netValueSource,           // 记录净值来源
-          executionType: 'auto_plan', // 标记为自动执行
-          planId: plan.id             // 关联定投计划ID
-        })
+        note: `auto_plan:${plan.id}`
       });
 
+      console.log(`[PlanService]   [Plan#${plan.id}] 📝 交易记录已创建 (buy, ¥${planAmount})`);
+
       // 计算下次执行日期
-      const nextDate = calcNextRunDate(new Date(), plan.frequency);
+      const nextDate = calcNextRunDate(new Date(), plan.frequency, planDayOfWeek, planDayOfMonth);
       await InvestmentPlan.update(plan.id, plan.user_id, { next_run_date: nextDate });
 
-      console.log(`[PlanService] ✅ 定投计划 ${plan.id} 执行成功 (净值来源: ${netValueSource})`);
-      
+      console.log(`[PlanService]   [Plan#${plan.id}] 📅 下次执行日期: ${nextDate} (freq=${plan.frequency}, dayOfWeek=${planDayOfWeek ?? '-'}, dayOfMonth=${planDayOfMonth ?? '-'})`);
+      console.log(`[PlanService] ◀── Plan#${plan.id} 执行成功 ✅`);
+      successCount++;
+
     } catch (err) {
-      console.error(`[PlanService] ❌ 定投计划 ${plan.id} 执行失败:`, err.message);
+      console.error(`[PlanService] ◀── Plan#${plan.id} 执行失败 ❌: ${err.message}`);
+      failCount++;
     }
   }
+
+  const elapsed = Date.now() - startTime;
+  console.log(`\n${'─'.repeat(60)}`);
+  console.log(`[PlanService] 🏁 定投调度完成 | 成功=${successCount} 跳过=${skipCount} 失败=${failCount} 待确认=${pendingCount} | 耗时=${elapsed}ms`);
+  if (pendingCount > 0) {
+    console.log(`[PlanService] 💡 ${pendingCount}个计划因净值未确认而跳过，下次调度将自动重试`);
+  }
+  console.log(`${'='.repeat(60)}\n`);
+
+  return { success: successCount, skipped: skipCount, failed: failCount, pending: pendingCount };
 }
 
-function calcNextRunDate(today, frequency) {
+function calcNextRunDate(today, frequency, dayOfWeek, dayOfMonth) {
   const d = new Date(today);
   switch (frequency) {
-    case 'daily': d.setDate(d.getDate() + 1); break;
-    case 'weekly': d.setDate(d.getDate() + 7); break;
-    case 'biweekly': d.setDate(d.getDate() + 14); break;
-    case 'monthly': d.setMonth(d.getMonth() + 1); break;
-    default: d.setMonth(d.getMonth() + 1);
+    case 'daily':
+      d.setDate(d.getDate() + 1);
+      break;
+    case 'weekly': {
+      if (dayOfWeek != null) {
+        // 计算下一个指定周几
+        const target = dayOfWeek; // 1=周一 ... 7=周日 (ISO)
+        const current = d.getDay() || 7; // 将周日0转为7
+        let diff = target - current;
+        if (diff <= 0) diff += 7;
+        d.setDate(d.getDate() + diff);
+      } else {
+        d.setDate(d.getDate() + 7);
+      }
+      break;
+    }
+    case 'biweekly':
+      d.setDate(d.getDate() + 14);
+      break;
+    case 'monthly': {
+      if (dayOfMonth != null) {
+        // 计算下个月指定几号
+        d.setMonth(d.getMonth() + 1);
+        d.setDate(Math.min(dayOfMonth, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+      } else {
+        d.setMonth(d.getMonth() + 1);
+      }
+      break;
+    }
+    default:
+      d.setMonth(d.getMonth() + 1);
   }
   return d.toISOString().slice(0, 10);
 }

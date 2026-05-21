@@ -65,6 +65,8 @@ export default function FrequencySetting({ value, onChange }: Props) {
     onChange(val);
     try {
       await settingService.updateSettings({ refreshFrequency: val });
+      // 通知Header刷新频率已变更
+      window.dispatchEvent(new CustomEvent('refresh-frequency-changed', { detail: { frequency: val } }));
       message.success('刷新频率已更新');
     } catch {
       message.error('保存失败');

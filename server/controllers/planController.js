@@ -13,7 +13,7 @@ exports.create = async (req, res, next) => {
   try {
     const { fundCode, amount, frequency, dayOfWeek, dayOfMonth } = req.body;
 
-    const nextRunDate = calcNextRunDate(new Date(), frequency);
+    const nextRunDate = calcNextRunDate(new Date(), frequency, dayOfWeek, dayOfMonth);
     const id = await InvestmentPlan.create({
       userId: req.user.id,
       fundCode,
@@ -41,7 +41,7 @@ exports.update = async (req, res, next) => {
       data.frequency = frequency;
       data.day_of_week = dayOfWeek || null;
       data.day_of_month = dayOfMonth || null;
-      data.next_run_date = calcNextRunDate(new Date(), frequency);
+      data.next_run_date = calcNextRunDate(new Date(), frequency, dayOfWeek, dayOfMonth);
     }
 
     await InvestmentPlan.update(id, req.user.id, data);
@@ -72,14 +72,38 @@ exports.delete = async (req, res, next) => {
   }
 };
 
-function calcNextRunDate(today, frequency) {
+function calcNextRunDate(today, frequency, dayOfWeek, dayOfMonth) {
   const d = new Date(today);
   switch (frequency) {
-    case 'daily': d.setDate(d.getDate() + 1); break;
-    case 'weekly': d.setDate(d.getDate() + 7); break;
-    case 'biweekly': d.setDate(d.getDate() + 14); break;
-    case 'monthly': d.setMonth(d.getMonth() + 1); break;
-    default: d.setMonth(d.getMonth() + 1);
+    case 'daily':
+      d.setDate(d.getDate() + 1);
+      break;
+    case 'weekly': {
+      if (dayOfWeek != null) {
+        const target = dayOfWeek;
+        const current = d.getDay() || 7;
+        let diff = target - current;
+        if (diff <= 0) diff += 7;
+        d.setDate(d.getDate() + diff);
+      } else {
+        d.setDate(d.getDate() + 7);
+      }
+      break;
+    }
+    case 'biweekly':
+      d.setDate(d.getDate() + 14);
+      break;
+    case 'monthly': {
+      if (dayOfMonth != null) {
+        d.setMonth(d.getMonth() + 1);
+        d.setDate(Math.min(dayOfMonth, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+      } else {
+        d.setMonth(d.getMonth() + 1);
+      }
+      break;
+    }
+    default:
+      d.setMonth(d.getMonth() + 1);
   }
   return d.toISOString().slice(0, 10);
 }

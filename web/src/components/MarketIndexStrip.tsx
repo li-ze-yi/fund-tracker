@@ -24,7 +24,6 @@ export default function MarketIndexStrip() {
   });
   const [indices, setIndices] = useState<IndexItem[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [scrollPos, setScrollPos] = useState(0);
 
   useEffect(() => {
     localStorage.setItem('ft_visible_indices', JSON.stringify(visibleCodes));
@@ -48,13 +47,23 @@ export default function MarketIndexStrip() {
     const el = scrollRef.current;
     if (!el) return;
     let pos = 0;
-    const interval = setInterval(() => {
-      pos += 0.4;
-      if (pos >= el.scrollWidth / 2) pos = 0;
-      setScrollPos(pos);
-      el.scrollTo({ left: pos, behavior: 'instant' as any });
-    }, 30);
-    return () => clearInterval(interval);
+    let rafId: number;
+    let lastTime = 0;
+    const speed = 0.02; // px per ms
+
+    const animate = (time: number) => {
+      if (lastTime) {
+        const delta = time - lastTime;
+        pos += speed * delta;
+        if (pos >= el.scrollWidth / 2) pos = 0;
+        el.scrollLeft = pos;
+      }
+      lastTime = time;
+      rafId = requestAnimationFrame(animate);
+    };
+
+    rafId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafId);
   }, [expanded, selectorOpen, visibleIndices.length]);
 
   const toggleIndex = (code: string) => {
@@ -209,47 +218,6 @@ export default function MarketIndexStrip() {
           </div>
         </div>
 
-        {/* 移动端响应式优化 */}
-        <style>{`
-          @media screen and (max-width: 768px) {
-            .market-index-strip {
-              padding: 6px 0 !important;
-            }
-            
-            .market-index-scroll {
-              gap: 16px !important;
-              padding: 4px 12px !important;
-            }
-            
-            .market-index-scroll > div {
-              gap: 3px !important;
-            }
-            
-            .market-index-scroll > div > span:first-child {
-              font-size: 11px !important;
-            }
-            
-            .market-index-scroll > div > span:nth-child(2) {
-              font-size: 12px !important;
-            }
-            
-            .market-index-scroll > div > span:nth-child(3),
-            .market-index-scroll > div > span:nth-child(4) {
-              font-size: 10px !important;
-            }
-            
-            .market-index-expanded {
-              gap: 6px !important;
-              padding: 8px 12px !important;
-            }
-            
-            .market-index-expanded > div {
-              min-width: calc(50% - 3px) !important;
-              max-width: calc(50% - 3px) !important;
-              padding: 6px 10px !important;
-            }
-          }
-        `}</style>
       </div>
 
       {selectorOpen && (

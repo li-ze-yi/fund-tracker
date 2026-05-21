@@ -24,7 +24,7 @@ interface FundHolding {
   // 更新状态字段（与自选页面一致）
   last_updated?: string | null;
   is_fresh?: boolean;
-  update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed';
+  update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market';
   data_source?: 'actual' | 'estimated';
   day_of_week?: string;
 }
@@ -302,89 +302,6 @@ export default function PortfolioPage() {
             </div>
           </div>
 
-          {/* 移动端响应式样式 */}
-          <style>{`
-            @media screen and (max-width: 768px) {
-              .portfolio-total-asset {
-                flex-direction: column !important;
-                align-items: flex-start !important;
-                padding: 10px 12px !important;  /* 从12px 14px减至10px 12px */
-                gap: 6px !important;  /* 从默认gap减小 */
-              }
-
-              .portfolio-total-asset > div:first-child {
-                margin-bottom: 4px !important;  /* 从8px减至4px */
-                width: 100% !important;
-              }
-
-              .portfolio-total-asset > div:last-child {
-                width: 100% !important;
-                justify-content: flex-start !important;
-                gap: 20px !important;  /* 保持收益间距 */
-              }
-
-              /* 汇总卡片字体缩小 */
-              .portfolio-total-asset > div:first-child > span:first-child {
-                font-size: 11px !important;  /* "总资产"标签：13px → 11px */
-              }
-
-              .portfolio-total-asset > div:first-child > span:last-child {
-                font-size: 18px !important;  /* 总资产金额：22px → 18px */
-                margin-left: 6px !important;  /* 间距缩小 */
-              }
-
-              .portfolio-total-asset > div:last-child > div > span:first-child {
-                font-size: 11px !important;  /* "当日/累计收益"标签：13px → 11px */
-              }
-
-              .portfolio-total-asset > div:last-child > div > span:last-child {
-                font-size: 13px !important;  /* 收益金额：15px → 13px */
-                margin-left: 5px !important;  /* 间距缩小 */
-              }
-
-              /* 保留表头（隐藏持仓金额列）- 优化列宽比例 */
-              .portfolio-table-header [data-col="fund_name"] {
-                flex: 2.2 !important;  /* 从2.0增至2.2（增加1个字宽度） */
-              }
-
-              .portfolio-table-header [data-col="market_value"] {
-                display: none !important;  /* 隐藏持仓金额表头 */
-              }
-
-              .portfolio-table-header [data-col="estimated_change"] {
-                flex: 1.3 !important;  /* 从1.4减至1.3 */
-              }
-
-              .portfolio-table-header [data-col="daily_profit"] {
-                flex: 1.3 !important;  /* 从1.4减至1.3 */
-              }
-
-              .portfolio-table-header [data-col="accumulated_profit"] {
-                flex: 1.5 !important;  /* 从1.3增至1.5 */
-              }
-
-              /* 表头字体缩小 */
-              .portfolio-table-header > div {
-                font-size: 11px !important;
-              }
-
-              /* 减小列表项间距 */
-              .fund-list-item-wrapper {
-                margin-bottom: 3px !important;  /* 从8px减至3px */
-              }
-
-              /* 优化移动端间距 */
-              .portfolio-group-switcher {
-                padding: 4px 8px !important;
-              }
-
-              /* 减小汇总卡片与分组按钮的间距 */
-              .portfolio-total-asset {
-                margin-top: 2px !important;  /* 从4px减至2px */
-              }
-            }
-          `}</style>
-
           <div
             className="glass-card portfolio-table-header"
             style={{
@@ -438,7 +355,7 @@ export default function PortfolioPage() {
           </div>
 
           {displayHoldings.map((fund, index) => (
-            <div key={fund.id || index} className="fund-list-item-wrapper" style={{ animation: `fadeInUp 0.35s ease-out ${index * 0.05}s both` }}>
+            <div key={fund.id || index} className="fund-list-item-wrapper">
               <FundListItem fund={fund} />
             </div>
           ))}

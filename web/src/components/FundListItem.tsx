@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Tag } from 'antd';
 
@@ -17,22 +18,53 @@ interface FundListItemProps {
     // 更新状态字段（4种状态：估算中/待确认/已确认/休市）
     last_updated?: string | null;
     is_fresh?: boolean;
-    update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed';
+    update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market';
     data_source?: 'actual' | 'estimated';
     day_of_week?: string;  // 非交易日时显示星期几
   };
   mode?: 'holding' | 'watchlist';
 }
 
-export default function FundListItem({ fund, mode = 'holding' }: FundListItemProps) {
+function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
   const navigate = useNavigate();
   const isUp = (fund.estimated_change ?? 0) >= 0;
 
-  // 渲染更新状态标记（4种状态：估算中/待确认/已确认/休市）
+  // 渲染更新状态标记（5种状态：估算中/待确认/已确认/休市/待开市）
   const renderUpdateIndicator = () => {
     const status = fund.update_status || 'estimating';
 
     switch (status) {
+      case 'pre_market':
+        // 🌅 待开市（蓝色）- 盘前等待开盘
+        return (
+          <span
+            data-label="待开市"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontSize: '10px',
+              fontWeight: 500,
+              color: '#3B82F6',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              background: 'rgba(59, 130, 246, 0.1)',
+              letterSpacing: '0.02em',
+            }}
+          >
+            <span
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: '#3B82F6',
+                display: 'inline-block',
+              }}
+            />
+            待开市
+          </span>
+        );
+
       case 'market_closed':
         // 🏁 休市（灰色）- 非交易日（周末/节假日）
         return (
@@ -173,7 +205,6 @@ export default function FundListItem({ fund, mode = 'holding' }: FundListItemPro
           borderRadius: 'var(--radius-sm)',
           cursor: 'pointer',
           background: 'var(--bg-card)',
-          backdropFilter: 'blur(12px)',
           border: '1px solid var(--border-subtle)',
           borderTopLeftRadius: 0,
           borderTopRightRadius: 0,
@@ -382,216 +413,8 @@ export default function FundListItem({ fund, mode = 'holding' }: FundListItemPro
         </div>
       </div>
 
-      {/* 移动端响应式优化 - 新布局策略 */}
-      <style>{`
-        @media screen and (max-width: 768px) {
-          .fund-list-item {
-            padding: 6px 10px !important;  /* 从8px 10px进一步减至6px 10px */
-            margin: 0 6px 2px !important;  /* 左右边距也减小 */
-            border-radius: var(--radius-md) !important;
-            border-top-left-radius: var(--radius-md) !important;
-            border-top-right-radius: var(--radius-md) !important;
-            gap: 4px !important;  /* 从5px减至4px */
-            align-items: center !important;  /* 恢复垂直居中对齐 */
-            line-height: 1.2 !important;  /* 统一行高 */
-            min-height: auto !important;  /* 移除最小高度限制 */
-            height: 48px !important;  /* 固定高度为48px */
-          }
-
-          /* 左侧信息区：减小内部间距 */
-          .fund-list-item > div[data-col="fund_name"] {
-            flex: 2.2 !important;
-            min-width: 0 !important;
-            display: flex !important;
-            flex-direction: column !important;
-            gap: 2px !important;  /* 从4px减至2px */
-            justify-content: center !important;  /* 垂直居中 */
-          }
-
-          /* 基金名称行：减小字体和间距 */
-          .fund-list-item > div[data-col="fund_name"] > div:first-child {
-            font-size: 12px !important;  /* 从13px减至12px */
-            line-height: 1.2 !important;
-            gap: 4px !important;
-          }
-          
-          /* 隐藏基金代码和类型tag */
-          .fund-list-item .fund-code-type-row {
-            display: none !important;
-          }
-
-          /* 隐藏基金名称行的已确认/估算中/待确认等状态标签 */
-          .fund-list-item .fund-name-row > span:last-child,
-          .fund-list-item .fund-name-row > span:nth-child(2) {
-            display: none !important;
-          }
-
-          /* 显示持仓金额和状态标签行 */
-          .fund-list-item .mobile-amount-status-row {
-            display: flex !important;
-            align-items: center !important;
-            gap: 3px !important;  /* 从4px减至3px */
-            overflow: visible !important;
-            flex-wrap: nowrap !important;
-            font-size: 10px !important;  /* 减小金额字体 */
-          }
-
-          /* 状态标签样式优化 */
-          .fund-list-item .mobile-amount-status-row > span:last-child {
-            font-size: 8px !important;  /* 从9px进一步减小 */
-            padding: 1px 3px !important;  /* 进一步缩小 */
-            gap: 2px !important;
-            flex-shrink: 0 !important;
-            min-width: auto !important;
-            max-width: none !important;
-            display: inline-flex !important;
-          }
-
-          /* 状态标签文字显示 */
-          .fund-list-item .mobile-amount-status-row > span:last-child::after {
-            display: none !important;  /* 不使用::after伪元素 */
-          }
-
-          /* 暂时禁用容器查询的自动隐藏逻辑，确保状态标签始终可见 */
-          /* 如果后续需要自适应功能，可以重新启用并调整阈值 */
-
-          /*
-          // 以下容器查询逻辑已禁用，避免误隐藏状态标签
-          @supports (container-type: inline-size) {
-            .fund-list-item > div[data-col="fund_name"] {
-              container-type: inline-size;
-              container-name: fund-name-container;
-            }
-
-            @container fund-name-container (max-width: 180px) {
-              .mobile-amount-status-row > span:last-child {
-                padding: 1px 3px !important;
-                min-width: 14px !important;
-                width: 14px !important;
-                justify-content: center !important;
-              }
-
-              .mobile-amount-status-row > span:last-child::after {
-                content: "" !important;
-              }
-            }
-
-            @container fund-name-container (max-width: 150px) {
-              .mobile-amount-status-row > span:last-child {
-                display: none !important;
-              }
-            }
-          }
-
-          @supports not (container-type: inline-size) {
-            @media screen and (max-width: 380px) {
-              .fund-list-item .mobile-amount-status-row > span:last-child {
-                padding: 1px 3px !important;
-                min-width: 14px !important;
-                width: 14px !important;
-                justify-content: center !important;
-              }
-
-              .fund-list-item .mobile-amount-status-row > span:last-child::after {
-                content: "" !important;
-              }
-            }
-
-            @media screen and (max-width: 350px) {
-              .fund-list-item .mobile-amount-status-row > span:last-child {
-                display: none !important;
-              }
-            }
-          }
-          */
-
-          /* 右侧数据区：调整列宽比例和字体大小 */
-          .fund-list-item > div[data-col="market_value"] {
-            display: none !important;  /* 隐藏原来的独立持仓金额列 */
-          }
-
-          .fund-list-item > div[data-col="estimated_change"] {
-            flex: 1.4 !important;
-            text-align: right !important;
-          }
-
-          .fund-list-item > div[data-col="estimated_change"] > span {
-            font-size: 12px !important;  /* 从13px减至12px */
-          }
-
-          .fund-list-item > div[data-col="daily_profit"] {
-            flex: 1.4 !important;
-            text-align: right !important;
-          }
-
-          .fund-list-item > div[data-col="daily_profit"] > div {
-            font-size: 11px !important;  /* 从12px减至11px */
-          }
-
-          .fund-list-item > div[data-col="accumulated_profit"] {
-            flex: 1.5 !important;  /* 从1增至1.5 */
-            text-align: right !important;
-          }
-          
-          /* 字体缩小 */
-          .fund-list-item > div[data-col="estimated_change"] > span {
-            font-size: 13px !important;
-          }
-          
-          .fund-list-item > div[data-col="daily_profit"] > div {
-            font-size: 12px !important;
-          }
-          
-          .fund-list-item > div[data-col="accumulated_profit"] > div:first-child {
-            font-size: 12px !important;
-          }
-          
-          .fund-list-item > div[data-col="accumulated_profit"] > div:last-child {
-            font-size: 10px !important;
-          }
-
-          /* 优化收益数字字体自适应，防止跨行 */
-          .fund-list-item .profit-amount {
-            white-space: nowrap !important;  /* 防止换行 */
-            font-size: clamp(9px, 2vw, 12px) !important;  /* 从14px减至12px最大值 */
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;  /* 超长时省略号 */
-            display: inline-flex !important;
-            align-items: center !important;
-            line-height: 1 !important;
-          }
-
-          .fund-list-item .profit-percent {
-            white-space: nowrap !important;  /* 防止换行 */
-            font-size: clamp(7px, 1.6vw, 10px) !important;  /* 从11px减至10px最大值 */
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-            display: inline-flex !important;
-            align-items: center !important;
-            line-height: 1 !important;
-          }
-
-          /* 统一估算涨幅（span）的对齐方式 */
-          .fund-list-item .change-percent {
-            display: inline-flex !important;
-            align-items: center !important;
-            line-height: 1 !important;
-            vertical-align: bottom !important;
-            font-size: clamp(9px, 2.2vw, 13px) !important;  /* 从15px减至13px */
-          }
-
-          /* 统一所有数据列容器的垂直对齐 */
-          .fund-list-item > div[data-col="estimated_change"],
-          .fund-list-item > div[data-col="daily_profit"],
-          .fund-list-item > div[data-col="accumulated_profit"] {
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: center !important;  /* 改为垂直居中 */
-            align-items: flex-end !important;
-            gap: 0 !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }
+
+export default memo(FundListItemInner);

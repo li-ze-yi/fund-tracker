@@ -1,7 +1,7 @@
 -- ============================================================
 -- 养基发财 - Fund Tracker 数据库初始化脚本
 -- 数据库：real_time | 字符集：utf8mb4 | 引擎：InnoDB
--- 生成时间：2026-05-16（v3 - 新增 total_cost/total_return）
+-- 生成时间：2026-05-21（v4 - 定投计划支持biweekly频率，交易记录增加note字段）
 -- ============================================================
 
 CREATE DATABASE IF NOT EXISTS `real_time`
@@ -90,6 +90,7 @@ CREATE TABLE `transactions` (
   `price` decimal(18,4) NOT NULL,
   `amount` decimal(18,4) NOT NULL,
   `fee` decimal(18,4) NOT NULL DEFAULT '0.0000',
+  `note` varchar(500) DEFAULT NULL COMMENT '交易备注（auto_plan:{planId} 标记自动定投）',
   `transaction_date` date NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -120,7 +121,7 @@ CREATE TABLE `investment_plans` (
   `user_id` int NOT NULL,
   `fund_code` varchar(10) NOT NULL,
   `amount` decimal(18,4) NOT NULL,
-  `frequency` enum('daily','weekly','monthly') NOT NULL,
+  `frequency` enum('daily','weekly','biweekly','monthly') NOT NULL,
   `day_of_week` tinyint DEFAULT NULL,
   `day_of_month` tinyint DEFAULT NULL,
   `status` enum('active','paused','cancelled') NOT NULL DEFAULT 'active',

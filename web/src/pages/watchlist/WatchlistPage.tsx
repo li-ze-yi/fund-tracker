@@ -18,7 +18,7 @@ interface FavoriteItem {
   // 更新状态字段（与持仓页面一致）
   last_updated?: string | null;
   is_fresh?: boolean;
-  update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed';
+  update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market';
   data_source?: 'actual' | 'estimated';
   day_of_week?: string;
 }
@@ -119,30 +119,6 @@ export default function WatchlistPage() {
 
   return (
     <div className="watchlist-page" style={{ padding: '20px 0' }}>
-      {/* 移动端响应式优化样式 */}
-      <style>{`
-        @media screen and (max-width: 768px) {
-          .watchlist-page {
-            padding: 12px 0 !important;
-          }
-
-          .watchlist-title {
-            font-size: clamp(18px, 5vw, 22px) !important;
-            padding: 0 8px !important;
-            margin-bottom: 10px !important;
-          }
-
-          /* 空状态 */
-          .watchlist-empty {
-            margin-top: 50px !important;
-          }
-
-          .watchlist-empty-description {
-            font-size: clamp(13px, 3.2vw, 14px) !important;
-          }
-        }
-      `}</style>
-
       <div className="watchlist-title" style={{
         padding: '0 16px 12px',
         fontSize: 22,

@@ -14,6 +14,7 @@ const statusMap: Record<string, { color: string; text: string }> = {
 const freqMap: Record<string, string> = {
   daily: '每日',
   weekly: '每周',
+  biweekly: '每两周',
   monthly: '每月',
 };
 
