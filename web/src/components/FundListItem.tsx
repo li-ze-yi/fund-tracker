@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Tag } from 'antd';
+import { useHideAmountStore } from '@/store/hideAmountStore';
 
 interface FundListItemProps {
   fund: {
@@ -28,6 +29,7 @@ interface FundListItemProps {
 function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
   const navigate = useNavigate();
   const isUp = (fund.estimated_change ?? 0) >= 0;
+  const hideAmount = useHideAmountStore((s) => s.hidden);
 
   // 渲染更新状态标记（5种状态：估算中/待确认/已确认/休市/待开市）
   const renderUpdateIndicator = () => {
@@ -273,7 +275,7 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
                 padding: '1px 5px',
                 borderRadius: 3,
               }}>
-                净值 {fund.net_value.toFixed(4)}
+                净值 {hideAmount ? '****' : fund.net_value.toFixed(4)}
               </span>
             )}
             {fund.last_updated && (
@@ -312,7 +314,7 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
             opacity: 0.7,
             fontFamily: 'var(--font-mono)',
           }}>
-            {isUp ? '+' : ''}{((fund.estimated_change ?? 0) * (fund.net_value || 1) / 100).toFixed(4)}
+            {hideAmount ? '****' : `${isUp ? '+' : ''}${((fund.estimated_change ?? 0) * (fund.net_value || 1) / 100).toFixed(4)}`}
           </span>
         </div>
 
@@ -380,7 +382,7 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
         {/* 移动端：持仓金额 + 状态标签行 */}
         <div className="mobile-amount-status-row" style={{ display: 'none' }}>
           <span className="number-tabular" style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-            ¥{(fund.market_value ?? 0).toLocaleString()}
+            {hideAmount ? '****' : `¥${(fund.market_value ?? 0).toLocaleString()}`}
           </span>
           {renderUpdateIndicator()}
         </div>
@@ -388,7 +390,7 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
 
       <div style={{ flex: 1, textAlign: 'right' }} data-col="market_value" className="number-tabular">
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
-          ¥{(fund.market_value ?? 0).toLocaleString()}
+          {hideAmount ? '****' : `¥${(fund.market_value ?? 0).toLocaleString()}`}
         </div>
       </div>
 
@@ -400,13 +402,13 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
 
       <div className="number-tabular" style={{ flex: 1, textAlign: 'right' }} data-col="daily_profit">
         <div className="profit-amount" style={{ fontSize: 14, fontWeight: 600, color: isDailyUp ? 'var(--gain)' : 'var(--loss)', fontFamily: 'var(--font-mono)' }}>
-          {isDailyUp ? '+' : ''}¥{(fund.daily_profit ?? 0).toFixed(2)}
+          {hideAmount ? '****' : `${isDailyUp ? '+' : '-'}¥${Math.abs(fund.daily_profit ?? 0).toFixed(2)}`}
         </div>
       </div>
 
       <div className="number-tabular" style={{ flex: 1.1, textAlign: 'right' }} data-col="accumulated_profit">
         <div className="profit-amount" style={{ fontSize: 14, fontWeight: 600, color: isAccumulatedUp ? 'var(--gain)' : 'var(--loss)', fontFamily: 'var(--font-mono)' }}>
-          {isAccumulatedUp ? '+' : ''}¥{(fund.accumulated_profit ?? 0).toFixed(2)}
+          {hideAmount ? '****' : `${isAccumulatedUp ? '+' : '-'}¥${Math.abs(fund.accumulated_profit ?? 0).toFixed(2)}`}
         </div>
         <div className="profit-percent" style={{ fontSize: 11, fontWeight: 400, color: isAccumulatedUp ? 'var(--gain)' : 'var(--loss)', opacity: 0.6, marginTop: 1, fontFamily: 'var(--font-mono)' }}>
           ({isAccumulatedUp ? '+' : ''}{totalReturnPct.toFixed(2)}%)

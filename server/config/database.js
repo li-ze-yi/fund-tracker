@@ -12,12 +12,16 @@ const pool = mysql.createPool({
   waitForConnections: true,
   queueLimit: 0,
   maxIdle: 10,
-  idleTimeout: 60000,
+  idleTimeout: 600000,  // 10分钟（原60秒太短导致频繁重连）
 });
 
 // 添加连接池错误处理
+let connectionCount = 0;
 pool.on('connection', (connection) => {
-  console.log('MySQL connection established');
+  connectionCount++;
+  if (connectionCount <= 3) {
+    console.log(`MySQL connection established (${connectionCount}/${pool.pool._config.connectionLimit})`);
+  }
 });
 
 pool.on('error', (err) => {

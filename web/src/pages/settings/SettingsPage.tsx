@@ -4,6 +4,7 @@ import { UploadOutlined, DownloadOutlined, SettingOutlined } from '@ant-design/i
 import { settingService } from '@/services/settingService';
 import { importExportService } from '@/services/importExportService';
 import { useThemeStore } from '@/store/themeStore';
+import { useHideAmountStore } from '@/store/hideAmountStore';
 import FrequencySetting from '@/components/modals/FrequencySetting';
 import ImportPreviewModal from '@/components/modals/ImportPreviewModal';
 import ExportSettingModal from '@/components/modals/ExportSettingModal';
@@ -17,6 +18,8 @@ export default function SettingsPage() {
   const { message } = App.useApp();
   const themeMode = useThemeStore((s) => s.mode);
   const setThemeMode = useThemeStore((s) => s.setMode);
+  const hideAmount = useHideAmountStore((s) => s.hidden);
+  const setHideAmount = useHideAmountStore((s) => s.setHidden);
 
   useEffect(() => {
     settingService.getSettings().then((data) => {
@@ -125,6 +128,23 @@ export default function SettingsPage() {
             onChange={(checked) => setThemeMode(checked ? 'dark' : 'light')}
             checkedChildren="🌙"
             unCheckedChildren="☀"
+          />
+        </div>
+      </Card>
+
+      <Card
+        className="settings-card"
+        title="隐私设置" style={{ marginBottom: 20, background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }} styles={{ title: { color: 'var(--text-primary)', fontWeight: 600 } }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)' }}>隐藏金额</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>隐藏所有基金金额和收益数据</div>
+          </div>
+          <Switch
+            checked={hideAmount}
+            onChange={(checked) => setHideAmount(checked)}
+            checkedChildren="隐藏"
+            unCheckedChildren="显示"
           />
         </div>
       </Card>

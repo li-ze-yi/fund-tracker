@@ -136,6 +136,10 @@ export default function GroupSwitcher({ activeId, onChange }: GroupSwitcherProps
 
       {/* 移动端响应式优化 */}
       <style>{`
+        .group-amount {
+          display: none !important;
+        }
+
         .group-switcher-container {
           -ms-overflow-style: none;
           scrollbar-width: none;
@@ -173,11 +177,6 @@ export default function GroupSwitcher({ activeId, onChange }: GroupSwitcherProps
             padding: 6px 14px !important;
             font-size: 12px !important;
             scroll-snap-align: start;
-          }
-
-          /* 隐藏分组金额 */
-          .group-amount {
-            display: none !important;
           }
         }
       `}</style>

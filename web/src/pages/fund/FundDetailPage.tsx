@@ -355,7 +355,7 @@ export default function FundDetailPage() {
         const num = Number(v || 0);
         let displayNum: string;
         let fontSize: number;
-        
+
         if (num >= 1000000) {
           displayNum = '¥' + (num / 1000000).toFixed(2) + '百万';
           fontSize = isMobile ? 10 : 12;
@@ -369,12 +369,12 @@ export default function FundDetailPage() {
           displayNum = '¥' + num.toLocaleString();
           fontSize = isMobile ? 11 : 13;
         }
-        
+
         return (
-          <span 
-            className="number-tabular" 
-            style={{ 
-              fontSize: fontSize, 
+          <span
+            className="number-tabular"
+            style={{
+              fontSize: fontSize,
               fontWeight: 600,
               overflow: 'hidden',
               textOverflow: 'ellipsis',

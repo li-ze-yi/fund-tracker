@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button, Tag, Empty, List, Popconfirm, App, Space } from 'antd';
 import { PlusOutlined, PauseCircleOutlined, PlayCircleOutlined, DeleteOutlined, CalendarOutlined, DollarOutlined, SyncOutlined, EditOutlined } from '@ant-design/icons';
 import { planService } from '@/services/planService';
+import { useHideAmountStore } from '@/store/hideAmountStore';
 import CreatePlanModal from '@/components/modals/CreatePlanModal';
 import EditPlanModal from '@/components/modals/EditPlanModal';
 
@@ -38,6 +39,7 @@ export default function InvestmentPlanPage() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<any>(null);
   const { message } = App.useApp();
+  const hideAmount = useHideAmountStore((s) => s.hidden);
 
   const loadPlans = async () => {
     setLoading(true);
@@ -337,7 +339,7 @@ export default function InvestmentPlanPage() {
                 <div className="plan-card-info">
                   <span className="plan-info-item">
                     <DollarOutlined />
-                    <span className="plan-info-value amount">¥{Number(plan.amount).toLocaleString()}</span>
+                    <span className="plan-info-value amount">{hideAmount ? '****' : `¥${Number(plan.amount).toLocaleString()}`}</span>
                   </span>
                   <span className="plan-info-item">
                     <SyncOutlined />

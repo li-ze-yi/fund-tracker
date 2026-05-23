@@ -3,6 +3,7 @@ import { Card, Segmented, Table, Skeleton, Empty } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { statsService } from '@/services/statsService';
 import { useThemeStore } from '@/store/themeStore';
+import { useHideAmountStore } from '@/store/hideAmountStore';
 
 type Period = 'daily' | 'monthly' | 'yearly';
 
@@ -145,6 +146,7 @@ export default function StatsPage() {
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
   const themeMode = useThemeStore((s) => s.mode);
   const isLight = themeMode === 'light';
+  const hideAmount = useHideAmountStore((s) => s.hidden);
 
   const chartOption = {
     backgroundColor: 'transparent',
@@ -332,7 +334,7 @@ export default function StatsPage() {
               fontFamily: 'var(--font-mono)',
             }}
           >
-            {isUp ? '+' : ''}¥{(v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {isUp ? '+' : ''}{hideAmount ? '****' : `¥${(v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           </span>
         );
       },
@@ -377,7 +379,7 @@ export default function StatsPage() {
               fontFamily: 'var(--font-mono)',
             }}
           >
-            {isUp ? '+' : ''}¥{(v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {isUp ? '+' : ''}{hideAmount ? '****' : `¥${(v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           </span>
         );
       },
@@ -556,7 +558,7 @@ export default function StatsPage() {
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
             }}>
-              {formatLargeNumber(summary.total_profit ?? 0).text}
+              {hideAmount ? '****' : formatLargeNumber(summary.total_profit ?? 0).text}
             </div>
           </div>
 
@@ -605,7 +607,7 @@ export default function StatsPage() {
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
             }}>
-              {(summary.max_profit ?? 0) > 0 ? '+' : ''}¥{Math.abs(summary.max_profit ?? 0).toFixed(2)}
+              {(summary.max_profit ?? 0) > 0 ? '+' : ''}{hideAmount ? '****' : `¥${Math.abs(summary.max_profit ?? 0).toFixed(2)}`}
             </div>
           </div>
 
@@ -629,7 +631,7 @@ export default function StatsPage() {
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
             }}>
-              {(summary.min_profit ?? 0) < 0 ? '-' : ''}¥{Math.abs(summary.min_profit ?? 0).toFixed(2)}
+              {(summary.min_profit ?? 0) < 0 ? '-' : ''}{hideAmount ? '****' : `¥${Math.abs(summary.min_profit ?? 0).toFixed(2)}`}
             </div>
           </div>
 

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Empty, Alert, Button, Skeleton } from 'antd';
-import { SearchOutlined, ReloadOutlined, SettingOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
+import { SearchOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { holdingService } from '@/services/holdingService';
 import { settingService } from '@/services/settingService';
+import { useHideAmountStore } from '@/store/hideAmountStore';
 import MarketIndexStrip from '@/components/MarketIndexStrip';
 import GroupSwitcher from '@/components/GroupSwitcher';
 import FundListItem from '@/components/FundListItem';
@@ -48,6 +49,8 @@ export default function PortfolioPage() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>(null);
   const isLoadingRef = useRef(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hideAmount = useHideAmountStore((s) => s.hidden);
+  const toggleHideAmount = useHideAmountStore((s) => s.toggle);
 
   const loadHoldings = useCallback(async (forceRefresh = false) => {
     if (isLoadingRef.current && !forceRefresh) return;
@@ -263,14 +266,20 @@ export default function PortfolioPage() {
           }}>
             <div style={{ marginBottom: 4 }}>
               <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 500 }}>总资产</span>
-              <span className="number-tabular" style={{
-                fontSize: 22,
-                fontWeight: 800,
-                color: 'var(--text-primary)',
-                fontFamily: 'var(--font-mono)',
-                marginLeft: 10,
-              }}>
-                ¥{totalAsset.toLocaleString()}
+              <span
+                className="number-tabular"
+                onClick={toggleHideAmount}
+                style={{
+                  fontSize: 22,
+                  fontWeight: 800,
+                  color: 'var(--text-primary)',
+                  fontFamily: 'var(--font-mono)',
+                  marginLeft: 10,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+              >
+                {hideAmount ? '****' : `¥${totalAsset.toLocaleString()}`}
               </span>
             </div>
 
@@ -284,7 +293,7 @@ export default function PortfolioPage() {
                   fontFamily: 'var(--font-mono)',
                   marginLeft: 8,
                 }}>
-                  {totalDaily >= 0 ? '+' : ''}¥{totalDaily.toFixed(2)}
+                  {hideAmount ? '****' : `${totalDaily >= 0 ? '+' : ''}¥${totalDaily.toFixed(2)}`}
                 </span>
               </div>
               <div>
@@ -296,7 +305,7 @@ export default function PortfolioPage() {
                   fontFamily: 'var(--font-mono)',
                   marginLeft: 8,
                 }}>
-                  {totalAccumulated >= 0 ? '+' : ''}¥{totalAccumulated.toFixed(2)}
+                  {hideAmount ? '****' : `${totalAccumulated >= 0 ? '+' : ''}¥${totalAccumulated.toFixed(2)}`}
                 </span>
               </div>
             </div>
@@ -339,15 +348,15 @@ export default function PortfolioPage() {
                   onClick={() => col.key !== 'fund_name' && handleSort(col.key)}
                 >
                   <span>{col.label}</span>
-                  {col.key !== 'fund_name' && sortField === col.key && sortDir && (
-                    <span style={{ fontSize: 11, lineHeight: 1, opacity: 0.7 }}>
-                      {sortDir === 'desc'
-                        ? <SortDescendingOutlined />
-                        : <SortAscendingOutlined />}
+                  {col.key !== 'fund_name' && (
+                    <span style={{ display: 'inline-flex', flexDirection: 'column', fontSize: 8, lineHeight: 0.85 }}>
+                      <span style={{
+                        color: sortField === col.key && sortDir === 'asc' ? '#fbcc56' : 'var(--text-dim)',
+                      }}>▲</span>
+                      <span style={{
+                        color: sortField === col.key && sortDir === 'desc' ? '#fbcc56' : 'var(--text-dim)',
+                      }}>▼</span>
                     </span>
-                  )}
-                  {col.key !== 'fund_name' && (!sortField || sortField !== col.key) && (
-                    <span style={{ fontSize: 9, lineHeight: 1, color: 'var(--text-dim)' }}>↕</span>
                   )}
                 </div>
               ))}

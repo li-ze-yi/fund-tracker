@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.fundtracker.app',
-  appName: 'FundTracker',
+  appName: '养基发财',
   webDir: 'dist',
   server: {
     androidScheme: 'https',
