@@ -7,6 +7,45 @@ function isWeekend(date) {
   return day === 0 || day === 6;
 }
 
+/**
+ * 基于实时数据判断单只基金的市场状态
+ * 核心逻辑：如果全局市场开市（A股开市），但该基金的实时数据 updateTime 不是今天，
+ * 说明该基金所在的市场今天休市（如港股/美股节假日）
+ * 这种方式不依赖基金名称/类型识别，适用于所有基金
+ */
+function getFundMarketStatus(realTimeData, globalMarketStatus) {
+  const now = new Date();
+  const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+  // 全局休市（周末/A股节假日）→ 所有基金都休市
+  if (!globalMarketStatus.isMarketOpen) {
+    return globalMarketStatus;
+  }
+
+  // 全局开市，但有实时数据 → 检查 updateTime 是否为今天
+  if (realTimeData && realTimeData.updateTime) {
+    // gztime 格式: "2024-01-15 14:30"（北京时间）
+    const updateDate = (realTimeData.updateTime || '').split(' ')[0];
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    if (updateDate === todayStr) {
+      // 实时数据是今天的 → 市场今天有开市
+      return { isMarketOpen: true, reason: 'normal' };
+    }
+
+    // 实时数据不是今天的 → 该基金所在市场今天休市
+    return {
+      isMarketOpen: false,
+      reason: 'holiday',
+      dayOfWeek: dayNames[now.getDay()],
+      message: '非交易日'
+    };
+  }
+
+  // 全局开市，但没有实时数据 → 保持全局状态（A股基金正常开市）
+  return globalMarketStatus;
+}
+
 async function checkMarketStatus(holdings) {
   if (!holdings || holdings.length === 0) {
     return { isMarketOpen: true, reason: 'no_data' };
@@ -196,17 +235,23 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false) {
     })
   );
 
-  const result = enrichedWithAllData.map(holding => ({
-    ...holding,
-    ...calculateHoldingMetrics(
-      holding, 
-      holding.realTimeData, 
-      holding._confirmed,
-      holding._confirmedNav,
-      marketStatus,
-      holding._yesterdayNav
-    )
-  }));
+  const result = enrichedWithAllData.map(holding => {
+    // 为每只基金独立判断市场状态：基于实时数据的 updateTime 判断
+    // 如果全局开市但该基金 updateTime 不是今天，说明该基金所在市场休市
+    const fundMarketStatus = getFundMarketStatus(holding.realTimeData, marketStatus);
+
+    return {
+      ...holding,
+      ...calculateHoldingMetrics(
+        holding,
+        holding.realTimeData,
+        holding._confirmed,
+        holding._confirmedNav,
+        fundMarketStatus,
+        holding._yesterdayNav
+      )
+    };
+  });
 
   const endTime = Date.now();
   const duration = endTime - startTime;
@@ -322,5 +367,6 @@ module.exports = {
   enrichHoldingsWithRealTimeData,
   calculateHoldingMetrics,
   checkMarketStatus,
-  clearAllCache
+  clearAllCache,
+  getFundMarketStatus
 };

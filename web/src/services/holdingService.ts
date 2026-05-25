@@ -17,6 +17,9 @@ export const holdingService = {
   updateHoldingGroup: (id: number, groupId: number) =>
     api.put(`/holdings/${id}`, { groupId }).then((r) => r.data),
 
+  updateHolding: (id: number, data: { fundCode: string; amount: number; totalReturn: number }) =>
+    api.put(`/holdings/${id}`, data).then((r) => r.data),
+
   deleteHolding: (id: number) =>
     api.delete(`/holdings/${id}`).then((r) => r.data),
 };

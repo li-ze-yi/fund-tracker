@@ -745,13 +745,24 @@ const deleteFund = async (fundId: number) => {
 ```
 用户操作 → GroupManageModal → API调用 → 成功回调 → 状态更新
                                                     ↓
+                                              notifyDataChanged()
+                                              (派发 data-changed 事件)
+                                                    ↓
                                               onDataChange()
                                                     ↓
                                               PortfolioPage (父组件)
                                                     ↓
                                             监听 'data-changed' 事件
                                                     ↓
-                                              重新加载分组/持仓数据
+                                              重新加载持仓数据
+                                                    ↓
+                                                  UI自动刷新
+
+                                            GroupSwitcher
+                                                    ↓
+                                            监听 'data-changed' 事件
+                                                    ↓
+                                              重新加载分组数据
                                                     ↓
                                                   UI自动刷新
 ```
@@ -763,6 +774,8 @@ const deleteFund = async (fundId: number) => {
 | Bug ID | 问题描述 | 修复方案 | 状态 |
 |--------|----------|----------|------|
 | FIX-011 | Select options的value不能为null | 将`null`改为`-1`作为特殊值 | ✅ 已修复 |
+| FIX-012 | 新建/删除/修改分组后GroupSwitcher不刷新 | 新增`notifyDataChanged()`方法，操作成功后派发`data-changed`事件 | ✅ 已修复(v2.9) |
+| FIX-013 | antd Select `dropdownStyle` 弃用警告 | 替换为`styles={{ popup: { root: { minWidth: 140 } } }}` | ✅ 已修复(v2.9) |
 
 **修复详情**:
 ```diff
@@ -1362,19 +1375,32 @@ const loadHoldings = useCallback(async (forceRefresh = false) => {
 
 ### 3.3 useEffect 优化
 
-#### 移除事件监听器
+#### 事件监听器（v2.9 更新）
 
-**删除的代码：**
+**v2.4 删除了导致循环的 `data-changed` 监听，v2.9 重新添加了正确的 `data-changed` 监听：**
+
 ```typescript
-// ❌ 已删除（导致循环请求）
+// v2.4 删除（导致循环请求）
+// useEffect(() => {
+//   const handleDataChange = () => { loadHoldings(); };  // 循环触发
+//   window.addEventListener('data-changed', handleDataChange);
+//   return () => window.removeEventListener('data-changed', handleDataChange);
+// }, [loadHoldings]);
+
+// v2.9 重新添加（正确的实现，使用 forceRefresh 避免循环）
 useEffect(() => {
-  const handleDataChange = () => {
-    loadHoldings();  // 循环触发
+  const handleManualRefresh = () => { loadHoldings(true); };
+  const handleDataChanged = () => { loadHoldings(true); };
+  window.addEventListener('manual-refresh', handleManualRefresh);
+  window.addEventListener('data-changed', handleDataChanged);
+  return () => {
+    window.removeEventListener('manual-refresh', handleManualRefresh);
+    window.removeEventListener('data-changed', handleDataChanged);
   };
-  window.addEventListener('data-changed', handleDataChange);
-  return () => window.removeEventListener('data-changed', handleDataChange);
 }, [loadHoldings]);
 ```
+
+**v2.9 修复说明**：v2.4 删除 `data-changed` 监听是因为旧版 `loadHoldings` 成功后会再次派发 `data-changed` 事件导致循环。v2.4 重写 `loadHoldings` 后移除了事件派发，因此 v2.9 重新添加 `data-changed` 监听不再有循环风险。此修复解决了添加持仓后页面不自动刷新的问题。
 
 **保留的代码：**
 ```typescript
@@ -1665,7 +1691,26 @@ v2.4后：
 
 ### 1.3 当日收益（daily_profit）
 
-无变化，仍基于实时估值涨幅计算。
+| 场景 | v2.4行为 | v2.5行为 | v2.10行为 | 变化 |
+|------|---------|---------|-----------|------|
+| 盘中估算 | 估算涨幅反推 | 估算涨幅反推 | 估算涨幅反推 | 无变化 |
+| 确认净值已出 | 估算涨幅反推 | 估算涨幅反推 | **净值差精确计算** | 🔴 v2.10重大变更 |
+
+**v2.10 当日收益双条件公式**：
+```javascript
+// 确认净值可用时（优先）
+if (isConfirmed && confirmedNav > 0 && yesterdayNav > 0) {
+  dailyGain = shares * (confirmedNav - yesterdayNav);
+  gainPercent = ((confirmedNav - yesterdayNav) / yesterdayNav) * 100;
+}
+// 盘中估算时（回退）
+else if (realTimeData && realTimeData.gainPercent != null) {
+  gainPercent = realTimeData.gainPercent;
+  dailyGain = marketValue * gainPercent / (100 + gainPercent);
+}
+```
+
+**新增字段**：`_yesterdayNav`（上一交易日净值，从 `historyData[1].nav` 获取）
 
 ---
 
@@ -1705,7 +1750,7 @@ v2.4后：
 ---
 
 **文档维护者**: Backend Team  
-**最后更新**: 2026-05-16 (v2.5)  
+**最后更新**: 2026-05-25 (v2.10)  
 **关联文档**: [CHANGE_SUMMARY_v2.5.md](./CHANGE_SUMMARY_v2.5.md) | [PRD.md 附录G](./PRD.md)
 
 ---
@@ -2005,5 +2050,1147 @@ const handleEdit = (plan: any) => {
 ---
 
 **文档维护者**: Frontend Team  
-**最后更新**: 2026-05-17 (v2.7)  
+**最后更新**: 2026-05-19 (v2.9)  
 **关联文档**: [CHANGE_SUMMARY_v2.6.md](./CHANGE_SUMMARY_v2.6.md) | [progress.md](./progress.md)
+
+---
+
+## v3.0 组件变更详情 ⭐ 2026-05-21
+
+> **变更主题**: 移动端性能深度优化
+> **涉及组件**: Header, FundListItem, BottomTabBar, MarketIndexStrip, FrequencySetting
+
+### 变更概览
+
+| 组件 | 变更类型 | 影响范围 | 优先级 |
+|------|---------|---------|--------|
+| Header | 🔄 重大重构 | SVG能量按钮→CSS进度环 | 🔴 高 |
+| FundListItem | 🔧 性能优化 | memo化 + 移除内联style + 移除backdrop-filter | 🔴 高 |
+| BottomTabBar | 🔧 性能优化 | 移除backdrop-filter | 🟠 中 |
+| MarketIndexStrip | 🔧 性能优化 | rAF替代setInterval + 移除内联style | 🟠 中 |
+| FrequencySetting | ✨ 功能增强 | 刷新频率变更事件通知 | 🟡 低 |
+
+---
+
+### 1. Header组件 v3.0更新
+
+#### 文件位置
+`web/src/components/Header.tsx`
+
+#### 变更统计
+- **核心变更**: SVG能量按钮完全替换为CSS进度环
+- **删除代码**: ~120行（SVG粒子动画、SVG滤镜、8+粒子计算逻辑）
+- **新增代码**: ~30行（CSS conic-gradient进度环 + 渐变背景 + 发光效果）
+- **新增导入**: useCallback, useMemo from react
+- **新增事件**: refresh-frequency-changed 监听
+
+#### 1.1 SVG能量按钮 → CSS进度环
+
+**修改前**: 复杂SVG含8+粒子动画、feGaussianBlur滤镜、drop-shadow链、每秒重渲染
+**修改后**: CSS conic-gradient进度环 + ReloadOutlined图标
+
+```tsx
+// 新实现核心
+<div style={{
+  borderRadius: '50%',
+  background: refreshing
+    ? 'linear-gradient(135deg, rgba(212,168,75,0.25), rgba(184,134,11,0.15))'
+    : `linear-gradient(135deg, rgba(212,168,75,${0.05 + progressPercent * 0.002}), ...)`,
+  boxShadow: refreshing ? '0 0 12px rgba(212,168,75,0.3), ...' : ...,
+}}>
+  <div style={{
+    background: `conic-gradient(from -90deg, #F0D78C ${progressPercent * 0.3}%, #D4A84B ${progressPercent * 0.7}%, #B8860B ${progressPercent}%, rgba(212,168,75,0.1) ${progressPercent}%)`,
+    WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px))',
+  }} />
+  <ReloadOutlined spin={refreshing} />
+</div>
+```
+
+#### 1.2 刷新动画系统
+
+| 动画 | CSS类名 | 效果 | 触发条件 |
+|------|---------|------|---------|
+| 进度环脉冲 | `.urgent .energy-ring` | opacity 1→0.6→1 循环 | countdown < 15% |
+| 弹跳缩放 | `.refreshing` | scale 1→0.85→1.15→1 | refreshing=true |
+| 涟漪扩散 | `.refreshing::after` | 金色光环从0.8→1.6倍扩散淡出 | refreshing=true |
+| 图标旋转 | ReloadOutlined spin | 持续旋转 | refreshing=true |
+| 图标发光 | drop-shadow | 金色发光 | refreshing=true |
+
+#### 1.3 刷新频率实时同步
+
+```tsx
+// FrequencySetting.tsx - 保存后派发事件
+window.dispatchEvent(new CustomEvent('refresh-frequency-changed', { 
+  detail: { frequency: val } 
+}));
+
+// Header.tsx - 监听事件
+useEffect(() => {
+  const handler = (e: Event) => {
+    const freq = (e as CustomEvent).detail?.frequency;
+    if (freq != null) { setRefreshFreq(freq); setCountdown(freq); }
+  };
+  window.addEventListener('refresh-frequency-changed', handler);
+  return () => window.removeEventListener('refresh-frequency-changed', handler);
+}, []);
+```
+
+#### 1.4 自动刷新触发动画
+
+```tsx
+// 倒计时到0时触发刷新动画
+countdownRef.current = setInterval(() => {
+  setCountdown(prev => {
+    if (prev <= 1) {
+      setRefreshing(true);  // 触发动画
+      window.dispatchEvent(new CustomEvent('manual-refresh', {...}));
+      setTimeout(() => setRefreshing(false), 1000);
+      return refreshFreq;
+    }
+    return prev - 1;
+  });
+}, 1000);
+```
+
+#### 1.5 移除backdrop-filter
+
+```diff
+- background: 'var(--bg-elevated)',
+- backdropFilter: 'blur(20px)',
+- WebkitBackdropFilter: 'blur(20px)',
++ background: 'var(--bg-elevated)',
+```
+
+---
+
+### 2. FundListItem组件 v3.0更新
+
+#### 文件位置
+`web/src/components/FundListItem.tsx`
+
+#### 变更统计
+- **新增导入**: memo from react
+- **删除代码**: ~200行（内联`<style>`标签）
+- **修改**: backdrop-filter移除，组件memo化
+
+#### 2.1 React.memo包装
+
+```tsx
+// 修改前
+export default function FundListItem({ fund, mode = 'holding' }: FundListItemProps) {
+
+// 修改后
+function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
+  ...
+}
+export default memo(FundListItemInner);
+```
+
+#### 2.2 移除内联style标签
+
+~200行CSS从组件内`<style>`标签迁移到App.css全局样式表。消除DOM膨胀（10个列表项 = 2000+行重复CSS）。
+
+#### 2.3 移除backdrop-filter
+
+```diff
+- backdropFilter: 'blur(12px)',
+```
+
+---
+
+### 3. BottomTabBar组件 v3.0更新
+
+移除backdrop-filter: blur(20px)，替换为实色背景。
+
+---
+
+### 4. MarketIndexStrip组件 v3.0更新
+
+#### 4.1 滚动机制优化
+
+```tsx
+// 修改前：setInterval + React状态更新
+const interval = setInterval(() => {
+  pos += 0.4;
+  setScrollPos(pos);  // 触发React重渲染
+  el.scrollTo({ left: pos });
+}, 30);
+
+// 修改后：requestAnimationFrame + 直接DOM操作
+let rafId: number;
+const animate = (time: number) => {
+  if (lastTime) {
+    const delta = time - lastTime;
+    pos += speed * delta;
+    if (pos >= el.scrollWidth / 2) pos = 0;
+    el.scrollLeft = pos;  // 不触发React重渲染
+  }
+  lastTime = time;
+  rafId = requestAnimationFrame(animate);
+};
+rafId = requestAnimationFrame(animate);
+return () => cancelAnimationFrame(rafId);
+```
+
+#### 4.2 移除scrollPos状态
+
+```diff
+- const [scrollPos, setScrollPos] = useState(0);
+```
+
+#### 4.3 移除内联style标签
+
+CSS迁移到App.css。
+
+---
+
+### 5. FrequencySetting组件 v3.0更新
+
+新增刷新频率变更事件通知：
+
+```tsx
+await settingService.updateSettings({ refreshFrequency: val });
+window.dispatchEvent(new CustomEvent('refresh-frequency-changed', { 
+  detail: { frequency: val } 
+}));
+```
+
+---
+
+### 6. 隐私模式（隐藏金额）v2.11 新增
+
+#### 6.1 hideAmountStore（新增）
+
+新增 Zustand store 管理金额隐藏状态：
+
+```tsx
+// web/src/store/hideAmountStore.ts
+interface HideAmountState {
+  hidden: boolean;
+  setHidden: (hidden: boolean) => void;
+  toggle: () => void;
+}
+// 持久化到 localStorage('hide_amount')
+```
+
+#### 6.2 SettingsPage 新增隐私设置卡片
+
+在外观主题卡片下方新增"隐私设置"卡片，包含"隐藏金额"Switch 开关：
+
+```tsx
+<Switch
+  checked={hideAmount}
+  onChange={(checked) => setHideAmount(checked)}
+  checkedChildren="隐藏"
+  unCheckedChildren="显示"
+/>
+```
+
+#### 6.3 PortfolioPage 金额隐藏
+
+- 总资产金额：点击可切换显示/隐藏，`cursor: pointer`
+- 当日收益、累计收益：条件渲染为 `****`
+
+```tsx
+{hideAmount ? '****' : `¥${totalAsset.toLocaleString()}`}
+```
+
+#### 6.4 FundListItem 金额隐藏
+
+持仓模式下隐藏：持仓金额、当日收益、累计收益（金额），累计收益率（%）不隐藏。
+
+自选模式下隐藏：净值、估算净值变动，估算涨幅（%）不隐藏。
+
+#### 6.5 StatsPage 金额隐藏
+
+隐藏：总收益、最大盈利、最大亏损、收益金额列、累计收益列。收益率（%）不隐藏。
+
+#### 6.6 InvestmentPlanPage 金额隐藏
+
+隐藏：定投金额。
+
+---
+
+### 📊 v3.0组件变更汇总表
+
+| 组件 | 变更类型 | 代码行数变化 | 性能影响 | 优先级 |
+|------|---------|-----------|---------|--------|
+| **Header** | 重大重构 | -90行 | GPU负载降低90%+ | 🔴 高 |
+| **FundListItem** | 性能优化 | -200行(内联CSS) | 重渲染减少80%+ | 🔴 高 |
+| **BottomTabBar** | 性能优化 | -2行 | GPU负载降低 | 🟠 中 |
+| **MarketIndexStrip** | 性能优化 | -40行(内联CSS) | 滚动CPU降低70%+ | 🟠 中 |
+| **FrequencySetting** | 功能增强 | +2行 | 无影响 | 🟡 低 |
+
+---
+
+# v2.10 持仓编辑组件变更详情 ⭐ 2026-05-25
+
+> **变更主题**: 新增修改持仓弹窗 + 后端逻辑对齐 + 前端API签名更新
+> **涉及组件**: EditHoldingModal(新建), holdingController.js, holdingService.ts, FundDetailPage.tsx
+
+## 📋 变更概览
+
+| 组件/文件 | 变更类型 | 影响范围 | 优先级 |
+|-----------|---------|---------|--------|
+| **EditHoldingModal** | **新建** | 基金详情页修改持仓功能 | 🔴 高 |
+| holdingController.js | 逻辑重构 | 后端持仓更新接口参数对齐 | 🔴 高 |
+| holdingController.js | 逻辑变更 | 交易记录生成条件调整 | 🟠 中 |
+| holdingService.ts | 签名更新 | 前端API调用参数变更 | 🔴 高 |
+| FundDetailPage.tsx | 集成 | 基金详情页接入修改持仓弹窗 | 🔴 高 |
+
+---
+
+## 1. EditHoldingModal 组件 ⭐ 新建
+
+### 文件位置
+`web/src/components/modals/EditHoldingModal.tsx`
+
+### 变更统计
+- **代码行数**: **~120行**（新建）
+- **功能说明**: 基金详情页的"修改持仓"弹窗，允许用户修改持仓金额和累计收益
+
+### 1.1 Props 接口
+
+```typescript
+interface Props {
+  open: boolean;
+  holdingId: number;
+  fundCode: string;
+  fundName: string;
+  currentMarketValue: number;   // 当前市值（持仓金额）
+  currentTotalReturn: number;   // 当前累计收益
+  onClose: () => void;
+  onSuccess: () => void;
+}
+```
+
+### 1.2 技术要点
+
+#### 受控组件方案（非 Ant Design Form）
+
+使用 `useState` 受控组件而非 Ant Design Form，避免实时数据变化导致输入重置的问题：
+
+```typescript
+const [amount, setAmount] = useState<number | null>(null);
+const [totalReturn, setTotalReturn] = useState<number | null>(null);
+```
+
+#### prevOpen ref 确保初始化只执行一次
+
+```typescript
+const prevOpenRef = useRef(false);
+
+useEffect(() => {
+  if (open && !prevOpenRef.current) {
+    // 仅在弹窗从关闭→打开时初始化值
+    setAmount(currentMarketValue);
+    setTotalReturn(currentTotalReturn);
+  }
+  prevOpenRef.current = open;
+}, [open, currentMarketValue, currentTotalReturn]);
+```
+
+#### 参数与 AddHoldingModal 保持一致
+
+| 参数 | 含义 | 对应 AddHoldingModal |
+|------|------|---------------------|
+| `amount` | 持仓金额（当前市值） | ✅ 一致 |
+| `totalReturn` | 累计收益 | ✅ 一致 |
+
+#### 后端计算逻辑
+
+```
+shares = amount / netValue
+totalCost = amount - totalReturn
+costPrice = totalCost / shares
+```
+
+---
+
+## 2. holdingController.js 后端逻辑对齐
+
+### 文件位置
+`server/controllers/holdingController.js`
+
+### 变更类型
+🔧 **逻辑重构**
+
+### 2.1 update 方法参数变更
+
+| 参数 | v2.9 | v2.10 |
+|------|------|-------|
+| 第1参数 | `totalCost` | `amount` |
+| 第2参数 | `accumulatedProfit` | `totalReturn` |
+
+```diff
+- const { totalCost, accumulatedProfit } = req.body;
++ const { amount, totalReturn } = req.body;
+```
+
+### 2.2 计算逻辑
+
+```javascript
+shares = amount / netValue;
+totalCost = amount - (totalReturn || 0);
+costPrice = totalCost / shares;
+```
+
+与 `create` 方法完全对齐，统一了前后端参数命名和计算方式。
+
+---
+
+## 3. 交易记录生成条件变更
+
+### 文件位置
+`server/controllers/holdingController.js`
+
+### 变更类型
+📝 **逻辑变更**
+
+### 3.1 create 方法
+
+仅当 `!totalReturn`（累计收益为0，即首次买入）时才生成交易记录：
+
+```javascript
+if (!totalReturn) {
+  // 仅首次买入时生成交易记录
+  await Transaction.create({ ... });
+}
+```
+
+### 3.2 update 方法
+
+**不生成交易记录**。修改持仓仅更新持仓数据，不产生交易流水。
+
+---
+
+## 4. holdingService.ts 前端API签名更新
+
+### 文件位置
+`web/src/services/holdingService.ts`
+
+### 变更类型
+📝 **签名更新**
+
+### 4.1 updateHolding 签名变更
+
+```diff
+- updateHolding(data: { fundCode: string; totalCost?: number; accumulatedProfit?: number })
++ updateHolding(data: { fundCode: string; amount: number; totalReturn: number })
+```
+
+| 参数 | v2.9 | v2.10 |
+|------|------|-------|
+| `fundCode` | ✅ 保留 | ✅ 保留 |
+| `totalCost?` | 可选 | ❌ 移除 |
+| `accumulatedProfit?` | 可选 | ❌ 移除 |
+| `amount` | ❌ 无 | ✅ 必填 |
+| `totalReturn` | ❌ 无 | ✅ 必填 |
+
+---
+
+## 5. FundDetailPage.tsx 集成
+
+### 文件位置
+`web/src/pages/fund/FundDetailPage.tsx`
+
+### 变更类型
+✨ **功能集成**
+
+### 5.1 EditHoldingModal 集成
+
+```tsx
+<EditHoldingModal
+  open={editModalOpen}
+  holdingId={fund.holding_id}
+  fundCode={fund.fund_code}
+  fundName={fund.fund_name}
+  currentMarketValue={Number(fund.market_value) || 0}
+  currentTotalReturn={Number(fund.accumulated_profit) || 0}
+  onClose={() => setEditModalOpen(false)}
+  onSuccess={handleEditSuccess}
+/>
+```
+
+### 5.2 key 属性确保弹窗状态正确
+
+```tsx
+<EditHoldingModal
+  key={editModalOpen ? 'open' : 'closed'}
+  // ... 其他props
+/>
+```
+
+`key` 随 `editModalOpen` 变化，确保弹窗关闭时组件完全卸载、打开时重新挂载，避免残留状态。
+
+---
+
+## 📊 v2.10 组件变更汇总表
+
+| 组件/文件 | 变更类型 | 代码行数变化 | 影响用户 | 优先级 |
+|-----------|---------|-----------|---------|--------|
+| **EditHoldingModal** | **新建** | **+120行** | 需要修改持仓的用户 | 🔴 高 |
+| holdingController.js | 逻辑重构 | ~5行修改 | 后端持仓更新逻辑 | 🔴 高 |
+| holdingController.js | 逻辑变更 | ~3行修改 | 交易记录生成 | 🟠 中 |
+| holdingService.ts | 签名更新 | ~1行修改 | 前端API调用 | 🔴 高 |
+| FundDetailPage.tsx | 集成 | ~10行新增 | 基金详情页用户 | 🔴 高 |
+| **总计** | - | **~139行** | **全部持仓用户** | - |
+
+---
+
+## ✅ 测试检查清单
+
+### EditHoldingModal
+- [ ] 打开弹窗时是否正确回填当前市值和累计收益？
+- [ ] 弹窗打开时是否只初始化一次值（不会因实时数据变化而重置输入）？
+- [ ] 修改持仓金额后提交是否成功更新？
+- [ ] 修改累计收益后提交是否成功更新？
+- [ ] 关闭弹窗后再次打开是否重新初始化？
+- [ ] key 属性是否确保弹窗状态正确？
+
+### holdingController.js
+- [ ] update 方法是否接受 amount + totalReturn 参数？
+- [ ] 计算逻辑（shares, totalCost, costPrice）是否与 create 方法一致？
+- [ ] create 方法是否仅在不传 totalReturn 时生成交易记录？
+- [ ] update 方法是否不生成交易记录？
+
+### holdingService.ts
+- [ ] updateHolding 是否使用新的签名（amount, totalReturn）？
+- [ ] 旧参数（totalCost, accumulatedProfit）是否已移除？
+
+### FundDetailPage.tsx
+- [ ] 点击修改持仓按钮是否打开 EditHoldingModal？
+- [ ] currentMarketValue 和 currentTotalReturn 是否正确传入？
+- [ ] 修改成功后是否刷新基金详情数据？
+
+---
+
+**文档维护者**: Frontend Team
+**最后更新**: 2026-05-25 (v2.10)
+**关联文档**: [CHANGE_SUMMARY_v2.6.md](./CHANGE_SUMMARY_v2.6.md) | [progress.md](./progress.md)
+
+---
+
+## v2.9 图片识别导入组件变更
+
+### 新增组件
+
+#### ImageImportModal
+- **路径**：`web/src/components/modals/ImageImportModal.tsx`
+- **功能**：图片识别导入持仓弹窗
+- **三步流程**：上传 → 识别中 → 结果确认
+- **Props**：
+  - `open: boolean` — 弹窗是否打开
+  - `onClose: () => void` — 关闭回调
+  - `onSuccess: () => void` — 导入成功回调
+- **响应式布局**：
+  - 桌面端：Table 表格展示识别结果
+  - 手机端（≤768px）：卡片列表，点击展开编辑
+- **核心交互**：
+  - 拖拽/点击上传图片，支持 JPG/PNG（最大10MB）
+  - 图片预览 + 重新选择
+  - OCR 识别进度展示（Spin + 提示文字）
+  - 识别结果可编辑：基金名称联动搜索（300ms防抖）、持仓金额/累计收益可修改
+  - 基金代码只读，由系统匹配确定
+  - 无效基金红色边框/背景高亮
+  - 分组选择（Select）
+  - 查看原始OCR识别文本
+
+#### imageImportService
+- **路径**：`web/src/services/imageImportService.ts`
+- **功能**：图片导入 API 服务
+- **方法**：
+  - `recognize(file: File)` — 上传图片识别
+  - `confirmImport(items: Array)` — 确认导入
+
+### 修改组件
+
+#### Header
+- **变更**：搜索框 suffix 添加 CameraOutlined 相机图标按钮，点击打开 ImageImportModal
+- **移除**：搜索框 allowClear 属性（清除按钮）
+
+#### PortfolioPage
+- **变更**：移除原拍照导入按钮（空状态按钮 + 分组切换器旁相机图标），统一到 Header 入口
+
+### 后端新增
+
+#### ocrService
+- **路径**：`server/services/ocrService.js`
+- **功能**：OCR 识别服务
+- **引擎策略**：百度OCR优先 → Tesseract.js 兜底
+- **解析策略**：
+  - `parseAlipayByNamePattern` — 支付宝截图解析（按中文行分组 + splitIndex 分割）
+  - `parseTiantianFund` — 天天基金截图解析
+  - `parseGeneric` — 通用格式解析
+
+#### imageImportController
+- **路径**：`server/controllers/imageImportController.js`
+- **功能**：图片导入控制器
+- **核心函数**：`findBestMatch(ocrName, candidates)` — 基金名称智能匹配（C/A后缀优先 + 相似度评分）
+
+---
+
+# v2.11 组件变更详情 ⭐ 2026-05-25
+
+> **变更主题**: 基金状态判断逻辑优化 — 新增"待开市"状态 + 节假日修复 + 凌晨隐藏涨幅收益
+> **涉及组件**: FundListItem, WatchlistPage
+
+## 📋 变更概览
+
+| 组件 | 变更类型 | 影响范围 | 优先级 |
+|------|---------|---------|--------|
+| FundListItem | 🎨 状态扩展 | 新增pre_market状态渲染 | 🔴 高 |
+| WatchlistPage | 🔧 逻辑同步 | 状态判断逻辑与持仓页面统一 | 🔴 高 |
+
+---
+
+## 1. FundListItem组件 v2.11更新
+
+### 文件位置
+`web/src/components/FundListItem.tsx`
+
+### 变更统计
+- **修改函数**: `renderUpdateIndicator()`
+- **新增状态**: `pre_market`（待开市）
+
+### 1.1 接口扩展
+
+```typescript
+interface FundListItemProps {
+  fund: {
+    // ... 原有字段 ...
+    update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market';  // ✨ 新增 pre_market
+  };
+  mode?: 'holding' | 'watchlist';
+}
+```
+
+### 1.2 新增"待开市"状态渲染
+
+```typescript
+case 'pre_market':
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '4px',
+      fontSize: '10px',
+      fontWeight: 500,
+      color: '#60A5FA',  // 蓝色
+      padding: '2px 6px',
+      borderRadius: '4px',
+      background: 'rgba(96, 165, 250, 0.1)',
+    }}>
+      <span style={{
+        width: '6px',
+        height: '6px',
+        borderRadius: '50%',
+        background: '#60A5FA',
+      }}/>
+      待开市
+    </span>
+  );
+```
+
+### 1.3 五种状态完整实现
+
+| 状态 | 颜色 | 色值 | 图标 | 动画 | 显示文本 |
+|------|------|------|------|------|---------|
+| `market_closed` | 灰色 | #6B7280 | ○ 空心 | 无 | "休市(周X)" |
+| `pre_market` | 蓝色 | #60A5FA | ● 实心 | 无 | "待开市" |
+| `estimating` | 红色 | #EF4444 | ● 实心 | 脉冲3s | "估算中" |
+| `pending_confirm` | 橙色 | #F97316 | ● 实心 | 无 | "待确认" |
+| `confirmed` | 浅金黄 | #f5d584 | ● 实心 | 无 | "已确认" |
+
+### 1.4 盘前时段数据隐藏
+
+当状态为 `pre_market` 时，涨幅和当日收益不显示：
+- 估算涨幅：显示为 "--"（后端返回 null）
+- 当日收益：显示为 ¥0.00（后端返回 0）
+
+---
+
+## 2. WatchlistPage组件 v2.11更新
+
+### 文件位置
+`web/src/pages/watchlist/WatchlistPage.tsx`
+
+### 变更类型
+🔧 **逻辑同步** — 将持仓界面的状态判断逻辑同步到自选界面
+
+### 2.1 状态判断逻辑统一
+
+确保自选界面的状态计算与 `holdingService.js` 的 `calculateHoldingMetrics` 保持一致：
+- 休市检测：周末/节假日 → `market_closed`
+- 盘前时段：0:00-9:00工作日 → `pre_market`
+- 盘中时段：9:00-15:00 → `estimating`
+- 盘后时段：15:00-17:00 → `pending_confirm`
+- 确认时段：17:00后 → `confirmed`
+
+---
+
+## 📊 v2.11组件变更汇总表
+
+| 组件 | 变更类型 | 代码行数变化 | 影响用户 | 优先级 |
+|------|---------|-----------|---------|--------|
+| **FundListItem** | 状态扩展 | +15行 | 所有查看持仓/自选的用户 | 🔴 高 |
+| **WatchlistPage** | 逻辑同步 | +10行 | 查看自选列表的用户 | 🔴 高 |
+| **总计** | - | **+25行** | **全部用户** | - |
+
+---
+
+## ✅ 测试检查清单
+
+### FundListItem
+- [ ] pre_market状态是否正确显示"待开市"（蓝色）？
+- [ ] 盘前时段涨幅是否显示为"--"？
+- [ ] 盘前时段当日收益是否显示为¥0.00？
+- [ ] 其他4种状态是否正常显示？
+
+### WatchlistPage
+- [ ] 自选基金状态是否与持仓页面一致？
+- [ ] 凌晨时段自选基金是否显示"待开市"？
+- [ ] 周末自选基金是否显示"休市"？
+
+---
+
+**文档维护者**: Frontend Team  
+**最后更新**: 2026-05-25 (v2.11)  
+**关联文档**: [CHANGE_SUMMARY_v2.6.md](./CHANGE_SUMMARY_v2.6.md) | [progress.md](./progress.md)
+
+---
+
+# v3.1 双主题系统 + 能量环颜色优化 ⭐ 2026-05-25
+
+> **变更主题**: 霜白碧浅色主题实现 + 能量环SVG颜色从青色系改为金色系
+> **涉及组件**: Header, App.tsx, App.css, 全局CSS变量
+
+## 📋 变更概览
+
+| 组件/文件 | 变更类型 | 影响范围 | 优先级 |
+|-----------|---------|---------|--------|
+| **Header** | 视觉优化 | 能量环SVG颜色从青色改为金色系 | 🔴 高 |
+| **App.css** | 重大新增 | 新增霜白碧(light)主题完整CSS变量 | 🔴 高 |
+| **App.tsx** | 功能增强 | 双主题切换逻辑 + ConfigProvider动态主题 | 🔴 高 |
+| **全局组件** | 适配 | 所有组件适配light主题变量 | 🟠 中 |
+
+---
+
+## 1. Header 能量环SVG颜色优化
+
+### 文件位置
+`web/src/components/Header.tsx`
+
+### 变更说明
+
+将能量环SVG的所有青色/蓝绿色替换为金色系，与"墨玉金"深色主题品牌色保持一致。
+
+### 颜色映射表
+
+| 元素 | 修改前（青色系） | 修改后（金色系） |
+|------|-----------------|-----------------|
+| filter drop-shadow | `rgba(0,255,200)` | `rgba(212,168,75)` |
+| filter drop-shadow | `rgba(0,212,255)` | `rgba(240,215,140)` |
+| filter drop-shadow | `rgba(0,204,153)` | `rgba(184,134,11)` |
+| linearGradient stop | `#00ffc8` | `#F0D78C` |
+| linearGradient stop | `#00d4ff` | `#D4A84B` |
+| linearGradient stop | `#00cc99` | `#B8860B` |
+| radialGradient stop | `#4dffdb` | `#F0D78C` |
+| radialGradient stop | `#00cc99` | `#B8860B` |
+| 轨道stroke | `rgba(0, 212, 255, 0.2)` | `rgba(212, 168, 75, 0.2)` |
+| 核心发光 | `rgba(0, 255, 200)` | `rgba(212, 168, 75)` |
+| 粒子fill | `#00ffc8` | `#F0D78C` |
+| 爆发粒子fill | `#4dffdb` | `#F0D78C` |
+| 刷新按钮glow | `rgba(0,255,200,1)` | `rgba(212,168,75,1)` |
+| energy-pulse-fast动画 | `rgba(0,255,200,0.6)` | `rgba(212,168,75,0.6)` |
+| energy-pulse-fast动画 | `rgba(0,212,255,0.9)` | `rgba(240,215,140,0.9)` |
+
+### 设计理由
+
+- 品牌一致性：金色系与"墨玉金"深色主题的品牌色(#D4A84B)统一
+- 视觉协调：青色/蓝绿色与深色+金色的整体调性不协调
+- 用户反馈：原始青色系被反馈"颜色丑"，金色系更符合金融专业感
+
+---
+
+## 2. 双主题系统实现
+
+### 文件位置
+`web/src/App.tsx`, `web/src/App.css`
+
+### 变更说明
+
+实现完整的双主题系统，支持"墨玉金"（深色）和"霜白碧"（浅色）主题切换，默认使用浅色主题。
+
+### 主题架构
+
+```
+data-theme='dark'  → 墨玉金主题（深蓝黑底 + 金色品牌色）
+data-theme='light' → 霜白碧主题（纯白底 + 碧玉青品牌色）⭐ 默认
+```
+
+### 新增CSS变量（light主题）
+
+```css
+:root[data-theme='light'] {
+  /* 品牌色系 */
+  --accent-gold: #2E8B7B;              /* 碧玉青 */
+  --accent-gold-light: #E8F5F3;        /* 浅碧 */
+  --accent-gold-dim: rgba(46, 139, 123, 0.12);
+
+  /* 功能色 */
+  --gain: #E53935;
+  --loss: #43A047;
+  --gain-bg: rgba(229, 57, 53, 0.06);
+  --loss-bg: rgba(67, 160, 71, 0.06);
+  --gain-border: rgba(229, 57, 53, 0.2);
+  --loss-border: rgba(67, 160, 71, 0.2);
+
+  /* 背景色阶 */
+  --bg-base: #FFFFFF;
+  --bg-secondary: #F8FAFB;
+  --bg-elevated: #FFFFFF;
+  --bg-card: rgba(0, 0, 0, 0.03);
+  --bg-card-hover: rgba(0, 0, 0, 0.06);
+  --bg-input: rgba(0, 0, 0, 0.04);
+
+  /* 文字色阶 */
+  --text-primary: #1A1A2E;
+  --text-secondary: #3D3D4E;
+  --text-tertiary: #6B7280;
+  --text-muted: #9CA3AF;
+  --text-dim: #D1D5DB;
+
+  /* 边框色阶 */
+  --border-default: rgba(0, 0, 0, 0.12);
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-strong: rgba(0, 0, 0, 0.2);
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-glow-gold: 0 0 20px rgba(46, 139, 123, 0.2);
+}
+```
+
+### 主题切换机制
+
+- 通过 `document.documentElement.setAttribute('data-theme', theme)` 切换
+- 用户偏好存储在 `localStorage`
+- Ant Design 通过 `ConfigProvider` 的 `theme.token` 动态适配
+- 默认主题：霜白碧（light）
+
+---
+
+## 3. Bug修复：Android下载卡片白色主题对比度
+
+### 问题描述
+Android下载卡片在白色主题下文字看不清，背景与文字对比度不足。
+
+### 修复方案
+为Android下载卡片添加light主题专用样式，确保在浅色背景上有足够的文字对比度。
+
+---
+
+### 📊 v3.1组件变更汇总表
+
+| 组件 | 变更类型 | 代码行数变化 | 性能影响 | 优先级 |
+|------|---------|-----------|---------|--------|
+| **Header** | 视觉优化 | ~15行修改 | 无影响 | 🔴 高 |
+| **App.css** | 重大新增 | +80行 | 无影响 | 🔴 高 |
+| **App.tsx** | 功能增强 | +20行 | 无影响 | 🔴 高 |
+| **全局组件** | 适配 | 多处修改 | 无影响 | 🟠 中 |
+
+---
+
+# v3.2 刷新按钮美化 + 倒计时频率关联 + 刷新动画 ⭐ 2026-05-25
+
+> **变更主题**: Header刷新按钮视觉升级 + 倒计时与刷新频率联动 + 自动刷新动画反馈
+> **涉及组件**: Header, FrequencySetting
+
+## 📋 变更概览
+
+| 组件/文件 | 变更类型 | 影响范围 | 优先级 |
+|-----------|---------|---------|--------|
+| **Header** | 视觉升级+功能增强 | 刷新按钮三色渐变进度环 + 刷新动画 + 倒计时同步 | 🔴 高 |
+| **FrequencySetting** | 功能增强 | 保存后派发CustomEvent通知Header | 🔴 高 |
+
+---
+
+## 1. Header 刷新按钮视觉升级
+
+### 文件位置
+`web/src/components/Header.tsx`
+
+### 变更说明
+
+将刷新按钮从简单的单色conic-gradient进度环升级为三色渐变进度环，新增渐变背景、发光效果、hover/active交互、紧急脉冲和刷新爆发动画。
+
+### 1.1 三色渐变进度环
+
+| 属性 | 修改前 | 修改后 |
+|------|--------|--------|
+| 进度环颜色 | 单色 var(--accent-gold) | 三色渐变 #F0D78C → #D4A84B → #B8860B |
+| 环形效果 | 无 | CSS mask: radial-gradient |
+| 渐变方向 | from 0deg | from -90deg（从顶部开始） |
+| 背景色 | 固定 | 随进度变亮的渐变背景 |
+
+**进度环核心实现**：
+
+```tsx
+<div style={{
+  background: `conic-gradient(from -90deg, #F0D78C ${progressPercent * 0.3}%, #D4A84B ${progressPercent * 0.7}%, #B8860B ${progressPercent}%, rgba(212, 168, 75, 0.1) ${progressPercent}%)`,
+  WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px))',
+  mask: 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px))',
+}} />
+```
+
+### 1.2 渐变背景随进度变亮
+
+```tsx
+background: refreshing
+  ? 'linear-gradient(135deg, rgba(212,168,75,0.25), rgba(184,134,11,0.15))'
+  : `linear-gradient(135deg, rgba(212,168,75,${0.05 + progressPercent * 0.002}), rgba(184,134,11,${0.02 + progressPercent * 0.001}))`
+```
+
+### 1.3 三级发光效果
+
+| 状态 | 发光效果 |
+|------|---------|
+| 刷新中 | `0 0 12px rgba(212,168,75,0.3), inset 0 0 8px rgba(212,168,75,0.1)` |
+| 进度 > 80% | `0 0 10px rgba(212,168,75,0.2), inset 0 0 6px rgba(212,168,75,0.05)` |
+| 默认 | `inset 0 1px 2px rgba(0,0,0,0.1)` |
+
+### 1.4 紧急脉冲动画
+
+当倒计时剩余 ≤ 15% 时，进度环产生脉冲效果：
+
+```css
+.header-energy-button.urgent .energy-ring {
+  animation: ring-pulse 1.5s ease-in-out infinite;
+}
+@keyframes ring-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+```
+
+### 1.5 刷新爆发动画 ⭐ 新增
+
+自动刷新或手动刷新时，触发弹跳+涟漪动画：
+
+```css
+/* 按钮弹跳 */
+.header-energy-button.refreshing {
+  animation: refresh-burst 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes refresh-burst {
+  0% { transform: scale(1); }
+  30% { transform: scale(0.85); }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+/* 涟漪扩散（伪元素） */
+.header-energy-button.refreshing::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid rgba(212, 168, 75, 0.6);
+  animation: refresh-ripple 0.8s ease-out forwards;
+}
+@keyframes refresh-ripple {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+```
+
+**刷新动画触发逻辑**：
+
+```tsx
+// 手动刷新
+const handleManualRefresh = () => {
+  if (refreshing) return;
+  setRefreshing(true);
+  setCountdown(refreshFreq);
+  window.dispatchEvent(new CustomEvent('manual-refresh', {
+    detail: { forceRefresh: true, timestamp: Date.now() }
+  }));
+  setTimeout(() => {
+    setRefreshing(false);
+    message.success('数据已刷新');
+  }, 1000);
+};
+
+// 自动刷新（倒计时到0时）
+countdownRef.current = setInterval(() => {
+  setCountdown(prev => {
+    if (prev <= 1) {
+      setRefreshing(true);
+      window.dispatchEvent(new CustomEvent('manual-refresh', {
+        detail: { forceRefresh: true, timestamp: Date.now() }
+      }));
+      setTimeout(() => setRefreshing(false), 1000);
+      return refreshFreq;
+    }
+    return prev - 1;
+  });
+}, 1000);
+```
+
+### 1.6 hover/active 交互
+
+```css
+.header-energy-button:hover { transform: scale(1.08); }
+.header-energy-button:active { transform: scale(0.92); }
+```
+
+---
+
+## 2. FrequencySetting 倒计时频率关联
+
+### 文件位置
+`web/src/components/modals/FrequencySetting.tsx`
+
+### 变更说明
+
+FrequencySetting保存刷新频率后，通过CustomEvent通知Header同步更新倒计时和刷新频率。
+
+### 2.1 事件派发
+
+```tsx
+const handleChange = async (val: number) => {
+  onChange(val);
+  try {
+    await settingService.updateSettings({ refreshFrequency: val });
+    // 通知Header刷新频率已变更
+    window.dispatchEvent(new CustomEvent('refresh-frequency-changed', {
+      detail: { frequency: val }
+    }));
+    message.success('刷新频率已更新');
+  } catch {
+    message.error('保存失败');
+  }
+};
+```
+
+### 2.2 Header 事件监听
+
+```tsx
+// Header.tsx — 监听设置页面的刷新频率变更
+useEffect(() => {
+  const handler = (e: Event) => {
+    const freq = (e as CustomEvent).detail?.frequency;
+    if (freq != null) {
+      setRefreshFreq(freq);
+      setCountdown(freq);  // 重置倒计时
+    }
+  };
+  window.addEventListener('refresh-frequency-changed', handler);
+  return () => window.removeEventListener('refresh-frequency-changed', handler);
+}, []);
+```
+
+### 2.3 事件通信架构
+
+```
+FrequencySetting → dispatch('refresh-frequency-changed', { frequency: val })
+                         ↓
+Header → addEventListener('refresh-frequency-changed')
+         → setRefreshFreq(freq) + setCountdown(freq)
+```
+
+---
+
+## 📊 v3.2组件变更汇总表
+
+| 组件 | 变更类型 | 代码行数变化 | 性能影响 | 优先级 |
+|------|---------|-----------|---------|--------|
+| **Header** | 视觉升级+功能增强 | ~30行修改+新增 | 无负面影响 | 🔴 高 |
+| **FrequencySetting** | 功能增强 | +3行 | 无影响 | 🔴 高 |
+
+---
+
+**文档维护者**: Frontend Team  
+**最后更新**: 2026-05-25 (v3.2)  
+**关联文档**: [CHANGE_SUMMARY_v2.6.md](./CHANGE_SUMMARY_v2.6.md) | [progress.md](./progress.md)
+
+---
+
+## v2.10.1 组件变更明细（2026-05-23）
+
+### FundListItem — 负号显示修复
+
+**文件**: `web/src/components/FundListItem.tsx`
+
+**问题**: 负收益显示为 `¥-114.37`，负号在 ¥ 之后，不符合中文金融习惯。
+
+**修复**:
+```tsx
+// 修改前
+{hideAmount ? '****' : `${isDailyUp ? '+' : ''}¥${(fund.daily_profit ?? 0).toFixed(2)}`}
+// 负值时输出: ¥-114.37 ❌
+
+// 修改后
+{hideAmount ? '****' : `${isDailyUp ? '+' : '-'}¥${Math.abs(fund.daily_profit ?? 0).toFixed(2)}`}
+// 负值时输出: -¥114.37 ✅
+```
+
+同时修复了 `daily_profit` 和 `accumulated_profit` 两处。
+
+---
+
+### PortfolioPage — 排序指示器改为三角字符
+
+**文件**: `web/src/pages/portfolio/PortfolioPage.tsx`
+
+**变更**: 移除了 Ant Design `SortAscendingOutlined`/`SortDescendingOutlined` 图标导入，改为 Unicode 三角字符。
+
+**三态效果**:
+
+| 状态 | 显示 | 说明 |
+|------|------|------|
+| 默认 | ▲▼ 灰色上下排列 | `display: inline-flex; flexDirection: column` |
+| 升序 | ▲ `#fbcc56` + ▼ 灰色 | 上半三角高亮 |
+| 降序 | ▲ 灰色 + ▼ `#fbcc56` | 下半三角高亮 |
+
+---
+
+### GroupSwitcher — Web端隐藏资产金额
+
+**文件**: `web/src/components/GroupSwitcher.tsx`
+
+**变更**: 分组卡片下方的资产金额从仅移动端隐藏改为全局（Web端 + 移动端）隐藏。
+
+```css
+/* 全局规则（内嵌 <style> 标签中） */
+.group-amount { display: none !important; }
+```
+
+移除了移动端媒体查询中的重复规则。
+
+---
+
+### App.css — 移动端列对齐 + 字体统一
+
+**文件**: `web/src/App.css`
+
+**变更 1**: 移动端 `portfolio-table-header` 列 flex 对齐修复
+```css
+/* 表头列 flex 与数据行一致 */
+.portfolio-table-header [data-col="estimated_change"],
+.portfolio-table-header [data-col="daily_profit"] { flex: 1.4 !important; }
+
+/* 表头容器内边距对齐，使 flex 容器宽度一致 */
+.portfolio-table-header {
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+}
+```
+
+**变更 2**: profit-amount 字体 clamp 与 change-percent 统一
+```css
+.fund-list-item .profit-amount { font-size: clamp(9px, 2.2vw, 13px) !important; }
+```

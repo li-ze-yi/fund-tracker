@@ -30,6 +30,7 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
   const navigate = useNavigate();
   const isUp = (fund.estimated_change ?? 0) >= 0;
   const hideAmount = useHideAmountStore((s) => s.hidden);
+  const isMarketClosed = fund.update_status === 'market_closed' || fund.update_status === 'pre_market';
 
   // 渲染更新状态标记（5种状态：估算中/待确认/已确认/休市/待开市）
   const renderUpdateIndicator = () => {
@@ -302,32 +303,36 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
           <span style={{
             fontSize: 17,
             fontWeight: 700,
-            color: isUp ? 'var(--gain)' : 'var(--loss)',
+            color: isMarketClosed ? 'var(--text-dim)' : (isUp ? 'var(--gain)' : 'var(--loss)'),
             fontFamily: 'var(--font-mono)',
             letterSpacing: '-0.01em',
           }}>
-            {isUp ? '+' : ''}{(fund.estimated_change ?? 0).toFixed(2)}%
+            {isMarketClosed ? '--' : `${isUp ? '+' : ''}${(fund.estimated_change ?? 0).toFixed(2)}%`}
           </span>
-          <span style={{
-            fontSize: 12,
-            color: isUp ? 'var(--gain)' : 'var(--loss)',
-            opacity: 0.7,
-            fontFamily: 'var(--font-mono)',
-          }}>
-            {hideAmount ? '****' : `${isUp ? '+' : ''}${((fund.estimated_change ?? 0) * (fund.net_value || 1) / 100).toFixed(4)}`}
-          </span>
+          {!isMarketClosed && (
+            <span style={{
+              fontSize: 12,
+              color: isUp ? 'var(--gain)' : 'var(--loss)',
+              opacity: 0.7,
+              fontFamily: 'var(--font-mono)',
+            }}>
+              {hideAmount ? '****' : `${isUp ? '+' : ''}${((fund.estimated_change ?? 0) * (fund.net_value || 1) / 100).toFixed(4)}`}
+            </span>
+          )}
         </div>
 
-        <div style={{
-          width: 6,
+        {!isMarketClosed && (
+          <div style={{
+            width: 6,
             height: 36,
             borderRadius: 3,
             background: isUp
               ? 'linear-gradient(180deg, rgba(239, 68, 68, 0.8), rgba(239, 68, 68, 0.1))'
               : 'linear-gradient(180deg, rgba(34, 197, 94, 0.8), rgba(34, 197, 94, 0.1))',
             marginLeft: 12,
-          flexShrink: 0,
-        }} />
+            flexShrink: 0,
+          }} />
+        )}
       </div>
     );
   }
@@ -395,14 +400,14 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
       </div>
 
       <div className="number-tabular" style={{ flex: 0.9, textAlign: 'right' }} data-col="estimated_change">
-        <span className="change-percent" style={{ fontSize: 15, fontWeight: 700, color: isUp ? 'var(--gain)' : 'var(--loss)', fontFamily: 'var(--font-mono)' }}>
-          {isUp ? '+' : ''}{(fund.estimated_change ?? 0).toFixed(2)}%
+        <span className="change-percent" style={{ fontSize: 15, fontWeight: 700, color: isMarketClosed ? 'var(--text-dim)' : (isUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
+          {isMarketClosed ? '--' : `${isUp ? '+' : ''}${(fund.estimated_change ?? 0).toFixed(2)}%`}
         </span>
       </div>
 
       <div className="number-tabular" style={{ flex: 1, textAlign: 'right' }} data-col="daily_profit">
-        <div className="profit-amount" style={{ fontSize: 14, fontWeight: 600, color: isDailyUp ? 'var(--gain)' : 'var(--loss)', fontFamily: 'var(--font-mono)' }}>
-          {hideAmount ? '****' : `${isDailyUp ? '+' : '-'}¥${Math.abs(fund.daily_profit ?? 0).toFixed(2)}`}
+        <div className="profit-amount" style={{ fontSize: 14, fontWeight: 600, color: isMarketClosed ? 'var(--text-dim)' : (isDailyUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
+          {isMarketClosed ? '--' : (hideAmount ? '****' : `${isDailyUp ? '+' : '-'}¥${Math.abs(fund.daily_profit ?? 0).toFixed(2)}`)}
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 # 养基发财 设计系统规范 (Design System)
 
-> **版本**: v2.0  
-> **最后更新**: 2026-05-11  
+> **版本**: v3.1
+> **最后更新**: 2026-05-25  
 > **适用范围**: Web端 (React + Ant Design 5.x)  
 
 ---
@@ -17,7 +17,7 @@
 7. [动画系统](#动画系统)
 8. [组件样式规范](#组件样式规范)
 9. [响应式断点](#响应式断点)
-10. [暗色主题适配指南](#暗色主题适配指南)
+10. [主题系统](#主题系统)
 
 ---
 
@@ -33,8 +33,10 @@
 
 ### 视觉风格定位
 
-- **风格**: 深色专业风 (Dark Professional)
-- **主色调**: 深蓝黑 (#0B1120) + 品牌金 (#D4A84B)
+- **风格**: 双主题专业风 (Dark Professional + Light Professional)
+- **深色主色调**: 深蓝黑 (#0B1120) + 品牌金 (#D4A84B) — 墨玉金
+- **浅色主色调**: 纯白 (#FFFFFF) + 碧玉青 (#2E8B7B) — 霜白碧
+- **默认主题**: 霜白碧（浅色）
 - **情感**: 可信赖、高效、现代
 - **差异化**: 避免通用AI美学，追求独特的设计语言
 
@@ -44,13 +46,15 @@
 
 ### 主色调 (Primary Colors)
 
+#### 墨玉金 — 深色主题 (`data-theme='dark'`)
+
 ```css
 :root[data-theme='dark'] {
   /* 品牌色系 */
   --accent-gold: #D4A84B;              /* 品牌主色 - 用于按钮、链接、强调 */
   --accent-gold-light: #F0D78C;        /* 品牌亮色 - 用于高亮文字 */
   --accent-gold-dim: rgba(212, 168, 75, 0.15);  /* 品牌弱色 - 用于背景填充 */
-  
+
   /* 功能色 */
   --gain: #EF4444;                     /* 收益/上涨 - 红色（符合国际惯例）*/
   --loss: #22C55E;                     /* 亏损/下跌 - 绿色 */
@@ -58,6 +62,25 @@
   --loss-bg: rgba(34, 197, 94, 0.08);    /* 亏损背景 */
   --gain-border: rgba(239, 68, 68, 0.2);  /* 收益边框 */
   --loss-border: rgba(34, 197, 94, 0.2);  /* 亏损边框 */
+}
+```
+
+#### 霜白碧 — 浅色主题 (`data-theme='light'`) ⭐ v3.1新增
+
+```css
+:root[data-theme='light'] {
+  /* 品牌色系 */
+  --accent-gold: #2E8B7B;              /* 品牌主色 - 碧玉青 */
+  --accent-gold-light: #E8F5F3;        /* 品牌亮色 - 浅碧 */
+  --accent-gold-dim: rgba(46, 139, 123, 0.12);  /* 品牌弱色 - 用于背景填充 */
+
+  /* 功能色 */
+  --gain: #E53935;                     /* 收益/上涨 - 红色 */
+  --loss: #43A047;                     /* 亏损/下跌 - 绿色 */
+  --gain-bg: rgba(229, 57, 53, 0.06);   /* 收益背景 */
+  --loss-bg: rgba(67, 160, 71, 0.06);    /* 亏损背景 */
+  --gain-border: rgba(229, 57, 53, 0.2);  /* 收益边框 */
+  --loss-border: rgba(67, 160, 71, 0.2);  /* 亏损边框 */
 }
 ```
 
@@ -83,8 +106,27 @@
   --bg-card: rgba(255, 255, 255, 0.04);  /* 列表项背景 */
   --bg-card-hover: rgba(255, 255, 255, 0.08);  /* 列表项悬停 */
   --bg-input: rgba(255, 255, 255, 0.06);     /* 输入框背景 */
-  --bg-glass: rgba(255, 255, 255, 0.03);      /* 毛玻璃效果 */
+  --bg-glass: rgba(255, 255, 255, 0.03);      /* 毛玻璃效果（已弃用backdrop-filter） */
+```
+
+> ⚠️ **v3.0更新**: `backdrop-filter: blur()` 已从所有组件中移除，以优化移动端GPU性能。改用实色背景 (`var(--bg-elevated)`, `var(--bg-card)`) 替代。
+
+```css
   --flat-bg: rgba(255, 255, 255, 0.05);       /* 扁平化背景 */
+}
+```
+
+```css
+:root[data-theme='light'] {
+  /* 背景色阶 */
+  --bg-base: #FFFFFF;                /* 页面底层背景 */
+  --bg-secondary: #F8FAFB;          /* 次级区域背景 */
+  --bg-elevated: #FFFFFF;           /* 卡片/弹窗背景 */
+  --bg-card: rgba(0, 0, 0, 0.03);  /* 列表项背景 */
+  --bg-card-hover: rgba(0, 0, 0, 0.06);  /* 列表项悬停 */
+  --bg-input: rgba(0, 0, 0, 0.04);     /* 输入框背景 */
+  --bg-glass: rgba(0, 0, 0, 0.02);      /* 毛玻璃效果替代 */
+  --flat-bg: rgba(0, 0, 0, 0.04);       /* 扁平化背景 */
 }
 ```
 
@@ -109,6 +151,17 @@ bg-base (最底层)
   --text-tertiary: #8896AB;         /* 辅助文字 - 标签、提示 */  /* 新增 */
   --text-muted: #64748B;            /* 弱化文字 - placeholder、时间戳 */
   --text-dim: #475569;             /* 最弱文字 - 禁用状态、次要信息 */
+}
+```
+
+```css
+:root[data-theme='light'] {
+  /* 文字色阶 */
+  --text-primary: #1A1A2E;          /* 主要文字 - 标题、重要数据 */
+  --text-secondary: #3D3D4E;        /* 次要文字 - 正文内容 */
+  --text-tertiary: #6B7280;         /* 辅助文字 - 标签、提示 */
+  --text-muted: #9CA3AF;            /* 弱化文字 - placeholder、时间戳 */
+  --text-dim: #D1D5DB;             /* 最弱文字 - 禁用状态、次要信息 */
 }
 ```
 
@@ -145,6 +198,15 @@ bg-base (最底层)
   --border-default: rgba(255, 255, 255, 0.12);   /* 默认边框 */
   --border-subtle: rgba(255, 255, 255, 0.06);     /* 微弱边框 */
   --border-strong: rgba(255, 255, 255, 0.2);      /* 强调边框 */
+}
+```
+
+```css
+:root[data-theme='light'] {
+  /* 边框色阶 */
+  --border-default: rgba(0, 0, 0, 0.12);   /* 默认边框 */
+  --border-subtle: rgba(0, 0, 0, 0.06);     /* 微弱边框 */
+  --border-strong: rgba(0, 0, 0, 0.2);      /* 强调边框 */
 }
 ```
 
@@ -194,6 +256,31 @@ bg-base (最底层)
       { offset: 0, color: 'rgba(212, 168, 75, 0.25)' },
       { offset: 0.5, color: 'rgba(212, 168, 75, 0.08)' },
       { offset: 1, color: 'rgba(212, 168, 75, 0.01)' },
+    ],
+  };
+}
+```
+
+```css
+/* ===== 霜白碧主题渐变 ===== */
+
+/* 碧玉青渐变 - 用于重要卡片 */
+.jade-gradient {
+  background: linear-gradient(135deg, 
+    rgba(46, 139, 123, 0.05), 
+    rgba(248, 250, 251, 0.8)
+  );
+}
+
+/* 图表面积填充 - 浅色主题 */
+.chart-area-gradient-light {
+  fill: {
+    type: 'linear',
+    x: 0, y: 0, x2: 0, y2: 1,
+    colorStops: [
+      { offset: 0, color: 'rgba(46, 139, 123, 0.25)' },
+      { offset: 0.5, color: 'rgba(46, 139, 123, 0.08)' },
+      { offset: 1, color: 'rgba(46, 139, 123, 0.01)' },
     ],
   };
 }
@@ -397,6 +484,22 @@ value.toLocaleString('zh-CN', {
 }
 ```
 
+```css
+:root[data-theme='light'] {
+  /* 层级1：轻微悬浮 */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  
+  /* 层级2：卡片悬浮 */
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+  
+  /* 层级3：重要元素强调 */
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  
+  /* 特殊：碧玉青发光（用于品牌元素）*/
+  --shadow-glow-gold: 0 0 20px rgba(46, 139, 123, 0.2);
+}
+```
+
 **使用场景：**
 
 | 阴影 | 应用 |
@@ -485,25 +588,135 @@ value.toLocaleString('zh-CN', {
 /* ... */
 ```
 
+### 移动端动画限制 (v3.0新增)
+
+> 移动端GPU性能有限，需对复杂动画进行限制，避免大量重排导致卡顿。
+
+```css
+/* 移动端动画限制 (v3.0新增) */
+@media screen and (max-width: 768px) {
+  /* 禁用列表入场动画 - 避免大量重排 */
+  .fund-list-item-wrapper {
+    animation: none !important;
+  }
+}
+```
+
+### CSS进度环组件规范 (v3.2新增)
+
+> Header刷新按钮的CSS进度环设计规范，用于替代SVG粒子动画实现高性能进度反馈。
+
+#### 进度环结构
+
+```html
+<div class="header-energy-button">           <!-- 外层容器 -->
+  <div class="energy-ring"></div>             <!-- 进度环（conic-gradient） -->
+  <ReloadOutlined />                          <!-- 中心图标 -->
+</div>
+```
+
+#### 进度环颜色
+
+| 颜色 | 色值 | 用途 |
+|------|------|------|
+| 浅金 | #F0D78C | 进度起始色（0-30%） |
+| 中金 | #D4A84B | 进度中间色（30-70%） |
+| 深金 | #B8860B | 进度末端色（70-100%） |
+| 底色 | rgba(212, 168, 75, 0.1) | 未填充区域 |
+
+#### 进度环CSS实现
+
+```css
+.energy-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from -90deg,
+    #F0D78C ${progressPercent * 0.3}%,
+    #D4A84B ${progressPercent * 0.7}%,
+    #B8860B ${progressPercent}%,
+    rgba(212, 168, 75, 0.1) ${progressPercent}%
+  );
+  -webkit-mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 3px),
+    #000 calc(100% - 2.5px)
+  );
+  mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 3px),
+    #000 calc(100% - 2.5px)
+  );
+}
+```
+
+#### 进度环状态
+
+| 状态 | className | 视觉效果 |
+|------|-----------|---------|
+| 默认 | `.header-energy-button` | 渐变背景 + 内阴影 |
+| 紧急 | `.header-energy-button.urgent` | 进度环脉冲动画 |
+| 刷新中 | `.header-energy-button.refreshing` | 弹跳动画 + 涟漪扩散 |
+
+#### 刷新动画规范 (v3.2新增)
+
+| 动画 | 时长 | 缓动函数 | 用途 |
+|------|------|---------|------|
+| refresh-burst | 0.6s | cubic-bezier(0.34, 1.56, 0.64, 1) | 按钮弹跳反馈 |
+| refresh-ripple | 0.8s | ease-out | 涟漪扩散效果 |
+| ring-pulse | 1.5s | ease-in-out infinite | 紧急状态脉冲 |
+
+```css
+/* 刷新弹跳 */
+@keyframes refresh-burst {
+  0% { transform: scale(1); }
+  30% { transform: scale(0.85); }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+/* 涟漪扩散 */
+@keyframes refresh-ripple {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* 紧急脉冲 */
+@keyframes ring-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+```
+
+#### 交互反馈
+
+| 交互 | 效果 | 时长 |
+|------|------|------|
+| hover | scale(1.08) | 0.15s ease-out |
+| active | scale(0.92) | 0.15s ease-out |
+| 刷新中 | spin图标 + 发光 | 1s |
+
 ---
 
-## 状态颜色体系 (Status Color System) ⭐ v2.4新增
+## 状态颜色体系 (Status Color System) ⭐ v2.4新增, v2.11更新
 
-> **最后更新**: 2026-05-13  
+> **最后更新**: 2026-05-25
 > **适用组件**: FundListItem, Header, 所有含状态标签的界面
 
 ### 设计理念
 
 状态颜色用于表达基金数据的**更新状态**和**可信度**，帮助用户快速判断数据的新鲜程度和可靠性。
 
-### 四种核心状态
+### 五种核心状态
 
 | 状态 | 英文标识 | 颜色 | 色值 | 图标 | 使用场景 |
 |------|---------|------|------|------|---------|
 | **休市** | `market_closed` | ⚫ 灰色 | `#6B7280` | ○ 空心圆点 | 周末/节假日/数据过期 |
+| **待开市** | `pre_market` | 🔵 蓝色 | `#60A5FA` | ● 实心圆点 | 盘前等待开盘（0:00-9:00工作日） |
 | **估算中** | `estimating` | 🔴 红色 | `#EF4444` | ● 脉冲圆点 | 盘中实时估值（9:00-15:00） |
-| **待确认** | `pending_confirm` | 🟠 橙色 | `#F97316` | ● 实心圆点 | 收盘后等待正式净值（15:00后） |
-| **已确认** | `confirmed` | 🟡 浅金黄 | `#f5d584` | ● 实心圆点 | 基金公司确认的官方净值 |
+| **待确认** | `pending_confirm` | 🟠 橙色 | `#F97316` | ● 实心圆点 | 收盘后等待正式净值（15:00-17:00） |
+| **已确认** | `confirmed` | 🟡 浅金黄 | `#f5d584` | ● 实心圆点 | 基金公司确认的官方净值（17:00后） |
 
 ### 颜色选择理由
 
@@ -512,17 +725,23 @@ value.toLocaleString('zh-CN', {
    - 表达"无交易活动"的平静状态
    - 与其他状态形成明显区分
 
-2. **估算中（红色 #EF4444）**
+2. **待开市（蓝色 #60A5FA）** ⭐ v2.11新增
+   - 积极暗示色，传达"即将开盘"的期待感
+   - 与休市灰色区分，表明今天会有交易
+   - 蓝色在金融领域常用于"准备中"的语义
+   - 盘前时段涨幅和收益数据隐藏
+
+3. **估算中（红色 #EF4444）**
    - 警示色，提醒用户"数据不确定"
    - 符合金融App的风险提示惯例
    - 配合脉冲动画增强警示效果
 
-3. **待确认（橙色 #F97316）**
+4. **待确认（橙色 #F97316）**
    - 过渡色，介于红（不确定）和黄（确定）之间
    - 表达"等待中"的状态
    - 比红色温和，比黄色醒目
 
-4. **已确认（浅金黄 #f5d584）** ⭐ v2.4调整
+5. **已确认（浅金黄 #f5d584）** ⭐ v2.4调整
    - 正面反馈色，传达"已完成"
    - 与品牌主色调（accent-gold）统一
    - 在深色/浅色主题下都清晰可见
@@ -541,6 +760,13 @@ const statusStyles = {
     icon: '○', // 空心圆点
     animation: 'none',
     text: '休市', // 可附加星期信息：'休市(周六)'
+  },
+  pre_market: {
+    color: '#60A5FA',  // ⭐ v2.11新增：蓝色
+    background: 'rgba(96, 165, 250, 0.1)',
+    icon: '●', // 静态实心圆点
+    animation: 'none',
+    text: '待开市',
   },
   estimating: {
     color: '#EF4444',
@@ -662,19 +888,21 @@ const renderUpdateIndicator = () => {
 ### 状态流转逻辑
 
 ```
-时间轴：
-─────────────────────────────────────────────────────→
+时间轴（工作日）：
+──────────────────────────────────────────────────────────────→
 
-9:00 ────────── 15:00 ────────── 次日9:00
- │                  │                   │
- ▼                  ▼                   ▼
+0:00 ──────── 9:00 ──────── 15:00 ──────── 17:00 ──────── 22:30
+ │               │               │               │               │
+ ▼               ▼               ▼               ▼               ▼
 
-[estimating]    [pending_confirm]   [confirmed]
- 估算中           待确认              已确认
- (红色脉冲)       (橙色静态)         (金黄静态)
- 
+[pre_market]  [estimating]   [pending_confirm] [confirmed]    [confirmed]
+ 待开市         估算中          待确认            已确认          已确认
+ (蓝色静态)    (红色脉冲)      (橙色静态)       (金黄静态)      (金黄静态)
+ 涨幅收益隐藏
+
 特殊情况：
-├─ 周末/节假日 → [market_closed] 休市(灰色) + 星期信息
+├─ 周末/节假日全天 → [market_closed] 休市(灰色) + 星期信息
+├─ 国庆等法定节假日 → [market_closed] 休市(灰色)
 └─ 数据>48h未更新 → [market_closed] 数据未更新(灰色)
 ```
 
@@ -691,7 +919,7 @@ const renderUpdateIndicator = () => {
 
 如需添加新状态，请遵循以下规范：
 
-1. **选择合适的颜色** - 参考现有四色的语义梯度
+1. **选择合适的颜色** - 参考现有五色的语义梯度
 2. **定义清晰的场景** - 何时显示此状态
 3. **保持一致性** - 字号、间距、圆角与现有状态一致
 4. **更新本文档** - 同步维护设计系统文档
@@ -907,7 +1135,75 @@ const renderUpdateIndicator = () => {
 
 ---
 
-## 暗色主题适配指南
+## 主题系统
+
+### 双主题架构
+
+项目采用双主题设计：**墨玉金**（深色）和**霜白碧**（浅色），默认使用霜白碧（浅色）主题。
+
+- **墨玉金** (`data-theme='dark'`)：深蓝黑底 + 金色品牌色，适合暗光环境
+- **霜白碧** (`data-theme='light'`)：纯白底 + 碧玉青品牌色，适合明亮环境，**默认主题**
+
+### 主题切换机制
+
+```tsx
+// 主题切换通过 data-theme 属性控制
+// 在 App.tsx 中设置默认主题
+document.documentElement.setAttribute('data-theme', 'light');
+
+// 切换主题
+const toggleTheme = () => {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+};
+
+// 初始化时读取用户偏好
+useEffect(() => {
+  const saved = localStorage.getItem('theme');
+  document.documentElement.setAttribute('data-theme', saved || 'light');
+}, []);
+```
+
+### CSS变量驱动
+
+所有颜色通过CSS变量定义，主题切换时只需更改 `data-theme` 属性，所有组件自动适配：
+
+```css
+/* 深色主题变量 */
+:root[data-theme='dark'] {
+  --bg-base: #0B1120;
+  --text-primary: #F1F5F9;
+  --accent-gold: #D4A84B;
+  /* ... */
+}
+
+/* 浅色主题变量 */
+:root[data-theme='light'] {
+  --bg-base: #FFFFFF;
+  --text-primary: #1A1A2E;
+  --accent-gold: #2E8B7B;
+  /* ... */
+}
+```
+
+### Ant Design 主题适配
+
+通过 ConfigProvider 的 theme.token 动态切换 Ant Design 组件主题：
+
+```tsx
+<ConfigProvider theme={{
+  token: {
+    colorPrimary: theme === 'dark' ? '#D4A84B' : '#2E8B7B',
+    colorBgContainer: theme === 'dark' ? '#151F2E' : '#FFFFFF',
+    // ...
+  },
+  algorithm: theme === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
+}}>
+```
+
+### 深色主题适配指南
 
 ### 必须遵循的原则
 
@@ -984,13 +1280,19 @@ const renderUpdateIndicator = () => {
 - [ ] 颜色对比度是否符合WCAG AA标准？
 - [ ] 是否考虑了键盘导航？
 
+### ✅ 隐私模式（隐藏金额）
+- [ ] 金额字段是否使用了 `hideAmount ? '****' : xxx` 条件渲染？
+- [ ] 百分比数据（涨幅、收益率）是否未被隐藏？
+- [ ] `****` 占位符是否继承了原字段的字体和字号？
+- [ ] 设置页 Switch 开关是否与 store 状态同步？
+
 ---
 
 ## 维护指南
 
 ### 如何更新Design System
 
-1. **修改CSS变量** - 在`:root[data-theme='dark']`中更新
+1. **修改CSS变量** - 在`:root[data-theme='dark']`或`:root[data-theme='light']`中更新
 2. **测试影响范围** - 确认所有引用该变量的组件
 3. **更新本文档** - 同步修改对应的章节
 4. **通知团队** - 通过PR描述变更内容
@@ -1001,6 +1303,10 @@ const renderUpdateIndicator = () => {
 |------|------|---------|
 | v1.0 | 2026-05-11 | 初始版本，基于v2.0优化工作建立 |
 | v2.0 | 2026-05-11 | 新增`--text-tertiary`, `--primary`, `--accent-gold-*`变量；完善全局antd覆盖样式；建立完整的字体/间距/圆角/阴影/动画体系 |
+| v3.0 | 2026-05-21 | 移除backdrop-filter、新增移动端动画限制规范 |
+| v3.1 | 2026-05-25 | 状态颜色体系从4种扩展为5种（新增"待开市"蓝色#60A5FA），更新状态流转逻辑 |
+| v3.2 | 2026-05-25 | 新增CSS进度环组件规范、刷新动画规范（refresh-burst/refresh-ripple/ring-pulse） |
+| v3.1 | 2026-05-25 | 新增霜白碧（浅色）主题完整CSS变量体系；主题系统从单主题扩展为双主题架构；能量环SVG颜色从青色系改为金色系 |
 
 ---
 

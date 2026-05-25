@@ -375,6 +375,8 @@
 | BUG-002 | 2026-05-10 | transactions 表缺少 fee 列，导致加仓报 500 | Phase 2 | ✅ 已修复 | ALTER TABLE 新增 fee 列 |
 | BUG-003 | 2026-05-10 | 缺少 GET /api/funds/:code 路由，基金详情页无数据 | Phase 2 | ✅ 已修复 | 新增 getByCode 控制器 + 可选认证中间件 |
 | BUG-004 | 2026-05-10 | MySQL 连接池无保活配置，空闲后 ECONNRESET | Phase 1-3 | ✅ 已修复 | 新增 enableKeepAlive + keepAliveInitialDelay |
+| BUG-005 | 2026-05-25 | 定投计划不生效：缺少 cron 调度器 | Phase 3 | ✅ 已修复 | 添加 node-cron 调度器 + 启动时检查 |
+| BUG-006 | 2026-05-25 | MySQL Decimal 类型导致 NaN | Phase 3 | ✅ 已修复 | parseFloat() 转换所有 Decimal 字段 |
 
 ---
 
@@ -1012,4 +1014,943 @@
 - 卡片式布局替代 Ant Design List，获得更精细的视觉控制和更好的主题一致性
 
 ---
+
+### Session 12：个人中心优化 — 注册时间修复 + 安卓APK下载模块 + Nginx部署配置（v2.8）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-17 |
+| **执行角色** | Agent |
+| **涉及文件** | server/controllers/authController.js, web/src/pages/profile/ProfilePage.tsx, doc/nginx.conf, web/public/download/app-release.apk (新建) |
+
+**完成内容：**
+
+1. **注册时间显示Bug修复 ⭐ 重要**
+   - ✅ 问题诊断：后端登录/注册接口返回用户数据时缺少 `created_at` 字段
+   - ✅ 根因确认：数据库和 User Model 均已包含该字段，但 Controller 层未返回
+   - ✅ 修复方案：
+     - 注册接口（第30-31行）：新增 `User.findById(userId)` 查询完整用户信息
+     - 登录接口（第55行）：直接使用已有字段的 `user.created_at`
+   - ✅ 影响范围：新注册用户立即生效；已登录用户需重新登录
+
+2. **个人中心新增安卓APK下载模块 ⭐ 新功能**
+   - ✅ UI设计：Android品牌色渐变卡片（#3DDC84 → #00A86B）
+   - ✅ 视觉元素：Android图标 + 毛玻璃容器 + DownloadOutlined下载图标
+   - ✅ 交互效果：Hover上浮动画 + 绿色光晕阴影 + 点击触发下载
+   - ✅ 移动端适配：完整的 @media 768px 断点响应式样式
+   - ✅ 文件位置：位于用户信息卡片和菜单列表之间
+   - ✅ 图标导入：新增 AndroidOutlined、DownloadOutlined 从 @ant-design/icons
+
+3. **Nginx配置优化 — APK下载专用规则 ⭐ 部署增强**
+   - ✅ 新增 `/download/` location块（第94-121行）
+   - ✅ 功能配置：
+     - 强制下载：MIME类型 `application/vnd.android.package-archive` + Content-Disposition: attachment
+     - 断点续传：启用 aio on + directio 512
+     - 可选限速：limit_rate 1m（已注释，按需启用）
+     - 缓存策略：7天过期 + public 缓存控制
+     - 访问日志：独立日志文件 `/var/log/nginx/fund-tracker-download.log`
+   - ✅ 部署路径规范：`/opt/fund-tracker/web/dist/download/app-release.apk`
+
+4. **模拟APK测试文件创建**
+   - ✅ 文件路径：`web/public/download/app-release.apk`
+   - ✅ 文件大小：4.76 KB（4,873字节）
+   - ✅ 内部结构：AndroidManifest.xml + classes.dex + resources.arsc + META-INF签名文件
+   - ✅ 技术实现：Node.js脚本动态生成临时目录 → PowerShell Compress-Archive打包 → 自动清理
+   - ✅ DEX文件头：包含正确的魔数标识 `dex\n035\0`
+   - ✅ 用途：开发阶段测试下载功能验证
+
+**文件变更清单：**
+
+| 文件 | 操作 | 主要改动 |
+|------|------|---------|
+| `server/controllers/authController.js` | Bug修复 | 注册接口新增User.findById查询；登录/注册均返回created_at字段 |
+| `web/src/pages/profile/ProfilePage.tsx` | 功能新增 | 导入新图标；新增APK下载卡片组件；添加移动端响应式样式 |
+| `doc/nginx.conf` | 部署增强 | 新增/download/ location块；配置强制下载、断点续传、缓存策略 |
+| `web/public/download/app-release.apk` | 新建 | 模拟APK测试文件（4.76KB）|
+
+**代码统计：**
+
+| 指标 | 数值 |
+|------|------|
+| 修改文件数 | 3个 |
+| 新建文件数 | 1个（资源文件）|
+| 新增功能数 | 3个（注册时间修复、APK下载入口、Nginx优化）|
+| 修复Bug数 | 1个（后端接口字段缺失）|
+| 新增文档行数 | ~280行（CHANGE_SUMMARY_v2.6.md 第11章）|
+
+**决策记录（ADR）：**
+
+1. **ADR-001：APK下载入口位置选择**
+   - 决策：个人中心菜单顶部（用户信息卡片下方）
+   - 理由：高曝光率、符合用户预期、不影响核心功能区
+
+2. **ADR-002：UI设计风格选择**
+   - 决策：Android品牌色渐变 + Glassmorphism效果
+   - 理由：视觉醒目、品牌识别度高、与深色主题协调
+
+3. **ADR-003：注册时间修复策略**
+   - 决策：后端接口补全字段（非前端兼容处理）
+   - 理由：从源头解决问题、避免hacky代码、保证数据完整性
+
+4. **ADR-004：Nginx断点续传启用**
+   - 决策：生产环境必须启用aio + directio
+   - 理由：支持大文件传输、提升用户体验、防止下载中断
+
+**验证结果：**
+
+- ✅ 后端authController修改：语法正确，逻辑清晰
+- ✅ ProfilePage组件：新增下载卡片视觉正常、交互动画流畅
+- ✅ Nginx配置：location块语法正确、参数配置合理
+- ✅ APK文件生成：成功创建4.76KB的ZIP格式文件
+- ✅ 文档更新：CHANGE_SUMMARY_v2.6.md新增完整v2.8章节（280+行）
+
+**遗留问题：**
+
+1. 已登录用户的旧session不含created_at字段，需**重新登录**才能看到注册时间
+2. 当前APK为模拟文件（4.76KB），不能在真实设备上安装
+3. Nginx速度限制（limit_rate）已注释，生产环境按需启用
+4. 可考虑后续集成下载统计分析工具追踪转化率
+
+**文档更新：**
+
+1. ✅ **更新** `doc/CHANGE_SUMMARY_v2.6.md`（+280行）
+   - 第11章：v2.8增量更新详细记录
+   - 包含：问题分析、解决方案、技术实现、决策记录、后续建议
+
 ---
+
+### Session 13：生产环境部署排查 — 手机浏览器无法访问问题（ICP 备案）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-20 |
+| **执行角色** | Agent |
+| **涉及文件** | doc/nginx.conf, doc/progress.md, doc/project_plan.md, doc/PRD.md |
+
+**问题描述：**
+
+项目部署到阿里云服务器后，电脑浏览器通过 HTTPS 域名可以正常访问，但手机浏览器无法访问，报错 `ERR_CONNECTION_CLOSED`（错误代码 -101）。
+
+**排查过程：**
+
+1. **排除 HSTS 缓存** — 手机无痕模式访问仍然失败
+2. **排除运营商差异** — 手机连同一 WiFi 仍然失败
+3. **排除 IPv6 问题** — 注释掉 nginx 的 `listen [::]:443`，删除 DNS AAAA 记录，问题依旧
+4. **排除 MTU 问题** — 降低服务器 MTU 到 1200，问题依旧
+5. **排除端口/防火墙** — 阿里云安全组 443 端口已对 `0.0.0.0/0` 放开
+6. **关键发现：nginx 错误日志** — `SSL_do_handshake() failed (SSL: error:1420918C:SSL routines:tls_early_post_process_client_hello:version too low)` — 但这是扫描器流量，非手机请求
+7. **关键发现：nginx 无手机访问日志** — 手机请求根本没到达 nginx，问题在网络层
+8. **关键发现：IP 直接访问可以** — `https://服务器IP` 手机可以打开，但域名不行
+9. **关键发现：微信内置浏览器可以** — 微信使用 HTTPDNS + 自有网络通道绕过了拦截
+10. **关键发现：DNS 解析正确** — 手机 DNS 解析结果就是服务器公网 IP
+
+**根因确认：ICP 未备案**
+
+阿里云对未备案域名进行**域名级别的网络层拦截**：
+- 拦截基于域名而非 IP，所以 IP 直接访问可以
+- 电脑浏览器可能因缓存/不同网络路径暂时绕过拦截
+- 手机浏览器请求被拦截，无法到达 nginx（所以 nginx 无日志）
+- 微信内置浏览器使用 HTTPDNS + 自有通道，绕过了拦截层
+
+**解决方案：**
+
+| 方案 | 说明 | 优缺点 |
+|------|------|--------|
+| **完成 ICP 备案（推荐）** | 在阿里云控制台提交备案，1-3 周 | 根本解决，长期项目必选 |
+| **使用境外服务器** | 香港/新加坡节点，无需备案 | 国内访问速度慢 |
+| **套 Cloudflare CDN** | 域名解析到 Cloudflare | 免费但国内访问不稳定 |
+
+**配置变更：**
+
+1. ✅ `doc/nginx.conf` — 注释掉 IPv6 监听，添加 ICP 备案和手机访问注意事项
+2. ✅ `doc/progress.md` — 本 Session 记录
+3. ✅ `doc/project_plan.md` — 添加 ICP 备案相关风险和任务
+4. ✅ `doc/PRD.md` — 添加 ICP 备案约束条件
+
+**决策记录：**
+
+1. **ICP 备案为必选项** — 长期项目在中国大陆服务器运行必须备案，无捷径
+2. **IPv6 监听默认注释** — 阿里云默认无 IPv6，避免手机优先走 IPv6 导致连接失败
+3. **DNS AAAA 记录需删除** — 与 IPv6 监听注释配合，防止手机走 IPv6 死路
+
+**遗留问题：**
+
+1. ICP 备案尚未提交，手机浏览器暂时无法通过域名访问
+2. 备案期间可临时用 IP 地址访问（非 HTTPS 证书绑定的域名会有警告）
+3. 备案完成后需更新 nginx.conf 中的 server_name 和 SSL 证书路径
+
+---
+
+### Session 14：移动端性能深度优化（v3.0）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-21 |
+| **执行角色** | Agent（使用 mobile-responsive-optimizer 技能）|
+| **涉及文件** | web/src/components/Header.tsx, web/src/components/BottomTabBar.tsx, web/src/components/FundListItem.tsx, web/src/components/MarketIndexStrip.tsx, web/src/pages/portfolio/PortfolioPage.tsx, web/src/pages/watchlist/WatchlistPage.tsx, web/src/components/modals/FrequencySetting.tsx, web/src/App.css |
+
+**完成内容：**
+
+1. **Header SVG能量按钮 → CSS进度环 ⭐ 最大优化**
+   - 移除复杂SVG（8+粒子动画、feGaussianBlur滤镜、drop-shadow链）
+   - 替换为CSS conic-gradient进度环 + 渐变背景 + 发光效果
+   - 新增刷新动画：弹跳缩放 + 涟漪扩散 + 图标旋转发光
+   - 新增urgent脉冲（倒计时<15%时进度环闪烁）
+   - 自动刷新时触发refreshing动画
+
+2. **移除backdrop-filter: blur() ⭐ 重大优化**
+   - 从Header、BottomTabBar、FundListItem、.glass-card中移除
+   - 移动端GPU开销极大，替换为实色背景
+
+3. **内联style标签迁移到App.css ⭐ 显著优化**
+   - FundListItem/PortfolioPage/WatchlistPage/MarketIndexStrip的内联CSS迁移
+   - 消除DOM膨胀（10个列表项=2000+行重复CSS→0行）
+
+4. **React.memo优化FundListItem**
+   - memo()包装，跳过props未变化时的重渲染
+
+5. **MarketIndexStrip滚动优化**
+   - setInterval(30ms) + setScrollPos → requestAnimationFrame + 直接scrollLeft
+   - 不再触发React重渲染
+
+6. **移动端禁用fadeInUp入场动画**
+
+7. **刷新频率实时同步**
+   - FrequencySetting保存后派发refresh-frequency-changed事件
+   - Header监听事件同步refreshFreq和countdown
+
+**验证结果：**
+- TypeScript检查通过，修改文件无错误 ✅
+- Vite构建成功 ✅
+
+---
+---
+
+### Session 14：数据即时刷新修复 + antd弃用API更新（v2.9）
+
+**日期**：2026-05-19
+
+**本次目标**：修复添加基金持仓后需手动刷新才显示的问题；修复新建/删除/修改分组后需手动刷新才更新的问题；修复 antd Select `dropdownStyle` 弃用警告
+
+**完成内容**：
+
+1. **Bug修复：添加持仓后不自动刷新 ⭐**
+   - ✅ 问题根因：`AddHoldingModal` 成功后派发 `data-changed` 事件，但 `PortfolioPage` 只监听了 `manual-refresh` 事件
+   - ✅ 修复：在 `PortfolioPage.tsx` 的 useEffect 中增加 `data-changed` 事件监听
+   - ✅ 修改文件：`web/src/pages/portfolio/PortfolioPage.tsx`
+
+2. **Bug修复：分组操作后不自动刷新 ⭐**
+   - ✅ 问题根因：`GroupManageModal` 在 create/update/remove 操作后没有派发 `data-changed` 事件
+   - ✅ 修复：新增 `notifyDataChanged()` 方法，在 create/update/remove 操作成功后调用
+   - ✅ 修改文件：`web/src/components/modals/GroupManageModal.tsx`
+
+3. **修复 antd Select `dropdownStyle` 弃用警告**
+   - ✅ 问题：控制台输出 `Warning: [antd: Select] dropdownStyle is deprecated. Please use styles.popup.root instead.`
+   - ✅ 修复：`dropdownStyle={{ minWidth: 140 }}` → `styles={{ popup: { root: { minWidth: 140 } } }}`
+   - ✅ 修改文件：`web/src/components/modals/GroupManageModal.tsx`
+
+**事件驱动数据流总结（v2.9修复后）**：
+
+| 事件源 | 事件类型 | 监听者 | 响应动作 |
+|--------|---------|--------|---------|
+| AddHoldingModal(添加持仓) | data-changed | PortfolioPage | loadHoldings(true) |
+| AddHoldingModal(添加持仓) | data-changed | GroupSwitcher | loadGroups(500ms防抖) |
+| GroupManageModal(创建分组) | data-changed | PortfolioPage | loadHoldings(true) |
+| GroupManageModal(创建分组) | data-changed | GroupSwitcher | loadGroups(500ms防抖) |
+
+---
+
+### Session 15：隐私模式（隐藏金额）功能（v2.11）
+
+**日期**：2026-05-22
+
+**本次目标**：新增隐藏基金金额功能，用户在公共场合查看持仓时可一键隐藏所有金额和收益数据
+
+**完成内容**：
+
+1. **新增 hideAmountStore 状态管理 ⭐**
+   - ✅ 创建 `web/src/store/hideAmountStore.ts`
+   - ✅ Zustand store，`hidden: boolean`，持久化到 `localStorage('hide_amount')`
+   - ✅ 提供 `setHidden` / `toggle` 方法
+
+2. **PortfolioPage 金额隐藏**
+   - ✅ 总资产金额：点击可切换显示/隐藏（`cursor: pointer`，`userSelect: none`）
+   - ✅ 当日收益、累计收益：条件渲染为 `****`
+
+3. **FundListItem 金额隐藏**
+   - ✅ 持仓模式：持仓金额、当日收益、累计收益隐藏为 `****`
+   - ✅ 自选模式：净值、估算净值变动隐藏为 `****`
+   - ✅ 累计收益率（%）、估算涨幅（%）不隐藏
+
+4. **StatsPage 金额隐藏**
+   - ✅ 总收益、最大盈利、最大亏损隐藏为 `****`
+   - ✅ 收益金额列、累计收益列隐藏为 `****`
+   - ✅ 收益率（%）不隐藏
+
+5. **InvestmentPlanPage 金额隐藏**
+   - ✅ 定投金额隐藏为 `****`
+
+6. **SettingsPage 隐私设置卡片**
+   - ✅ 外观主题卡片下方新增"隐私设置"卡片
+   - ✅ 包含"隐藏金额"Switch 开关（显示/隐藏）
+
+**不涉及的页面**：FundDetailPage（基金详情页）不参与隐藏，交易记录金额和详情页数据始终明文显示。
+
+**交互方式**：
+- 持仓页：点击总资产金额切换
+- 设置页：Switch 开关切换
+
+**验证结果**：
+- Vite构建成功 ✅
+| GroupManageModal(修改分组) | data-changed | PortfolioPage | loadHoldings(true) |
+| GroupManageModal(修改分组) | data-changed | GroupSwitcher | loadGroups(500ms防抖) |
+| GroupManageModal(删除分组) | data-changed | PortfolioPage | loadHoldings(true) |
+| GroupManageModal(删除分组) | data-changed | GroupSwitcher | loadGroups(500ms防抖) |
+| Header(手动刷新按钮) | manual-refresh | PortfolioPage | loadHoldings(true) |
+
+**技术决策**：
+
+1. **复用 `data-changed` 事件** — 与现有架构一致，GroupSwitcher 已通过 `data-changed` 事件刷新，无需引入全局状态管理
+2. **v2.9 重新添加 `data-changed` 监听是安全的** — v2.4 删除该监听是因为旧版 `loadHoldings` 成功后会再次派发事件导致循环；v2.4 重写后已移除事件派发，因此不再有循环风险
+
+**文档更新**：
+
+1. ✅ `doc/CHANGE_SUMMARY_v2.6.md` — 添加 v2.9 增量更新章节
+2. ✅ `doc/COMPONENTS_CHANGELOG.md` — 更新数据流图、Bug修复表、PortfolioPage事件监听说明
+3. ✅ `doc/progress.md` — 本 Session 记录
+4. ✅ `doc/project_plan.md` — 更新版本号
+5. ✅ `doc/CODING_STANDARDS.md` — 添加 antd 弃用API说明、更新事件监听最佳实践
+6. ✅ `doc/UI_OPTIMIZATION_REPORT.md` — 更新 CustomEvent 架构说明
+
+---
+---
+
+### Session 15：图片识别导入基金持仓功能（v2.9）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-20 |
+| **执行角色** | Agent |
+| **涉及文件** | server/services/ocrService.js, server/controllers/imageImportController.js, server/routes/imageImport.js, web/src/components/modals/ImageImportModal.tsx, web/src/services/imageImportService.ts, server/app.js, web/src/pages/portfolio/PortfolioPage.tsx, web/src/components/layout/Header.tsx |
+
+**功能概述：**
+
+实现通过上传基金持仓截图（支付宝等），自动 OCR 识别基金名称/代码、持仓金额、累计收益，确认后批量导入持仓。
+
+**新增文件：**
+
+| 文件 | 说明 |
+|------|------|
+| `server/services/ocrService.js` | OCR 识别服务：百度OCR优先 + Tesseract.js 兜底，支持支付宝/天天基金/通用格式解析 |
+| `server/controllers/imageImportController.js` | 图片导入控制器：识别接口 + 确认导入接口，含基金名称智能匹配（findBestMatch） |
+| `server/routes/imageImport.js` | 路由：POST /recognize、POST /confirm |
+| `web/src/components/modals/ImageImportModal.tsx` | 图片导入弹窗：上传→识别→确认三步流程，手机端卡片列表+桌面端表格，基金名称联动搜索 |
+| `web/src/services/imageImportService.ts` | 前端 API 服务 |
+
+**修改文件：**
+
+| 文件 | 变更 |
+|------|------|
+| `server/app.js` | 注册 `/api/image-import` 路由 |
+| `web/src/pages/portfolio/PortfolioPage.tsx` | 删除原拍照按钮，统一到 Header |
+| `web/src/components/layout/Header.tsx` | 搜索框 suffix 添加相机图标按钮，集成 ImageImportModal |
+
+**核心技术实现：**
+
+1. **OCR 引擎策略**：百度OCR（通用文字识别标准版，免费5万次/月）优先，Tesseract.js 兜底
+2. **支付宝截图解析**：按中文行分组 → 识别名称续行（ETF联接C等）→ splitIndex 分割续行前后金额 → 持仓金额=续行前最大正数，累计收益=续行前第二个金额
+3. **基金名称智能匹配**：findBestMatch 函数，优先匹配 C/A 后缀 + 名称相似度评分
+4. **前端联动搜索**：基金名称输入框 300ms 防抖搜索数据库，选择后自动填充基金代码
+
+**API 接口：**
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/image-import/recognize` | POST | 上传图片识别持仓（multipart/form-data） |
+| `/api/image-import/confirm` | POST | 确认导入持仓（批量创建） |
+
+**配置项（.env）：**
+
+```
+BAIDU_OCR_APP_ID=xxx
+BAIDU_OCR_API_KEY=xxx
+BAIDU_OCR_SECRET_KEY=xxx
+```
+
+**决策记录：**
+
+1. **ADR-001：OCR 引擎选择** — 百度OCR优先 + Tesseract.js 兜底，百度中文识别率高且免费额度充足
+2. **ADR-002：解析策略** — 按中文行分组 + splitIndex 分割，而非按固定行号解析，更容错 OCR 分行偏差
+3. **ADR-003：基金代码只读** — 代码由系统匹配确定，用户通过修改名称搜索来更换基金
+4. **ADR-004：Modal 非全屏** — 手机端保持正常弹窗大小，不使用全屏模式
+
+**已知限制：**
+
+1. 主要支持支付宝持仓截图，天天基金/其他平台待适配
+2. 功能测试中，识别可能不准确
+3. OCR 未识别出持仓金额时，金额显示为 0，需用户手动补充
+4. 百度OCR需配置 .env 密钥，否则降级到 Tesseract.js（中文识别率低）
+
+**验证结果：**
+
+- ✅ 百度OCR识别5只基金，名称、金额、累计收益均正确
+- ✅ 基金名称搜索联动，选择后自动填充代码
+- ✅ 手机端卡片列表布局正常
+- ✅ 桌面端表格布局正常
+- ✅ 确认导入后持仓数据正确创建
+
+---
+
+### Session 15：盘中估算涨幅刷新不变问题深度分析（v2.10）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-21 |
+| **执行角色** | Agent |
+| **涉及文件** | server/services/holdingService.js, server/services/globalCache.js, server/services/fundService.js, web/src/pages/portfolio/PortfolioPage.tsx, doc/CACHE_OPTIMIZATION_v2.4.2.md, doc/CHANGE_SUMMARY_v2.6.md, doc/progress.md, doc/project_plan.md, doc/CHANGE_SUMMARY_v2.4.md |
+
+**问题描述：**
+
+用户反馈在盘中交易时段，刷新页面后估算涨幅有时不会变化。
+
+**深度分析结果：**
+
+发现3个导致盘中估算涨幅不更新的原因：
+
+#### 原因1：外部估值接口更新频率有限（核心原因）
+
+天天基金 JSONP 接口 `fundgz.1234567.com.cn` 的 `gszzl`（估算涨幅）字段大约每 **1-3分钟** 才更新一次。即使后端每次 `forceRefresh=true` 都穿透缓存直接请求外部接口，如果外部接口返回的值没变，前端看到的估算涨幅自然也不会变。
+
+**代码位置**：`server/services/fundService.js` 第18-78行
+
+**接口降级链**：
+1. `fundgz.1234567.com.cn` JSONP（主接口）
+2. 同接口换 Referer 重试（同一数据源）
+3. `push2.eastmoney.com` 东方财富行情接口（备用）
+
+**注意**：接口1和接口2是同一数据源的不同请求方式，不会返回更新的数据。
+
+#### 原因2：历史净值缓存未支持 forceRefresh
+
+`enrichHoldingsWithRealTimeData` 中历史净值查询始终走 `globalCache.getOrFetch`，**没有传递 forceRefresh 参数**：
+
+```javascript
+// holdingService.js 第151-156行
+globalCache.getOrFetch(historyCacheKey, () => {
+    return fundService.getHistoryNetValues(fundCode, threeDaysAgo, today)
+}, { type: 'history_recent' })  // ← 没有 forceRefresh!
+```
+
+盘中 `history_recent` 的 TTL 是 **30分钟**。如果某只基金在盘中发布了确认净值但缓存还没过期，系统会继续显示"估算中"而非"已确认"。
+
+#### 原因3：前端 loadHoldings 防抖并发问题
+
+`PortfolioPage.tsx` 第52-77行：
+
+```typescript
+const loadHoldings = useCallback(async (forceRefresh = false) => {
+    if (isLoadingRef.current && !forceRefresh) return;  // forceRefresh时跳过此检查
+    debounceTimerRef.current = setTimeout(async () => {
+      isLoadingRef.current = true;
+      // ...
+      isLoadingRef.current = false;
+    }, forceRefresh ? 0 : 300);  // forceRefresh时delay=0
+}, []);
+```
+
+当 `forceRefresh=true` 时 delay=0，但如果上一次请求还没完成，新请求的 setTimeout 会覆盖之前的定时器，可能导致并发请求拿到相同数据。
+
+**完整数据流分析：**
+
+```
+[前端定时/手动刷新]
+  PortfolioPage.loadHoldings(forceRefresh=true)
+    → holdingService.getHoldings(true)
+      → GET /api/holdings?forceRefresh=1
+        → holdingController.list()
+          → holdingService.enrichHoldingsWithRealTimeData(holdings, true)
+            → checkMarketStatus() [缓存1分钟]
+            → 对每只基金:
+              → fundService.getRealTimeValue(code) [forceRefresh=true时跳过缓存]
+                → 天天基金JSONP → Referer重试 → 东方财富push2 [3级降级]
+              → fundService.getHistoryNetValues(code) [始终走缓存，TTL=30分钟]
+            → calculateHoldingMetrics()
+              → estimated_change = gainPercent (来自实时估值或确认净值差)
+              → update_status = estimating/confirmed/pending_confirm/market_closed/pre_market
+          → 返回 enrichedHoldings (含 estimated_change)
+    → setHoldings(data)
+      → FundListItem 渲染 estimated_change
+```
+
+**文档更新清单：**
+
+| 文档 | 更新内容 |
+|------|---------|
+| `doc/CACHE_OPTIMIZATION_v2.4.2.md` | 修正盘中TTL为28秒（原误写60秒）；补充历史净值forceRefresh缺陷；修正场景A的API调用估算 |
+| `doc/CHANGE_SUMMARY_v2.6.md` | 修正2.1节forceRefresh实现描述（cache.clear→直接API调用）；补充已知限制（3个原因） |
+| `doc/progress.md` | 本Session记录 |
+| `doc/project_plan.md` | 更新当前版本状态 |
+| `doc/CHANGE_SUMMARY_v2.4.md` | 修正11.2节缓存TTL数据与实际代码不一致 |
+
+**修复建议（待实施）：**
+
+1. **历史净值也应支持 forceRefresh**：当 `forceRefresh=true` 时，历史净值缓存也应适当缩短或跳过
+2. **前端添加请求锁**：避免并发重复请求，forceRefresh 时也应等待上一次请求完成
+3. **考虑估值接口的更新频率**：可在前端显示估值更新时间，让用户知道数据来源的更新节奏
+
+---
+
+### Session 16：当日收益计算修正 — 确认净值差精确计算（v2.10）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-25 |
+| **执行角色** | Agent |
+| **涉及文件** | server/services/holdingService.js, doc/CHANGE_SUMMARY_v2.6.md, doc/PRD.md, doc/progress.md, doc/CODING_STANDARDS.md, doc/COMPONENTS_CHANGELOG.md |
+
+**问题描述：**
+
+用户反馈当日收益显示值与支付宝上看到的实际收益不一致。例如应用显示 +¥122.45，但支付宝实际收益不同。
+
+**根因分析：**
+
+当日收益使用估算涨幅反推：`市值 × 估算涨幅 / (100 + 估算涨幅)`，而估算涨幅本身是盘中预估值，与实际确认净值计算的收益存在偏差。当确认净值已经出来后，应该用确认净值差精确计算当日收益，而非继续用估算涨幅反推。
+
+**修复方案：**
+
+在 `holdingService.js` 的 `calculateHoldingMetrics` 函数中，新增双条件当日收益计算逻辑：
+
+1. **确认净值可用时**（`isConfirmed && confirmedNav > 0 && yesterdayNav > 0`）：
+   - `dailyGain = shares × (confirmedNav - yesterdayNav)`
+   - `gainPercent = ((confirmedNav - yesterdayNav) / yesterdayNav) × 100`
+
+2. **盘中估算时**（确认净值不可用）：
+   - `dailyGain = marketValue × gainPercent / (100 + gainPercent)`（原逻辑不变）
+
+**代码变更：**
+
+1. `enrichHoldingsWithRealTimeData`：提取昨日净值 `yesterdayNav = historyData[1].nav`
+2. 返回对象新增 `_yesterdayNav` 字段
+3. `calculateHoldingMetrics` 函数签名新增 `yesterdayNav` 参数
+4. 当日收益计算逻辑改为双条件分支
+
+**计算公式演进：**
+
+| 版本 | 当日收益公式 | 说明 |
+|------|-------------|------|
+| v2.4及之前 | `市值 × 估算涨幅 / (100 + 估算涨幅)` | 始终用估算涨幅反推 |
+| **v2.10** | 确认净值可用：`份额 × (今日净值 - 昨日净值)` | 精确计算 |
+| **v2.10** | 确认净值不可用：`市值 × 估算涨幅 / (100 + 估算涨幅)` | 盘中估算 |
+
+**决策记录：**
+
+1. **确认净值可用时优先用净值差** — 净值差是精确值，估算涨幅是预估值，精度差异显著
+2. **需要昨日净值** — 仅知道今日净值不够，需要与昨日净值做差才能计算当日收益
+3. **yesterdayNav 从 historyData[1] 获取** — historyData[0] 为最新（今日），historyData[1] 为上一交易日
+
+**文档更新：**
+
+1. ✅ `doc/CHANGE_SUMMARY_v2.6.md` — 新增第13章 v2.10增量更新
+2. ✅ `doc/PRD.md` — 更新4.4.1节、Story 3.2、附录G的收益计算公式
+3. ✅ `doc/progress.md` — 本Session记录
+4. ✅ `doc/CODING_STANDARDS.md` — 更新Q6当日收益计算说明
+5. ✅ `doc/COMPONENTS_CHANGELOG.md` — 新增v2.10 holdingService变更
+
+**遗留问题：**
+
+- 无
+
+## Session 14 — 2026-05-25
+
+### 本次目标
+1. 海外/港股基金休市时不显示估算涨幅和收益
+2. 基金详情页增加"修改持仓"功能
+3. 修改持仓逻辑与添加持仓逻辑对齐
+4. 交易记录生成条件优化
+
+### 完成事项
+
+#### 1. 海外/港股基金休市处理
+- 确认 FundListItem 组件已有 `market_closed` 状态处理
+- 当基金处于休市状态时，估算涨幅和当日收益不显示
+- 自选和统计界面同样适用此逻辑（共用 FundListItem 组件）
+
+#### 2. 新增 EditHoldingModal 组件
+- 文件: `web/src/components/modals/EditHoldingModal.tsx`
+- 功能: 修改持仓金额和累计收益
+- 技术方案: 使用受控组件（useState）而非 Ant Design Form
+  - 原因: Ant Design Form 的 initialValues 会被父组件实时数据变化覆盖，导致输入重置
+  - 使用 prevOpen ref 确保弹窗打开时只初始化一次值
+- 参数与 AddHoldingModal 保持一致: amount（当前市值）+ totalReturn（累计收益）
+
+#### 3. 持仓修改逻辑对齐
+- 后端 holdingController.update 方法参数从 {totalCost, accumulatedProfit} 改为 {amount, totalReturn}
+- 计算逻辑统一: shares = amount / netValue, totalCost = amount - totalReturn, costPrice = totalCost / shares
+- 前端 holdingService.ts updateHolding 签名同步更新
+
+#### 4. 交易记录生成条件优化
+- 添加持仓时: 仅当累计收益为0（!totalReturn，即首次买入）时才生成交易记录
+- 修改持仓时: 不生成交易记录
+- 原因: 添加/修改持仓是持仓信息录入，不是实际交易操作
+
+### 配置变更
+1. ✅ `web/src/components/modals/EditHoldingModal.tsx` — 新建修改持仓弹窗组件
+2. ✅ `server/controllers/holdingController.js` — update 逻辑对齐 + 交易记录条件生成
+3. ✅ `web/src/services/holdingService.ts` — updateHolding API 签名更新
+4. ✅ `web/src/pages/fund/FundDetailPage.tsx` — 集成 EditHoldingModal
+
+### 决策记录
+1. **EditHoldingModal 使用受控组件** — Ant Design Form 的 initialValues 在父组件重渲染时会被重新评估，导致用户输入被覆盖
+2. **修改持仓参数与添加持仓对齐** — 统一使用 amount + totalReturn，而非 totalCost + accumulatedProfit，降低用户理解成本
+3. **条件生成交易记录** — 仅首次买入（totalReturn=0）时生成交易记录，持仓信息录入不应产生交易记录
+
+### 遗留问题
+1. 海外基金休市判断目前依赖 API 返回的 market_closed 状态，未来可考虑本地判断逻辑
+
+---
+
+### Session 17：移动端列对齐修复 + 排序三角优化 + 数据显示修复（v2.10.1）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-23 |
+| **执行角色** | Agent |
+| **涉及文件** | web/src/pages/portfolio/PortfolioPage.tsx, web/src/components/FundListItem.tsx, web/src/components/GroupSwitcher.tsx, web/src/App.css |
+| **文档更新** | CHANGE_SUMMARY_v2.6.md, COMPONENTS_CHANGELOG.md |
+
+---
+
+#### 完成内容：
+
+**1. 移动端持仓列表列对齐修复 ⭐**
+
+- **问题**：移动端当日收益列和累计收益列的数据与表头不对齐，web端正常
+- **根因**：
+  1. 表头容器宽度 ≠ 数据行容器宽度（padding: 16px vs 10px，margin: 8px vs 6px），导致 flex 列比例相同但绝对宽度不同
+  2. 表头 estimated_change 和 daily_profit 列 flex 值（1.3）与数据行（1.4）不一致
+- **修复**：
+  - `App.css`: 表头 estimated_change/daily_profit 列 flex 改为 1.4（与数据行一致）
+  - `App.css`: `.portfolio-table-header` 新增 `padding-left/right: 8px`，使表头容器宽度与数据行一致
+
+**2. 排序箭头替换为小三角 ⭐**
+
+- **变更**：排序指示器从 Ant Design `SortAscendingOutlined`/`SortDescendingOutlined` 图标改为 Unicode 三角字符
+- **实现** (`PortfolioPage.tsx`):
+  - 默认状态：▲▼ 上下排列（灰色）
+  - 升序激活：▲ 高亮（`#fbcc56`），▼ 灰色
+  - 降序激活：▼ 高亮（`#fbcc56`），▲ 灰色
+- 移除了 `SortAscendingOutlined` 和 `SortDescendingOutlined` 的导入
+
+**3. profit-amount 移动端字体统一**
+
+- `App.css`: `.fund-list-item .profit-amount` 字体 clamp 从 `2vw, 12px` 改为 `2.2vw, 13px`，与 `.change-percent` 一致
+
+**4. Web端分组隐藏资产金额**
+
+- `GroupSwitcher.tsx`: 添加全局 `.group-amount { display: none !important; }` 规则，Web端和移动端均隐藏分组卡片的资产金额
+- 移除移动端媒体查询中的重复规则
+
+**5. 负号显示修复**
+
+- `FundListItem.tsx`: 当日收益和累计收益负值显示从 `¥-114.37` 修正为 `-¥114.37`
+- 使用 `Math.abs()` + 手动控制正负号前缀
+
+**文件变更清单：**
+
+| 文件 | 操作 | 主要改动 |
+|------|------|---------|
+| `web/src/App.css` | 修改 | portfolio-table-header flex对齐 + padding + profit-amount字体 |
+| `web/src/pages/portfolio/PortfolioPage.tsx` | 修改 | 排序三角替换、移除图标导入、排序高亮色 #fbcc56 |
+| `web/src/components/FundListItem.tsx` | 修改 | 负号位置修复 |
+| `web/src/components/GroupSwitcher.tsx` | 修改 | 全局隐藏分组金额 |
+
+**验证结果：**
+- ✅ 移动端持仓列表列对齐
+- ✅ 排序三角交互正常（三态切换）
+- ✅ 负号显示正确（`-¥xxx`）
+- ✅ Web端分组金额已隐藏
+
+---
+
+### Session 15：基金状态判断逻辑优化 — 新增"待开市"状态 + 节假日修复 + 凌晨隐藏涨幅收益（v2.11）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-25 |
+| **执行角色** | Agent |
+| **涉及文件** | server/services/holdingService.js, web/src/components/FundListItem.tsx, web/src/pages/watchlist/WatchlistPage.tsx |
+
+**完成内容：**
+
+1. **节假日交易时间误判开市Bug修复 ⭐ 重要**
+   - ✅ 问题：国庆等法定节假日的工作日，交易时间段仍判断为开市
+   - ✅ 根因：holdingService.js 只判断周末，未考虑法定节假日
+   - ✅ 修复：优先检查休市日再判断交易时间，三层智能检测（周末→数据采样→新鲜度验证）
+   - ✅ 测试：构造周末、国庆假期、盘中、盘前夜晚、盘后、凌晨盘前等6种场景测试用例，全部通过
+
+2. **新增"待开市"(pre_market)状态 ⭐ 核心功能**
+   - ✅ 状态体系从4种扩展为5种：休市/待开市/估算中/待确认/已确认
+   - ✅ 盘前时段（0:00-9:00工作日）显示"待开市"（蓝色 #60A5FA）
+   - ✅ 与"休市"（灰色）区分，传达"即将开盘"的含义
+   - ✅ 后端：calculateHoldingMetrics 新增 hour < 9 的 pre_market 判断
+   - ✅ 前端：FundListItem 新增 pre_market 状态UI渲染
+
+3. **凌晨后隐藏涨幅和收益 ⭐ 逻辑优化**
+   - ✅ 用户反馈"过了凌晨就不需要再显示涨幅和收益"
+   - ✅ 盘前时段(hour < 9)：涨幅设为null，当日收益设为0
+   - ✅ 9:00开盘后恢复正常显示
+
+4. **盘后时间段调整**
+   - ✅ 盘后时间段从15:00-18:00调整为15:00-22:30
+   - ✅ 17:00后确认净值可用，状态切换为"已确认"
+   - ✅ history_recent TTL缩短，收盘后尽快刷新数据
+
+5. **CST时区问题排查**
+   - ✅ 本地开发正确但服务器错误
+   - ✅ 确认CST时区下getHours()行为正确
+   - ✅ 问题实际为服务器运行旧版代码，重启后修复
+
+6. **自选界面状态逻辑同步**
+   - ✅ 持仓界面状态正确但自选界面不正确
+   - ✅ 将holdingService.js的逻辑同步到fundController.js
+   - ✅ 自选基金和每日收益更新应用相同逻辑
+
+**完整时间段逻辑划分：**
+
+| 时间段 | 状态 | 颜色 | 说明 |
+|--------|------|------|------|
+| 周末/节假日全天 | 休市 | 灰色 #6B7280 | 非交易日 |
+| 0:00-9:00（工作日） | 待开市 | 蓝色 #60A5FA | 盘前等待，涨幅收益隐藏 |
+| 9:00-15:00 | 估算中 | 红色 #EF4444 | 盘中实时估值 |
+| 15:00-17:00 | 待确认 | 橙色 #F97316 | 收盘等待确认 |
+| 17:00-22:30 | 已确认 | 浅金黄 #f5d584 | 确认净值可用 |
+
+**文件变更清单：**
+
+| 文件 | 操作 | 主要改动 |
+|------|------|---------|
+| `server/services/holdingService.js` | 修改 | 新增pre_market状态；凌晨隐藏涨幅收益；节假日检测优先；盘后时间段调整 |
+| `web/src/components/FundListItem.tsx` | 修改 | 新增pre_market状态UI渲染 |
+| `web/src/pages/watchlist/WatchlistPage.tsx` | 修改 | 同步持仓界面状态逻辑 |
+
+**决策记录：**
+
+1. **盘前状态命名**：用户明确要求"到开盘时间前显示为：待开市"，采用 pre_market
+2. **盘前状态颜色**：蓝色 #60A5FA，与休市灰色区分，传达积极含义
+3. **凌晨涨幅处理**：清零不显示，用户反馈"过了凌晨就不需要再显示"
+4. **节假日检测**：三层智能检测，零维护成本，自动适应法定节假日
+5. **时区处理**：不做额外处理，CST时区下getHours()行为正确
+
+**验证结果：**
+
+- ✅ 周末全天显示"休市(周六/周日)"
+- ✅ 国庆假期工作日显示"休市"
+- ✅ 凌晨3点工作日显示"待开市"，涨幅为空
+- ✅ 盘中10:00显示"估算中"
+- ✅ 盘后16:00显示"待确认"
+- ✅ 晚间19:00显示"已确认"
+- ✅ 自选界面与持仓界面状态一致
+
+---
+
+### Session 16：双主题系统开发 + 能量环颜色优化（v3.1）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-25 |
+| **执行角色** | Agent |
+| **涉及文件** | web/src/App.tsx, web/src/App.css, web/src/components/Header.tsx, web/src/components/layout/Header.tsx, 全局组件样式 |
+
+**本次目标**：基于现有"墨玉金"深色主题，开发"霜白碧"浅色主题，默认使用浅色主题；优化能量环SVG颜色
+
+**完成内容**：
+
+1. **霜白碧（浅色）主题开发 ⭐ 重大功能**
+   - ✅ 新增完整的 `:root[data-theme='light']` CSS变量体系
+   - ✅ 品牌色系：碧玉青(#2E8B7B) + 浅碧(#E8F5F3) + 深碧(#1A6B5E)
+   - ✅ 背景色阶：纯白(#FFFFFF) + 浅灰(#F8FAFB)
+   - ✅ 文字色阶：深色文字(#1A1A2E ~ #D1D5DB)
+   - ✅ 边框色阶：深色透明度边框
+   - ✅ 阴影系统：浅色主题专用阴影
+   - ✅ 默认主题设为霜白碧（light）
+
+2. **双主题切换机制**
+   - ✅ 通过 `data-theme` 属性控制主题切换
+   - ✅ 用户偏好存储在 localStorage
+   - ✅ Ant Design ConfigProvider 动态主题适配
+
+3. **能量环SVG颜色优化 ⭐**
+   - ✅ 所有青色/蓝绿色(#00ffc8, #00d4ff, #00cc99, #4dffdb)替换为金色系(#F0D78C, #D4A84B, #B8860B)
+   - ✅ 与"墨玉金"深色主题品牌色保持一致
+   - ✅ 用户反馈原始颜色"丑"，金色系更符合金融专业感
+
+4. **Bug修复**
+   - ✅ Android下载卡片在白色主题下对比度不足 → 适配light主题样式
+   - ✅ 绿色渐变背景视觉不协调 → 优化配色
+
+**技术决策**：
+
+1. **CSS变量驱动** — 所有颜色通过CSS变量定义，主题切换时只需更改 `data-theme` 属性，组件自动适配
+2. **默认浅色** — 大多数用户偏好浅色界面，设为默认主题
+3. **品牌色差异化** — 深色主题用金色(#D4A84B)，浅色主题用碧玉青(#2E8B7B)，形成鲜明的主题识别
+
+**文档更新**：
+
+1. ✅ `doc/DESIGN_SYSTEM.md` — 新增霜白碧主题完整CSS变量、主题系统章节、v3.1版本历史
+2. ✅ `doc/COMPONENTS_CHANGELOG.md` — 新增v3.1变更记录
+3. ✅ `doc/UI_OPTIMIZATION_REPORT.md` — 主题系统扩展标记为已完成
+4. ✅ `doc/progress.md` — 本 Session 记录
+5. ✅ `doc/CODING_STANDARDS.md` — 新增主题开发规范
+6. ✅ `doc/interaction_design.md` — 霜白碧状态更新为已实施
+7. ✅ `doc/PRD.md` — 主题功能标记为已实施
+
+---
+
+### Session 14：定投调度修复与防重复执行机制（v3.0）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-25 |
+| **执行角色** | Agent |
+| **涉及文件** | server/services/planService.js, server/app.js, server/models/transaction.js, server/controllers/planController.js, doc/init_db.sql |
+
+**完成内容：**
+
+1. **定投计划不生效问题修复 ⭐ 核心修复**
+   - ✅ 添加 node-cron 定时调度器到 app.js
+   - ✅ 调度时间：20:00 首次执行 + 21:00 重试（处理净值延迟确认）
+   - ✅ 服务器启动时立即检查一次到期计划
+   - ✅ 添加详细日志（开始/结束/每个计划处理步骤/统计）
+
+2. **calcNextRunDate 修复 ⭐**
+   - ✅ 修复忽略 dayOfWeek/dayOfMonth 参数的问题
+   - ✅ weekly 频率正确计算下一个指定星期几
+   - ✅ monthly 频率正确计算下一个指定日期
+   - ✅ frequency 枚举新增 biweekly（双周）
+
+3. **MySQL Decimal 类型 NaN 修复 ⭐**
+   - ✅ plan.amount 从 MySQL 返回 Decimal 字符串（如 "1000.0000"）
+   - ✅ JS + 运算导致字符串拼接产生 NaN
+   - ✅ NaN 被传入 MySQL 后被解释为列名报 Unknown column 'NaN'
+   - ✅ 修复：所有 Decimal 字段用 parseFloat() 转换
+
+4. **净值确认策略变更 ⭐**
+   - ✅ 旧策略：15:30 执行，净值未确认时降级使用旧净值
+   - ✅ 新策略：20:00 执行 + 21:00 重试，只使用当日确认净值
+   - ✅ 净值未确认时跳过执行，不更新 next_run_date，下次调度会再次拾取
+   - ✅ executeDuePlans 返回 { success, skipped, failed, pending } 对象
+
+5. **防重复执行机制 ⭐**
+   - ✅ transactions 表新增 note 字段（VARCHAR(200) DEFAULT NULL）
+   - ✅ 执行前查询 note = 'auto_plan:{planId}' 的交易记录
+   - ✅ 已存在则跳过，避免重复生成交易记录
+   - ✅ 同一基金可有多个定投计划，单日可多次买入
+   - ✅ 清理历史脏数据（删除 27 条重复记录）
+
+6. **数据库变更**
+   - transactions 表新增 note 字段
+   - investment_plans 表 frequency 枚举新增 biweekly
+   - init_db.sql 版本号 v3→v4
+
+**文件变更清单：**
+
+| 文件 | 操作 | 主要改动 |
+|------|------|---------|
+| server/services/planService.js | 重大修改 | 添加 pool 引入、详细日志、净值策略、parseFloat()、防重复检查 |
+| server/app.js | 修改 | cron 调度器配置 20:00+21:00、启动检查、详细日志 |
+| server/models/transaction.js | 修改 | create 方法新增 note 参数 |
+| server/controllers/planController.js | 修改 | calcNextRunDate 修复、biweekly 支持 |
+| doc/init_db.sql | 修改 | 版本号 v3→v4、note 字段、biweekly 枚举 |
+
+**决策记录：**
+
+1. **净值未确认时跳过而非降级** — 保证计算准确性，宁可延迟执行也不用旧净值
+2. **防重复用 note 字段** — 简单直接，复用现有字段，无需新建表
+3. **20:00+21:00 双时间调度** — A股基金净值通常18:00-20:00确认，21:00重试兜底
+4. **parseFloat() 修复 Decimal** — 从根源解决 JS 与 MySQL Decimal 类型不兼容问题
+
+**验证结果：**
+- ✅ 定投计划正确触发执行
+- ✅ 净值未确认时跳过，21:00 重试成功
+- ✅ 防重复执行正常工作
+- ✅ 交易记录和持仓正确更新
+- ✅ 同一基金多个定投计划独立执行
+
+**遗留问题：**
+- 21:00 重试仍可能因净值延迟确认而跳过（极端情况）
+- calcNextRunDate 未处理中国法定节假日
+
+---
+
+### Session 17：刷新按钮美化 + 倒计时频率关联 + 刷新动画（v3.2）
+
+| 项目 | 内容 |
+|------|------|
+| **日期** | 2026-05-25 |
+| **执行角色** | Agent |
+| **涉及文件** | web/src/components/Header.tsx, web/src/components/modals/FrequencySetting.tsx |
+
+**本次目标**：基于v3.0移动端性能优化后的CSS进度环，进一步美化刷新按钮视觉、实现倒计时与刷新频率联动、添加刷新动画反馈
+
+**完成内容**：
+
+1. **刷新按钮三色渐变进度环 ⭐ 视觉升级**
+   - ✅ 单色 var(--accent-gold) 替换为三色渐变 #F0D78C → #D4A84B → #B8860B
+   - ✅ 新增 CSS mask: radial-gradient 实现环形效果
+   - ✅ 渐变方向从 from 0deg 改为 from -90deg（从顶部开始）
+   - ✅ 渐变背景随进度变亮（progressPercent驱动透明度变化）
+
+2. **三级发光效果**
+   - ✅ 刷新中：强发光 `0 0 12px rgba(212,168,75,0.3), inset 0 0 8px rgba(212,168,75,0.1)`
+   - ✅ 进度 > 80%：弱发光 `0 0 10px rgba(212,168,75,0.2), inset 0 0 6px rgba(212,168,75,0.05)`
+   - ✅ 默认：内阴影 `inset 0 1px 2px rgba(0,0,0,0.1)`
+
+3. **刷新爆发动画 ⭐ 新增**
+   - ✅ refresh-burst：按钮弹跳动画 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)
+   - ✅ refresh-ripple：涟漪扩散效果 0.8s ease-out（伪元素::after实现）
+   - ✅ 自动刷新时触发：倒计时到0时 setRefreshing(true) + dispatch manual-refresh
+   - ✅ 手动刷新时触发：handleManualRefresh 中 setRefreshing(true)
+   - ✅ refreshing 状态持续1秒后自动关闭
+
+4. **紧急脉冲动画**
+   - ✅ 倒计时剩余 ≤ 15% 时添加 .urgent 类
+   - ✅ 进度环 opacity 脉冲动画 ring-pulse 1.5s infinite
+
+5. **倒计时与刷新频率关联 ⭐ 功能增强**
+   - ✅ FrequencySetting 保存后派发 `refresh-frequency-changed` 事件（携带 detail.frequency）
+   - ✅ Header 监听事件，同步更新 refreshFreq 和 countdown
+   - ✅ 替换旧的 localStorage 读取方案，改为 CustomEvent.detail.frequency
+
+6. **hover/active 交互**
+   - ✅ hover: scale(1.08)
+   - ✅ active: scale(0.92)
+   - ✅ 刷新中: cursor: not-allowed
+
+**文件变更清单**：
+
+| 文件 | 操作 | 主要改动 |
+|------|------|---------|
+| `web/src/components/Header.tsx` | 重大修改 | 三色渐变进度环；三级发光；刷新爆发动画；紧急脉冲；CustomEvent频率同步；hover/active交互 |
+| `web/src/components/modals/FrequencySetting.tsx` | 功能增强 | 保存后派发refresh-frequency-changed事件（携带frequency值） |
+
+**决策记录**：
+
+1. **三色渐变 vs 单色** — 用户反馈单色进度环"太丑"，三色渐变提供品牌色层次感
+2. **CustomEvent vs localStorage** — CustomEvent实时性更好，无需轮询，与现有manual-refresh/data-changed架构一致
+3. **伪元素涟漪 vs 额外DOM** — 伪元素零DOM开销，动画结束后自动移除
+4. **refreshing持续1秒** — 足够播放完整动画，又不阻塞用户操作
+
+**验证结果**：
+- ✅ 进度环三色渐变正确显示
+- ✅ 刷新时弹跳+涟漪动画流畅
+- ✅ 修改刷新频率后倒计时即时同步
+- ✅ 自动刷新时动画正确触发
+- ✅ hover/active交互反馈正常
+
+**文档更新**：
+1. ✅ `doc/CHANGE_SUMMARY_v2.6.md` — 修正14.1和14.7节代码示例
+2. ✅ `doc/COMPONENTS_CHANGELOG.md` — 新增v3.2章节
+3. ✅ `doc/DESIGN_SYSTEM.md` — 新增CSS进度环规范和刷新动画规范
+4. ✅ `doc/UI_OPTIMIZATION_REPORT.md` — 新增v3.2优化表格
+5. ✅ `doc/progress.md` — 本 Session 记录
+6. ✅ `doc/CODING_STANDARDS.md` — 新增CustomEvent通信规范

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Button, Table, Tag, Segmented, Skeleton, App, Space } from 'antd';
-import { ArrowLeftOutlined, StarOutlined, StarFilled, PlusOutlined, MinusOutlined, ScheduleOutlined, DeleteOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, StarOutlined, StarFilled, PlusOutlined, MinusOutlined, ScheduleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { fundService } from '@/services/fundService';
 import { transactionService } from '@/services/transactionService';
@@ -10,6 +10,7 @@ import { useThemeStore } from '@/store/themeStore';
 import BuyModal from '@/components/modals/BuyModal';
 import SellModal from '@/components/modals/SellModal';
 import CreatePlanModal from '@/components/modals/CreatePlanModal';
+import EditHoldingModal from '@/components/modals/EditHoldingModal';
 
 type Period = '1w' | '1m' | '3m' | '6m' | '1y' | 'all';
 
@@ -28,6 +29,7 @@ export default function FundDetailPage() {
   const [buyModalOpen, setBuyModalOpen] = useState(false);
   const [sellModalOpen, setSellModalOpen] = useState(false);
   const [planModalOpen, setPlanModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
 
   const loadNavHistory = async (p: Period, fundCode: string) => {
     const now = new Date();
@@ -622,6 +624,7 @@ export default function FundDetailPage() {
   }
 
   const isUp = (fund.estimated_change ?? 0) >= 0;
+  const isMarketClosed = fund.update_status === 'market_closed' || fund.update_status === 'pre_market';
 
   return (
     <div className="fund-detail-page" style={{ paddingTop: 20, paddingLeft: 16, paddingRight: 16, paddingBottom: 100 }}>
@@ -942,29 +945,29 @@ export default function FundDetailPage() {
           </div>
           <div>
             <div className="fund-detail-data-label" style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              估算涨幅
+              {fund.update_status === 'confirmed' ? '涨幅' : '估算涨幅'}
             </div>
             <div className="fund-detail-data-value number-tabular" style={{
               fontSize: 28,
               fontWeight: 800,
-              color: isUp ? 'var(--gain)' : 'var(--loss)',
+              color: isMarketClosed ? 'var(--text-dim)' : (isUp ? 'var(--gain)' : 'var(--loss)'),
               fontFamily: 'var(--font-mono)',
               letterSpacing: '-0.02em',
             }}>
-              {isUp ? '+' : ''}{fund.estimated_change?.toFixed(2) || '0.00'}%
+              {isMarketClosed ? '--' : `${isUp ? '+' : ''}${fund.estimated_change?.toFixed(2) || '0.00'}%`}
             </div>
           </div>
           <div>
             <div className="fund-detail-data-label" style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              当日收益
+              {fund.update_status === 'confirmed' ? '日收益' : '当日收益'}
             </div>
             <div className="fund-detail-data-value-small number-tabular" style={{
               fontSize: 18,
               fontWeight: 700,
-              color: (fund.daily_profit ?? 0) >= 0 ? 'var(--gain)' : 'var(--loss)',
+              color: isMarketClosed ? 'var(--text-dim)' : ((fund.daily_profit ?? 0) >= 0 ? 'var(--gain)' : 'var(--loss)'),
               fontFamily: 'var(--font-mono)',
             }}>
-              {(fund.daily_profit ?? 0) >= 0 ? '+' : ''}¥{Math.abs(fund.daily_profit ?? 0).toFixed(2)}
+              {isMarketClosed ? '--' : `${(fund.daily_profit ?? 0) >= 0 ? '+' : ''}¥${Math.abs(fund.daily_profit ?? 0).toFixed(2)}`}
             </div>
           </div>
           <div>
@@ -1051,10 +1054,26 @@ export default function FundDetailPage() {
       {/* 操作按钮组 */}
       <div className="fund-detail-actions" style={{
         display: 'grid',
-        gridTemplateColumns: '1fr 1fr 1fr',
+        gridTemplateColumns: '1fr 1fr 1fr 1fr',
         gap: 12,
         marginBottom: 12,  // ✅ 减小与下方模块的间距
       }}>
+        {fund.shares != null && fund.shares > 0 && (
+          <Button
+            className="fund-detail-action-btn"
+            icon={<EditOutlined />}
+            onClick={() => setEditModalOpen(true)}
+            style={{
+              height: 48,
+              fontSize: 15,
+              fontWeight: 600,
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-default)',
+            }}
+          >
+            修改
+          </Button>
+        )}
         <Button
           className="fund-detail-action-btn"
           type="primary"
@@ -1155,6 +1174,19 @@ export default function FundDetailPage() {
         fundCode={code || ''}
         fundName={fund.name || code || ''}
       />
+      {fund.holding_id && (
+        <EditHoldingModal
+          key={editModalOpen ? 'open' : 'closed'}
+          open={editModalOpen}
+          holdingId={fund.holding_id}
+          fundCode={code || ''}
+          fundName={fund.name || code || ''}
+          currentMarketValue={Number(fund.market_value) || 0}
+          currentTotalReturn={Number(fund.accumulated_profit) || 0}
+          onClose={() => setEditModalOpen(false)}
+          onSuccess={loadData}
+        />
+      )}
     </div>
   );
 }

@@ -15,7 +15,8 @@
 5. [API调用与错误处理](#api调用与错误处理)
 6. [TypeScript类型定义](#typescript类型定义)
 7. [性能优化建议](#性能优化建议)
-8. [常见问题与解决方案](#常见问题与解决方案)
+8. [主题开发规范](#主题开发规范)
+9. [常见问题与解决方案](#常见问题与解决方案)
 
 ---
 
@@ -513,6 +514,40 @@ export const useAuthStore = create<AuthState>()(
 );
 ```
 
+### 轻量Store模式（localStorage手动持久化）
+
+当状态简单（单个boolean）时，可使用手动localStorage持久化替代zustand/middleware：
+
+```typescript
+// store/hideAmountStore.ts
+import { create } from 'zustand';
+
+interface HideAmountState {
+  hidden: boolean;
+  setHidden: (hidden: boolean) => void;
+  toggle: () => void;
+}
+
+export const useHideAmountStore = create<HideAmountState>((set) => ({
+  hidden: localStorage.getItem('hide_amount') === 'true',
+
+  setHidden: (hidden: boolean) => {
+    localStorage.setItem('hide_amount', String(hidden));
+    set({ hidden });
+  },
+
+  toggle: () => {
+    set((state) => {
+      const newHidden = !state.hidden;
+      localStorage.setItem('hide_amount', String(newHidden));
+      return { hidden: newHidden };
+    });
+  },
+}));
+```
+
+**适用场景**：状态结构简单、无需partialize、无需复杂中间件。
+
 ---
 
 ### Store使用规范
@@ -862,6 +897,183 @@ const gradient = { type: 'linear', ... };  // ✅
 
 ---
 
+### 移动端性能优化规范 ⭐ v3.0新增
+
+#### 1. 禁止使用backdrop-filter: blur()
+
+```css
+/* ❌ 移动端GPU开销极大，禁止使用 */
+.glass-card {
+  backdrop-filter: blur(20px);
+}
+
+/* ✅ 使用实色背景替代 */
+.glass-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+}
+```
+
+#### 2. 列表组件必须使用React.memo
+
+```tsx
+// ✅ 列表项组件用memo包装，避免父组件状态变化导致全部重渲染
+function FundListItemInner({ fund, mode }: Props) { ... }
+export default memo(FundListItemInner);
+```
+
+#### 3. 禁止在组件内使用`<style>`标签
+
+```tsx
+// ❌ 每个组件实例都插入重复CSS，造成DOM膨胀
+return (
+  <div>
+    <style>{`...200行CSS...`}</style>
+    <div>content</div>
+  </div>
+);
+
+// ✅ CSS放到全局样式表(App.css)中
+// 组件只负责结构和逻辑
+```
+
+#### 4. 滚动动画使用requestAnimationFrame
+
+```tsx
+// ❌ setInterval + setState → 每帧触发React重渲染
+setInterval(() => {
+  pos += 0.4;
+  setScrollPos(pos);  // React re-render!
+}, 30);
+
+// ✅ rAF + 直接DOM操作 → 不触发React重渲染
+const animate = (time: number) => {
+  pos += speed * (time - lastTime);
+  el.scrollLeft = pos;  // Direct DOM, no React re-render
+  lastTime = time;
+  rafId = requestAnimationFrame(animate);
+};
+```
+
+#### 5. 移动端禁用复杂入场动画
+
+```css
+/* 移动端禁用列表逐个入场动画，避免大量重排 */
+@media screen and (max-width: 768px) {
+  .fund-list-item-wrapper {
+    animation: none !important;
+  }
+}
+```
+
+---
+
+## 主题开发规范
+
+> **版本**: v3.1 新增
+> **最后更新**: 2026-05-25
+
+### 双主题架构
+
+项目采用双主题设计：**墨玉金**（深色，`data-theme='dark'`）和**霜白碧**（浅色，`data-theme='light'`），默认使用霜白碧主题。
+
+### CSS变量使用规范
+
+#### ✅ 正确做法
+
+```css
+/* 使用CSS变量，自动适配双主题 */
+.card {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+}
+
+/* 品牌色使用变量 */
+.btn-primary {
+  background: var(--accent-gold);
+  color: var(--bg-base);
+}
+```
+
+#### ❌ 错误做法
+
+```css
+/* 硬编码颜色，无法适配主题 */
+.card {
+  background: #151F2E;  /* ❌ 只在深色主题下正确 */
+  color: #F1F5F9;       /* ❌ 浅色主题下不可见 */
+}
+
+/* 硬编码品牌色 */
+.btn-primary {
+  background: #D4A84B;  /* ❌ 浅色主题应为 #2E8B7B */
+}
+```
+
+### 主题切换实现
+
+```tsx
+// 获取当前主题
+const getTheme = () => document.documentElement.getAttribute('data-theme') || 'light';
+
+// 切换主题
+const toggleTheme = () => {
+  const next = getTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+};
+
+// 初始化（App.tsx）
+useEffect(() => {
+  const saved = localStorage.getItem('theme') || 'light';
+  document.documentElement.setAttribute('data-theme', saved);
+}, []);
+```
+
+### Ant Design 主题适配
+
+```tsx
+// ConfigProvider 动态主题
+const theme = getTheme();
+<ConfigProvider theme={{
+  token: {
+    colorPrimary: theme === 'dark' ? '#D4A84B' : '#2E8B7B',
+    colorBgContainer: theme === 'dark' ? '#151F2E' : '#FFFFFF',
+    colorText: theme === 'dark' ? '#F1F5F9' : '#1A1A2E',
+  },
+  algorithm: theme === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+}}>
+```
+
+### 新增组件主题适配检查清单
+
+开发新组件时，请确保：
+
+- [ ] 所有颜色使用CSS变量，不硬编码
+- [ ] 在深色和浅色主题下都测试过
+- [ ] 品牌色使用 `var(--accent-gold)` 而非固定值
+- [ ] 背景色使用 `var(--bg-*)` 层级变量
+- [ ] 文字色使用 `var(--text-*)` 层级变量
+- [ ] 边框色使用 `var(--border-*)` 层级变量
+- [ ] 阴影使用 `var(--shadow-*)` 变量
+- [ ] SVG颜色也需要适配主题（如能量环）
+
+### 主题变量速查表
+
+| 类别 | 深色主题 (dark) | 浅色主题 (light) |
+|------|----------------|-----------------|
+| 品牌主色 | #D4A84B (金) | #2E8B7B (碧玉青) |
+| 品牌亮色 | #F0D78C (浅金) | #E8F5F3 (浅碧) |
+| 页面背景 | #0B1120 | #FFFFFF |
+| 卡片背景 | #151F2E | #FFFFFF |
+| 主文字 | #F1F5F9 | #1A1A2E |
+| 次文字 | #94A3B8 | #3D3D4E |
+| 默认边框 | rgba(255,255,255,0.12) | rgba(0,0,0,0.12) |
+| 品牌发光 | rgba(212,168,75,0.3) | rgba(46,139,123,0.2) |
+
+---
+
 ## 常见问题与解决方案
 
 ### Q1: 控制台出现大量antd警告
@@ -876,6 +1088,26 @@ Warning: [antd: message] Static function can not consume context like dynamic th
 // 将所有静态调用改为App.useApp()
 // 参考"Ant Design 5.x集成最佳实践"章节
 ```
+
+---
+
+### Q1.5: antd Select `dropdownStyle` 弃用警告 ⭐ v2.9新增
+
+**问题**:
+```
+Warning: [antd: Select] `dropdownStyle` is deprecated. Please use `styles.popup.root` instead.
+```
+
+**解决方案**:
+```tsx
+// ❌ 旧写法（已弃用）
+<Select dropdownStyle={{ minWidth: 140 }} />
+
+// ✅ 新写法（antd 5.x 推荐）
+<Select styles={{ popup: { root: { minWidth: 140 } } }} />
+```
+
+**适用范围**：所有使用 `dropdownStyle` 的 antd 组件（Select、TreeSelect 等），均应迁移到 `styles.popup.root`
 
 ---
 
@@ -1102,21 +1334,23 @@ export default function MyComponent() {
 
 ---
 
-### Q6: 持仓金额与输入不一致或盘中波动 ⭐ v2.5新增
+### Q6: 持仓金额与输入不一致或盘中波动 / 当日收益计算 ⭐ v2.5新增, v2.10更新
 
 **问题现象**:
 ```
 - 用户输入持仓金额100，显示99.97
 - 盘中实时估值变化时，持仓金额跟着变
 - 累计收益输入5.5，显示5.49
+- 当日收益与支付宝等实际收益不一致
 ```
 
 **根本原因**:
 1. 添加时用确认净值算份额，显示时用实时估值算市值 → 金额不一致
 2. `shares × costPrice` 反推的 totalCost 有浮点精度丢失 → 累计收益不精确
 3. 累计收益存入DB后不变，净值涨了/减仓了都不更新
+4. 当日收益用估算涨幅反推而非净值差计算 → 与实际收益不一致
 
-**解决方案** (v2.5已修复):
+**解决方案** (v2.5 + v2.10):
 
 ```javascript
 // 1. 市值始终用确认净值计算（不受实时估值影响）
@@ -1130,6 +1364,19 @@ const cumulativeReturn = marketValue - totalCost;  // 动态，随净值变化
 // 3. 加减仓同步更新total_cost
 // 加仓: newTotalCost = oldTotalCost + amount
 // 减仓: newTotalCost = (oldTotalCost / oldShares) * newShares
+
+// 4. 当日收益双条件计算（v2.10新增）⭐
+if (isConfirmed && confirmedNav > 0 && yesterdayNav > 0) {
+  // 确认净值已出：用净值差精确计算
+  dailyGain = shares * (confirmedNav - yesterdayNav);
+  gainPercent = ((confirmedNav - yesterdayNav) / yesterdayNav) * 100;
+} else if (realTimeData && realTimeData.gainPercent != null) {
+  // 盘中估算：用估算涨幅反推
+  gainPercent = realTimeData.gainPercent;
+  if (marketValue > 0) {
+    dailyGain = marketValue * gainPercent / (100 + gainPercent);
+  }
+}
 ```
 
 **关键原则**:
@@ -1140,6 +1387,7 @@ const cumulativeReturn = marketValue - totalCost;  // 动态，随净值变化
 | 存成本不存收益 | 收益是动态值，`marketValue - totalCost` |
 | effectiveNav API优先 | API返回最新净值，DB作为回退 |
 | 净值更新用日期比较 | `apiDate > dbDate` 就更新，不依赖isConfirmed |
+| 当日收益优先用净值差 | 确认净值可用时 `shares × (todayNav - yesterdayNav)`，盘中才用估算涨幅 |
 
 ---
 
@@ -1184,6 +1432,139 @@ if (latestHistoryNav > 0 && latestHistoryDate > dbConfirmedNavDate) {
          enrichment发现新净值 → 异步更新DB → 下次查询市值更新
 ```
 
+### Q8: 如何确保新组件在双主题下正常显示？ ⭐ v3.1新增
+
+**问题**：新增组件时，如何确保在深色和浅色主题下都正常显示？
+
+**解决方案**：
+
+1. **始终使用CSS变量** — 不要硬编码任何颜色值
+2. **使用层级变量** — `--bg-*`, `--text-*`, `--border-*` 确保主题切换时自动适配
+3. **双主题测试** — 开发完成后在两种主题下都进行视觉验证
+4. **品牌色用变量** — `var(--accent-gold)` 在深色下是金色，浅色下是碧玉青
+
+```tsx
+// ✅ 正确：使用CSS变量
+<div style={{
+  background: 'var(--bg-elevated)',
+  color: 'var(--text-primary)',
+  border: '1px solid var(--border-subtle)'
+}}>
+
+// ❌ 错误：硬编码颜色
+<div style={{
+  background: '#151F2E',  // 浅色主题下不正确
+  color: '#F1F5F9'        // 浅色主题下不可见
+}}>
+```
+
+### Q9: 主题切换后Ant Design组件样式不更新？ ⭐ v3.1新增
+
+**问题**：切换主题后，Ant Design组件（如Button、Input）的颜色没有更新？
+
+**解决方案**：
+
+确保 `ConfigProvider` 的 `theme` 属性是响应式的，随主题状态变化：
+
+```tsx
+const [currentTheme, setCurrentTheme] = useState(
+  localStorage.getItem('theme') || 'light'
+);
+
+// 监听主题变化
+useEffect(() => {
+  const observer = new MutationObserver(() => {
+    const theme = document.documentElement.getAttribute('data-theme') || 'light';
+    setCurrentTheme(theme);
+  });
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  return () => observer.disconnect();
+}, []);
+
+// ConfigProvider 使用响应式 theme
+<ConfigProvider theme={{
+  token: { colorPrimary: currentTheme === 'dark' ? '#D4A84B' : '#2E8B7B' },
+  algorithm: currentTheme === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+}}>
+```
+
+### Q10: 如何实现跨组件事件通信？ ⭐ v3.2新增
+
+**问题**：两个没有直接父子关系的组件需要通信（如FrequencySetting修改频率后Header需要同步），如何实现？
+
+**解决方案**：使用 `CustomEvent` 事件驱动通信
+
+```typescript
+// === 派发方（FrequencySetting.tsx） ===
+const handleChange = async (val: number) => {
+  onChange(val);
+  await settingService.updateSettings({ refreshFrequency: val });
+  // 派发事件，携带数据
+  window.dispatchEvent(new CustomEvent('refresh-frequency-changed', {
+    detail: { frequency: val }
+  }));
+};
+
+// === 监听方（Header.tsx） ===
+useEffect(() => {
+  const handler = (e: Event) => {
+    const freq = (e as CustomEvent).detail?.frequency;
+    if (freq != null) {
+      setRefreshFreq(freq);
+      setCountdown(freq);
+    }
+  };
+  window.addEventListener('refresh-frequency-changed', handler);
+  return () => window.removeEventListener('refresh-frequency-changed', handler);
+}, []);
+```
+
+**项目中已有的事件通信**：
+
+| 事件名 | 派发方 | 监听方 | 数据格式 |
+|--------|--------|--------|---------|
+| `refresh-frequency-changed` | FrequencySetting | Header | `{ frequency: number }` |
+| `manual-refresh` | Header | PortfolioPage | `{ forceRefresh: boolean, timestamp: number }` |
+| `data-changed` | AddHoldingModal | PortfolioPage | `{ type: string }` |
+
+**规范要点**：
+
+| 要点 | 说明 |
+|------|------|
+| **事件命名** | kebab-case，语义清晰（如 `refresh-frequency-changed`） |
+| **数据传递** | 通过 `detail` 对象传递，避免直接传基本类型 |
+| **清理监听** | useEffect 返回清理函数，防止内存泄漏 |
+| **类型安全** | 监听方使用 `(e as CustomEvent).detail` 获取数据 |
+| **不滥用** | 仅用于跨层级/无直接关系的组件，父子组件优先用props/callbacks |
+
+---
+
+### Q11: 如何在组件中实现金额隐藏的条件渲染？ ⭐ v2.11新增
+
+**问题**：新增金额展示时，如何统一支持隐私模式（隐藏金额）？
+
+**解决方案**：
+
+1. **引入store** — `import { useHideAmountStore } from '@/store/hideAmountStore';`
+2. **读取状态** — `const hideAmount = useHideAmountStore((s) => s.hidden);`
+3. **条件渲染** — `hideAmount ? '****' : 原始金额`
+
+```tsx
+// ✅ 正确：金额隐藏，百分比不隐藏
+const hideAmount = useHideAmountStore((s) => s.hidden);
+
+// 金额 → 隐藏
+<span>{hideAmount ? '****' : `¥${amount.toLocaleString()}`}</span>
+
+// 百分比 → 不隐藏
+<span>{isUp ? '+' : ''}{change.toFixed(2)}%</span>
+
+// ❌ 错误：百分比也隐藏了
+<span>{hideAmount ? '****' : `${change.toFixed(2)}%`}</span>
+```
+
+**规则**：持仓金额、市值、收益金额、净值等绝对金额数据隐藏；涨幅、收益率等百分比数据不隐藏。
+
 ---
 
 ## 代码审查清单
@@ -1226,5 +1607,5 @@ if (latestHistoryNav > 0 && latestHistoryDate > dbConfirmedNavDate) {
 ---
 
 **文档维护者**: Frontend Team  
-**最后更新**: 2026-05-16 (v2.5)  
+**最后更新**: 2026-05-25 (v3.2)  
 **关联文档**: [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) | [COMPONENTS_CHANGELOG.md](./COMPONENTS_CHANGELOG.md)

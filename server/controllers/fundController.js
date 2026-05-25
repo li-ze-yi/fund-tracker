@@ -44,22 +44,38 @@ exports.getByCode = async (req, res, next) => {
     // ★ 使用统一的checkMarketStatus判断（支持节假日检测）
     const marketStatus = await holdingService.checkMarketStatus([{ fund_code: code }]);
 
-    if (!marketStatus.isMarketOpen) {
+    // ★ 基于实时数据判断该基金的市场状态（不依赖名称识别）
+    const effectiveMarketStatus = holdingService.getFundMarketStatus(realTime, marketStatus);
+
+    if (!effectiveMarketStatus.isMarketOpen) {
       result.last_updated = updateTime || null;
       result.data_source = 'actual';
       result.is_fresh = false;
       result.update_status = 'market_closed';
-      result.day_of_week = marketStatus.dayOfWeek || dayNames[now.getDay()];
+      result.day_of_week = effectiveMarketStatus.dayOfWeek || dayNames[now.getDay()];
     } else {
       // ★ 工作日：检查是否有确认净值
       let isConfirmed = false;
+      let confirmedNav = null;
+      let yesterdayNav = null;
       try {
         const todayStr = now.toISOString().slice(0, 10);
-        const history = await fundService.getHistoryNetValues(code, todayStr, todayStr);
-        isConfirmed = history && history.length > 0;
-        
-        if (isConfirmed) {
-          console.log(`[FundController] 基金 ${code} 今天已有确认净值`);
+        const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const history = await fundService.getHistoryNetValues(code, threeDaysAgo, todayStr);
+
+        if (history && history.length > 0) {
+          const todayStr2 = now.toISOString().slice(0, 10);
+          // history 是从新到旧排列
+          const latestRecord = history[0];
+          if (latestRecord && latestRecord.date === todayStr2) {
+            isConfirmed = true;
+            confirmedNav = parseFloat(latestRecord.nav) || 0;
+            // 取昨日净值（history[1]）
+            if (history.length > 1) {
+              yesterdayNav = parseFloat(history[1].nav) || 0;
+            }
+            console.log(`[FundController] 基金 ${code} 今天已有确认净值: ${confirmedNav}, 昨日净值: ${yesterdayNav}`);
+          }
         }
       } catch (error) {
         console.error(`[FundController] 查询 ${code} 确认净值失败:`, error.message);
@@ -78,6 +94,13 @@ exports.getByCode = async (req, res, next) => {
         result.update_status = 'confirmed';
         result.data_source = 'actual';
         result.is_fresh = true;
+        // ★ 确认净值后，用确认净值重算涨幅和当日收益
+        if (confirmedNav > 0) {
+          result.net_value = confirmedNav;
+          if (yesterdayNav > 0) {
+            result.estimated_change = parseFloat(((confirmedNav - yesterdayNav) / yesterdayNav * 100).toFixed(2));
+          }
+        }
       } else if (hour >= 9 && hour < 15) {
         result.update_status = 'estimating';
         result.data_source = 'estimated';
@@ -95,19 +118,30 @@ exports.getByCode = async (req, res, next) => {
         const shares = parseFloat(holding.shares) || 0;
         const costPrice = parseFloat(holding.cost_price) || 0;
         const totalCost = shares * costPrice;
-        let currentValue = 0;
+        // ★ 优先使用确认净值计算市值和收益
+        const effectiveNav = result.net_value || (realTime ? realTime.netValue : 0);
+        let currentValue = shares * effectiveNav;
         let dailyGain = 0;
-        if (realTime && realTime.netValue) {
+
+        if (result.update_status === 'confirmed' && effectiveNav > 0) {
+          // 确认净值后：用确认净值精确计算当日收益
+          if (result.estimated_change != null) {
+            dailyGain = currentValue * result.estimated_change / (100 + result.estimated_change);
+          }
+        } else if (realTime && realTime.netValue) {
           currentValue = shares * realTime.netValue;
           if (realTime.gainPercent) {
             dailyGain = currentValue * realTime.gainPercent / (100 + realTime.gainPercent);
           }
         }
+
         result.shares = shares;
         result.cost_price = costPrice;
+        result.total_cost = parseFloat(holding.total_cost) || totalCost;
         result.market_value = Math.round(currentValue * 100) / 100;
         result.accumulated_profit = Math.round((currentValue - totalCost) * 100) / 100;
         result.daily_profit = Math.round(dailyGain * 100) / 100;
+        result.holding_id = holding.id;
       }
 
       const fav = await Favorite.isFavorited(req.user.id, code);

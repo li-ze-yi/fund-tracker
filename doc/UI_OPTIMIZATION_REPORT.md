@@ -198,9 +198,24 @@
 ┌──────────────────┐      CustomEvent       ┌──────────────────┐
 │  GroupManageModal │ ──────────────────▶   │   PortfolioPage   │
 │                  │   'data-changed'       │                   │
-│  操作成功后触发   │ ◀──────────────────   │  监听事件并刷新   │
-└──────────────────┘                       └──────────────────┘
+│  操作成功后触发   │                        │  监听事件并刷新   │
+│  notifyDataChanged│                       │  data-changed     │
+└──────────────────┘                        │  manual-refresh   │
+                                            └──────────────────┘
+┌──────────────────┐      CustomEvent       ┌──────────────────┐
+│ AddHoldingModal  │ ──────────────────▶   │  GroupSwitcher    │
+│                  │   'data-changed'       │                   │
+│  添加持仓成功后   │                        │  监听事件并刷新   │
+└──────────────────┘                        └──────────────────┘
+┌──────────────────┐      CustomEvent
+│  GroupManageModal │ ──────────────────▶   GroupSwitcher
+│                  │   'data-changed'
+│  分组操作成功后   │
+│  notifyDataChanged│
+└──────────────────┘
 ```
+
+> **v2.9 更新**：GroupManageModal 现在通过 `notifyDataChanged()` 直接派发 `data-changed` 事件（而非依赖 `onDataChange` props 回调），PortfolioPage 同时监听 `data-changed` 和 `manual-refresh` 两个事件。
 
 ---
 
@@ -210,14 +225,21 @@
 
 **位置**: `GroupManageModal.tsx` 的多个操作回调函数中
 
+**v2.9 更新**：新增 `notifyDataChanged()` 方法，在 create/update/remove 操作成功后直接派发 `data-changed` 事件。
+
 **触发时机：**
 ```typescript
+// v2.9 新增：统一事件派发方法
+const notifyDataChanged = () => {
+  window.dispatchEvent(new CustomEvent('data-changed', { detail: { type: 'group-changed' } }));
+};
+
 // 创建分组成功
 const createGroup = async () => {
   await groupService.create({ name });
   msg.success('创建成功');
   loadGroups();
-  onDataChange?.();  // ← 调用props回调
+  notifyDataChanged();  // ← v2.9: 直接派发事件
 };
 
 // 编辑分组名称成功
@@ -225,7 +247,7 @@ const updateGroupName = async () => {
   await groupService.update(id, { name });
   msg.success('修改成功');
   loadGroups();
-  onDataChange?.();  // ← 调用props回调
+  notifyDataChanged();  // ← v2.9: 直接派发事件
 };
 
 // 删除分组成功
@@ -233,7 +255,7 @@ const deleteGroup = async () => {
   await groupService.delete(id);
   msg.success('删除成功');
   loadGroups();
-  onDataChange?.();  // ← 调用props回调
+  notifyDataChanged();  // ← v2.9: 直接派发事件
 };
 
 // 移动基金到其他分组成功
@@ -241,7 +263,7 @@ const moveFundToGroup = async (fundId, targetGroupId) => {
   await holdingService.updateHoldingGroup(fundId, targetGroupId);
   msg.success('移动成功');
   loadGroupFunds(selectedGroupId);
-  onDataChange?.();  // ← 调用props回调
+  onDataChange?.();  // ← 保留props回调（用于Modal内部刷新）
 };
 
 // 删除持仓记录成功
@@ -249,7 +271,7 @@ const deleteFund = async (fundId) => {
   await holdingService.deleteHolding(fundId);
   msg.success('删除成功');
   loadGroupFunds(selectedGroupId);
-  onDataChange?.();  // ← 调用props回调
+  onDataChange?.();  // ← 保留props回调（用于Modal内部刷新）
 };
 ```
 
@@ -257,26 +279,34 @@ const deleteFund = async (fundId) => {
 
 **位置**: `PortfolioPage.tsx` useEffect hooks
 
+**v2.9 更新**：同时监听 `data-changed` 和 `manual-refresh` 两个事件。
+
 **监听代码：**
 ```typescript
 useEffect(() => {
-  const handleDataChange = () => {
-    console.log('[PortfolioPage] 收到data-changed事件，重新加载数据');
-    loadGroups();           // 重新加载分组列表
-    if (selectedGroupId !== -1) {
-      loadHoldings();       // 如果选中了特定分组，也重新加载持仓
-    }
+  const handleManualRefresh = () => {
+    loadHoldings(true);
+  };
+  const handleDataChanged = () => {
+    loadHoldings(true);
   };
 
-  window.addEventListener('data-changed', handleDataChange);
-  return () => window.removeEventListener('data-changed', handleDataChange);
-}, [loadGroups, selectedGroupId]);
+  window.addEventListener('manual-refresh', handleManualRefresh);
+  window.addEventListener('data-changed', handleDataChanged);
+  return () => {
+    window.removeEventListener('manual-refresh', handleManualRefresh);
+    window.removeEventListener('data-changed', handleDataChanged);
+  };
+}, [loadHoldings]);
 ```
+
+> **说明**：v2.4 删除了导致循环的 `data-changed` 监听，v2.9 重新添加。因为 v2.4 重写 `loadHoldings` 后移除了成功回调中的事件派发，所以不再有循环风险。
 
 ---
 
 ### 数据流图示
 
+**分组操作流程（v2.9更新）：**
 ```
 用户点击"创建"按钮
         ↓
@@ -288,11 +318,22 @@ API调用: POST /api/groups
         ↓
 msg.success('创建成功')
 loadGroups() → 刷新Modal内的分组列表
-onDataChange() → 调用props回调
+notifyDataChanged() → 派发 data-changed 事件
         ↓
-PortfolioPage监听到'data-changed'事件
+PortfolioPage 监听到 'data-changed' 事件 → loadHoldings(true)
+GroupSwitcher 监听到 'data-changed' 事件 → loadGroups(500ms防抖)
         ↓
-loadGroups() + loadHoldings()
+UI自动更新（无需手动刷新）
+```
+
+**添加持仓流程（v2.9修复）：**
+```
+用户在 AddHoldingModal 添加持仓成功
+        ↓
+Header 中 onSuccess 回调派发 data-changed 事件
+        ↓
+PortfolioPage 监听到 'data-changed' 事件 → loadHoldings(true)
+GroupSwitcher 监听到 'data-changed' 事件 → loadGroups(500ms防抖)
         ↓
 UI自动更新（无需手动刷新）
 ```
@@ -320,7 +361,7 @@ UI自动更新（无需手动刷新）
 ### 扩展性
 
 **未来可以扩展的场景：**
-- 添加基金持仓后自动刷新统计页面
+- ~~添加基金持仓后自动刷新统计页面~~ ✅ v2.9 已实现（AddHoldingModal → data-changed → PortfolioPage/GroupSwitcher）
 - 修改基金配置后实时更新自选列表
 - 多个标签页同时打开时的数据同步
 - WebSocket推送数据变更通知
@@ -858,10 +899,10 @@ export default function FundListItem({ fund, mode = 'holding' }: Props) {
 
 ### 中期规划（1个月内）
 
-1. **主题系统扩展**
-   - 实现明暗主题切换功能
-   - 支持用户自定义品牌色
-   - 添加字体大小调节选项
+1. ~~**主题系统扩展**~~ ✅ 已完成 (v3.1)
+   - ✅ 实现明暗主题切换功能（墨玉金/霜白碧双主题，默认浅色）
+   - 支持用户自定义品牌色（待实现）
+   - 添加字体大小调节选项（待实现）
 
 2. **数据可视化丰富**
    - 基金详情页添加持仓占比饼图
@@ -889,6 +930,41 @@ export default function FundListItem({ fund, mode = 'holding' }: Props) {
    - 前端性能埋点
    - 用户行为分析
    - A/B测试框架
+
+---
+
+### v3.0 移动端性能深度优化 (2026-05-21)
+
+| 优化项 | 优化前 | 优化后 | 性能提升 |
+|--------|--------|--------|---------|
+| Header能量按钮 | SVG粒子动画+滤镜 | CSS conic-gradient进度环 | GPU负载↓90%+ |
+| backdrop-filter | Header/BottomTabBar/FundListItem/glass-card均使用blur(20px) | 全部移除，用实色背景 | GPU负载↓显著 |
+| 内联style标签 | FundListItem/PortfolioPage/WatchlistPage/MarketIndexStrip各含100-200行 | 迁移到App.css | DOM节点↓80%+ |
+| FundListItem渲染 | 无memo，父组件任何变化都重渲染 | React.memo包装 | 重渲染↓80%+ |
+| MarketIndexStrip滚动 | setInterval(30ms) + setScrollPos → React重渲染 | requestAnimationFrame + 直接DOM操作 | CPU↓70%+ |
+| 列表入场动画 | fadeInUp逐个动画 | 移动端禁用 | 重排↓显著 |
+
+### v3.1 双主题系统 + 能量环颜色优化 (2026-05-25)
+
+| 优化项 | 优化前 | 优化后 | 说明 |
+|--------|--------|--------|------|
+| 主题系统 | 仅深色主题 | 双主题（墨玉金+霜白碧），默认浅色 | 新增完整light主题CSS变量体系 |
+| 能量环SVG颜色 | 青色系(#00ffc8/#00d4ff/#00cc99) | 金色系(#F0D78C/#D4A84B/#B8860B) | 品牌一致性优化 |
+| Android下载卡片 | 白色主题下对比度不足 | 适配light主题样式 | 可读性修复 |
+| 绿色渐变背景 | 原始绿色渐变 | 优化为更协调的配色 | 视觉美化 |
+
+### v3.2 刷新按钮美化 + 倒计时频率关联 + 刷新动画 (2026-05-25)
+
+| 优化项 | 优化前 | 优化后 | 说明 |
+|--------|--------|--------|------|
+| 进度环颜色 | 单色 var(--accent-gold) | 三色渐变 #F0D78C→#D4A84B→#B8860B | 品牌色层次感提升 |
+| 进度环环形效果 | 无 | CSS mask: radial-gradient | 真正的环形进度条 |
+| 刷新按钮背景 | 固定背景 | 随进度变亮的渐变背景 | 视觉反馈增强 |
+| 发光效果 | 单一box-shadow | 三级发光（刷新中/进度>80%/默认） | 状态区分更清晰 |
+| 刷新动画 | 无 | refresh-burst弹跳 + refresh-ripple涟漪 | 刷新时明确视觉反馈 |
+| 紧急脉冲 | box-shadow脉冲 | 进度环opacity脉冲 | 更轻量的实现方式 |
+| 倒计时频率同步 | localStorage读取 | CustomEvent.detail.frequency | 实时同步，无延迟 |
+| FrequencySetting | 仅保存到后端 | 保存后派发refresh-frequency-changed事件 | Header即时响应频率变更 |
 
 ---
 

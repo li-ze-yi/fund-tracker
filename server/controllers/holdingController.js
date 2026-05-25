@@ -135,19 +135,23 @@ exports.create = async (req, res, next) => {
       totalCost
     });
 
-    await Transaction.create({
-      userId: req.user.id,
-      fundCode,
-      type: 'buy',
-      shares,
-      price: netValue,
-      amount,
-      fee: 0,
-      transactionDate: new Date().toISOString().slice(0, 10),
-      metadata: JSON.stringify({ netValueSource })
-    });
-
     console.log(`[HoldingController] 持仓创建成功: id=${id}, fund=${fundCode}`);
+
+    // 累计收益为0时，视为新买入，生成交易记录
+    if (!totalReturn) {
+      await Transaction.create({
+        userId: req.user.id,
+        fundCode,
+        type: 'buy',
+        shares,
+        price: netValue,
+        amount,
+        fee: 0,
+        transactionDate: new Date().toISOString().slice(0, 10),
+        metadata: JSON.stringify({ netValueSource })
+      });
+    }
+
     res.json({ id, message: '添加成功' });
   } catch (err) {
     console.error(`[HoldingController] 创建持仓异常:`, err);
@@ -158,8 +162,42 @@ exports.create = async (req, res, next) => {
 exports.update = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { groupId } = req.body;
-    await Holding.update(id, req.user.id, { group_id: groupId });
+    const { groupId, amount, totalReturn } = req.body;
+
+    const updateData = {};
+    if (groupId !== undefined) updateData.group_id = groupId;
+
+    // 修改持仓金额和累计收益，逻辑与 create 一致
+    if (amount !== undefined) {
+      const holding = await Holding.findByUserAndFund(req.user.id, req.body.fundCode);
+      if (!holding) {
+        return res.status(404).json({ message: '持仓不存在' });
+      }
+
+      // 获取当前净值（先确认净值，再实时估值）
+      let netValue = parseFloat(holding.confirmed_nav) || 0;
+      if (netValue <= 0) {
+        const realTime = await fundService.getRealTimeValue(req.body.fundCode).catch(() => null);
+        if (realTime && realTime.netValue > 0) {
+          netValue = realTime.netValue;
+        }
+      }
+
+      if (netValue <= 0) {
+        return res.status(400).json({ message: '无法获取净值，请稍后重试' });
+      }
+
+      const currentValue = amount;
+      const shares = currentValue / netValue;
+      const totalCost = amount - (totalReturn || 0);
+      const costPrice = shares > 0 ? totalCost / shares : 0;
+
+      updateData.shares = shares;
+      updateData.cost_price = costPrice;
+      updateData.total_cost = totalCost;
+    }
+
+    await Holding.update(id, req.user.id, updateData);
     res.json({ message: '更新成功' });
   } catch (err) {
     next(err);
