@@ -1,11 +1,11 @@
 const pool = require('../config/database');
 
 const Transaction = {
-  async create({ userId, fundCode, type, shares, price, amount, fee, transactionDate, note }) {
+  async create({ userId, fundCode, type, shares, price, amount, fee, transactionDate, note, status }) {
     const [result] = await pool.query(
-      `INSERT INTO transactions (user_id, fund_code, type, shares, price, amount, fee, transaction_date, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, fundCode, type, shares, price, amount, fee || 0, transactionDate, note || null]
+      `INSERT INTO transactions (user_id, fund_code, type, shares, price, amount, fee, transaction_date, note, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, fundCode, type, shares, price, amount, fee || 0, transactionDate, note || null, status || 'confirmed']
     );
     return result.insertId;
   },
@@ -33,6 +33,26 @@ const Transaction = {
       [userId, limit]
     );
     return rows;
+  },
+
+  async findPendingByUserId(userId) {
+    const [rows] = await pool.query(
+      `SELECT t.*, f.name as fund_name
+       FROM transactions t
+       JOIN funds f ON t.fund_code = f.code
+       WHERE t.user_id = ? AND t.status = 'pending'
+       ORDER BY t.transaction_date ASC, t.created_at ASC`,
+      [userId]
+    );
+    return rows;
+  },
+
+  async updateToConfirmed(id, userId, { shares, price, amount }) {
+    const [result] = await pool.query(
+      `UPDATE transactions SET status = 'confirmed', shares = ?, price = ?, amount = ? WHERE id = ? AND user_id = ?`,
+      [shares, price, amount, id, userId]
+    );
+    return result.affectedRows > 0;
   },
 
   async deleteById(id, userId) {

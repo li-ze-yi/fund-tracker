@@ -22,13 +22,17 @@ export default function BuyModal({ open, fundCode, fundName, onClose, onSuccess 
     try {
       const values = await form.validateFields();
       setLoading(true);
-      await transactionService.buy({
+      const result = await transactionService.buy({
         fundCode: fundCode,
         amount: values.amount,
         date: values.date.startOf('day').format('YYYY-MM-DD'),
         after3pm: values.after3pm,
       });
-      message.success('加仓成功');
+      if (result.status === 'pending') {
+        message.warning('加仓订单已提交，等待净值确认后自动结算');
+      } else {
+        message.success('加仓成功');
+      }
       onSuccess();
       onClose();
       form.resetFields();

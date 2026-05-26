@@ -15,4 +15,7 @@ export const transactionService = {
 
   deleteTransaction: (id: number) =>
     api.delete(`/transactions/${id}`).then((r) => r.data),
+
+  settlePending: () =>
+    api.post('/transactions/settle').then((r) => r.data),
 };

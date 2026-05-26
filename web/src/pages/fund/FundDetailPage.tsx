@@ -289,22 +289,32 @@ export default function FundDetailPage() {
       title: '类型',
       dataIndex: 'type',
       key: 'type',
-      width: isMobile ? 50 : 70,
-      render: (t: string) => (
-        <Tag
-          style={{
-            fontWeight: 600,
-            borderRadius: 6,
-            padding: isMobile ? '1px 6px' : '2px 10px',
-            fontSize: isMobile ? 9 : 12,
-            background: t === 'buy' ? 'var(--gain-bg)' : 'var(--loss-bg)',
-            color: t === 'buy' ? 'var(--gain)' : 'var(--loss)',
-            border: `1px solid ${t === 'buy' ? 'var(--gain-border)' : 'var(--loss-border)'}`,
-          }}
-        >
-          {t === 'buy' ? '买入' : '卖出'}
-        </Tag>
-      ),
+      width: isMobile ? 65 : 100,
+      render: (t: string, record: any) => {
+        const isPending = record.status === 'pending';
+        const isBuy = t === 'buy';
+        return (
+          <Tag
+            style={{
+              fontWeight: 600,
+              borderRadius: 6,
+              padding: isMobile ? '1px 6px' : '2px 10px',
+              fontSize: isMobile ? 9 : 12,
+              background: isPending
+                ? 'rgba(250, 173, 20, 0.1)'
+                : isBuy ? 'var(--gain-bg)' : 'var(--loss-bg)',
+              color: isPending
+                ? '#d48806'
+                : isBuy ? 'var(--gain)' : 'var(--loss)',
+              border: `1px solid ${isPending
+                ? 'rgba(250, 173, 20, 0.3)'
+                : isBuy ? 'var(--gain-border)' : 'var(--loss-border)'}`,
+            }}
+          >
+            {isPending && isMobile ? '待确认' : (isBuy ? '买入' : '卖出')}{isPending && !isMobile ? '(待确认)' : ''}
+          </Tag>
+        );
+      },
     },
     {
       title: '份额',
@@ -353,8 +363,9 @@ export default function FundDetailPage() {
       dataIndex: 'amount',
       key: 'amount',
       width: isMobile ? undefined : 120,
-      render: (v: any) => {
+      render: (v: any, record: any) => {
         const num = Number(v || 0);
+        const isPending = record.status === 'pending';
         let displayNum: string;
         let fontSize: number;
 
@@ -382,9 +393,10 @@ export default function FundDetailPage() {
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
               maxWidth: '100%',
-              display: 'inline-block'
+              display: 'inline-block',
+              color: isPending ? '#d48806' : undefined,
             }}
-            title={'¥' + num.toLocaleString()}
+            title={'¥' + num.toLocaleString() + (isPending ? ' (待确认)' : '')}
           >
             {displayNum}
           </span>

@@ -39,14 +39,18 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
         return;
       }
       setLoading(true);
-      await transactionService.sell({
+      const result = await transactionService.sell({
         fundCode: fundCode,
         shares: values.shares,
         fee: values.fee ?? 0,
         date: values.date.startOf('day').format('YYYY-MM-DD'),
         after3pm: values.after3pm,
       });
-      message.success('减仓成功');
+      if (result.status === 'pending') {
+        message.warning('卖出订单已提交，等待净值确认后自动结算');
+      } else {
+        message.success('减仓成功');
+      }
       onSuccess();
       onClose();
       form.resetFields();

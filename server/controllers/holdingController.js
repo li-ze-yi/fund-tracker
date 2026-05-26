@@ -8,7 +8,12 @@ const globalCache = require('../services/globalCache');
 
 exports.list = async (req, res, next) => {
   try {
-    const holdings = await Holding.findByUserId(req.user.id);
+    const userId = req.user.id;
+
+    // 自动结算 pending 交易订单（不阻塞主流程，异步执行）
+    settlePendingAsync(userId);
+
+    const holdings = await Holding.findByUserId(userId);
 
     // ✅ 获取前端传递的强制刷新参数
     const forceRefresh = req.query.forceRefresh === '1';
@@ -21,14 +26,14 @@ exports.list = async (req, res, next) => {
     );
 
     // 事件驱动：异步计算并保存当日收益（不阻塞主流程）
-    dailyProfitService.calculateAndSaveDailyProfit(req.user.id, enrichedWithStatus)
+    dailyProfitService.calculateAndSaveDailyProfit(userId, enrichedWithStatus)
       .then(result => {
         if (result) {
-          console.log(`[HoldingController] 用户 ${req.user.id} 日收益已自动更新:`, result.date);
+          console.log(`[HoldingController] 用户 ${userId} 日收益已自动更新:`, result.date);
         }
       })
       .catch(err => {
-        console.error('[HoldingController] 日益益自动计算失败:', err.message);
+        console.error('[HoldingController] 日收益自动计算失败:', err.message);
       });
 
     res.json(enrichedWithStatus);
@@ -36,6 +41,90 @@ exports.list = async (req, res, next) => {
     next(err);
   }
 };
+
+/**
+ * 异步结算 pending 交易订单
+ * 在用户查看持仓时自动触发，不阻塞主流程
+ */
+async function settlePendingAsync(userId) {
+  try {
+    const pendingTransactions = await Transaction.findPendingByUserId(userId);
+    if (!pendingTransactions.length) return;
+
+    console.log(`[HoldingController] 发现 ${pendingTransactions.length} 笔待结算订单，开始自动结算...`);
+
+    for (const tx of pendingTransactions) {
+      try {
+        const navDate = normalizeDateStr(tx.transaction_date);
+        if (!navDate) continue;
+
+        const history = await fundService.getHistoryNetValues(tx.fund_code, navDate, navDate);
+        const confirmedNav = history.length ? history[0].nav : 0;
+        if (!confirmedNav) continue;
+
+        const holding = await Holding.findByUserAndFund(userId, tx.fund_code);
+        if (!holding) continue;
+
+        if (tx.type === 'buy') {
+          const oldEstimatedShares = parseFloat(tx.shares);
+          const actualShares = parseFloat(tx.amount) / confirmedNav;
+          const sharesDiff = actualShares - oldEstimatedShares;
+
+          const currentShares = parseFloat(holding.shares) + sharesDiff;
+          const currentTotalCost = parseFloat(holding.total_cost);
+          const currentCostPrice = currentShares ? currentTotalCost / currentShares : 0;
+
+          await Holding.update(holding.id, userId, {
+            shares: currentShares,
+            cost_price: currentCostPrice,
+            totalCost: currentTotalCost
+          });
+
+          await Transaction.updateToConfirmed(tx.id, userId, {
+            shares: actualShares,
+            price: confirmedNav,
+            amount: parseFloat(tx.amount)
+          });
+
+          console.log(`[HoldingController] 自动结算买入: #${tx.id}, ${oldEstimatedShares.toFixed(2)} → ${actualShares.toFixed(2)} 份额, nav=${confirmedNav}`);
+        } else if (tx.type === 'sell') {
+          const actualAmount = parseFloat(tx.shares) * confirmedNav;
+          const feeRate = parseFloat(tx.amount) > 0 && parseFloat(tx.fee) > 0
+            ? parseFloat(tx.fee) / (parseFloat(tx.amount) + parseFloat(tx.fee))
+            : 0;
+          const feeAmount = feeRate ? actualAmount * feeRate : 0;
+          const actualNetAmount = actualAmount - feeAmount;
+
+          await Transaction.updateToConfirmed(tx.id, userId, {
+            shares: parseFloat(tx.shares),
+            price: confirmedNav,
+            amount: actualNetAmount
+          });
+
+          console.log(`[HoldingController] 自动结算卖出: #${tx.id}, nav=${confirmedNav}, amount=${actualNetAmount.toFixed(2)}`);
+        }
+      } catch (err) {
+        console.error(`[HoldingController] 结算交易 #${tx.id} 失败:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[HoldingController] 自动结算失败:', err.message);
+  }
+}
+
+function normalizeDateStr(dateVal) {
+  if (dateVal instanceof Date) {
+    const year = dateVal.getFullYear();
+    const month = String(dateVal.getMonth() + 1).padStart(2, '0');
+    const day = String(dateVal.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  if (typeof dateVal === 'string' && dateVal) {
+    let str = dateVal.split('T')[0].split(' ')[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  }
+  return '';
+}
 
 exports.create = async (req, res, next) => {
   try {

@@ -68,7 +68,7 @@ export default function EditHoldingModal({
       onCancel={onClose}
       onOk={onSubmit}
       confirmLoading={loading}
-      destroyOnClose
+      destroyOnHidden
     >
       <style>{`
         @media screen and (max-width: 768px) {

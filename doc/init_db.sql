@@ -91,11 +91,13 @@ CREATE TABLE `transactions` (
   `amount` decimal(18,4) NOT NULL,
   `fee` decimal(18,4) NOT NULL DEFAULT '0.0000',
   `note` varchar(500) DEFAULT NULL COMMENT '交易备注（auto_plan:{planId} 标记自动定投）',
+  `status` enum('pending','confirmed') NOT NULL DEFAULT 'confirmed' COMMENT '交易状态：pending=待确认(盘中挂单)，confirmed=已确认',
   `transaction_date` date NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_user_fund` (`user_id`,`fund_code`),
   KEY `idx_transaction_date` (`transaction_date`),
+  KEY `idx_status` (`status`),
   CONSTRAINT `transactions_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
