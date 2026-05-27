@@ -3,6 +3,7 @@ const Holding = require('../models/holding');
 const Favorite = require('../models/favorite');
 const fundService = require('../services/fundService');
 const holdingService = require('../services/holdingService');
+const pool = require('../config/database');
 
 exports.search = async (req, res, next) => {
   try {
@@ -123,15 +124,35 @@ exports.getByCode = async (req, res, next) => {
         let currentValue = shares * effectiveNav;
         let dailyGain = 0;
 
+        // ★ 查询今日交易份额，排除当日交易对日收益的影响
+        // 昨日份额 = 当前份额 - 今日买入 + 今日卖出
+        let todayBuyShares = 0, todaySellShares = 0;
+        try {
+          const today = new Date().toISOString().slice(0, 10);
+          const [rows] = await pool.query(
+            `SELECT type, SUM(shares) as total_shares FROM transactions
+             WHERE user_id = ? AND fund_code = ? AND transaction_date = ? AND status = 'confirmed'
+             GROUP BY type`,
+            [req.user.id, code, today]
+          );
+          rows.forEach(r => {
+            if (r.type === 'buy') todayBuyShares = parseFloat(r.total_shares) || 0;
+            if (r.type === 'sell') todaySellShares = parseFloat(r.total_shares) || 0;
+          });
+        } catch (e) { /* ignore */ }
+        const yesterdayShares = Math.max(0, shares - todayBuyShares + todaySellShares);
+
         if (result.update_status === 'confirmed' && effectiveNav > 0) {
-          // 确认净值后：用确认净值精确计算当日收益
+          // 确认净值后：仅用昨日份额计算当日收益
           if (result.estimated_change != null) {
-            dailyGain = currentValue * result.estimated_change / (100 + result.estimated_change);
+            const yesterdayValue = yesterdayShares * effectiveNav;
+            dailyGain = yesterdayValue * result.estimated_change / (100 + result.estimated_change);
           }
         } else if (realTime && realTime.netValue) {
           currentValue = shares * realTime.netValue;
           if (realTime.gainPercent) {
-            dailyGain = currentValue * realTime.gainPercent / (100 + realTime.gainPercent);
+            const yesterdayValue = yesterdayShares * realTime.netValue;
+            dailyGain = yesterdayValue * realTime.gainPercent / (100 + realTime.gainPercent);
           }
         }
 

@@ -1,6 +1,7 @@
 const fundService = require('./fundService');
 const globalCache = require('./globalCache');
 const Holding = require('../models/holding');
+const pool = require('../config/database');
 
 function isWeekend(date) {
   const day = date.getDay();
@@ -171,6 +172,26 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false) {
 
   const marketStatus = await checkMarketStatus(holdings);
 
+  // ★ 查询今日交易份额，用于排除当日交易对日收益的影响
+  // 昨日份额 = 当前份额 - 今日买入 + 今日卖出（买入的不产生收益，卖出的昨天持有应计入）
+  const today = new Date().toISOString().slice(0, 10);
+  const userId = holdings[0].user_id;
+  let todayTxSharesMap = {};
+  try {
+    const [rows] = await pool.query(
+      `SELECT fund_code, type, SUM(shares) as total_shares FROM transactions
+       WHERE user_id = ? AND transaction_date = ? AND status = 'confirmed'
+       GROUP BY fund_code, type`,
+      [userId, today]
+    );
+    rows.forEach(r => {
+      if (!todayTxSharesMap[r.fund_code]) todayTxSharesMap[r.fund_code] = { buy: 0, sell: 0 };
+      todayTxSharesMap[r.fund_code][r.type] = parseFloat(r.total_shares) || 0;
+    });
+  } catch (e) {
+    console.error('[holdingService] 查询今日交易份额失败:', e.message);
+  }
+
   const enrichedWithAllData = await Promise.all(
     holdings.map(async (holding) => {
       const fundCode = holding.fund_code;
@@ -248,7 +269,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false) {
         holding._confirmed,
         holding._confirmedNav,
         fundMarketStatus,
-        holding._yesterdayNav
+        holding._yesterdayNav,
+        todayTxSharesMap[holding.fund_code] || { buy: 0, sell: 0 }
       )
     };
   });
@@ -263,10 +285,13 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false) {
   return result;
 }
 
-function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, confirmedNav = 0, marketStatus = { isMarketOpen: true }, yesterdayNav = 0) {
+function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, confirmedNav = 0, marketStatus = { isMarketOpen: true }, yesterdayNav = 0, todayTxShares = { buy: 0, sell: 0 }) {
   const shares = parseFloat(holding.shares) || 0;
   const costPrice = parseFloat(holding.cost_price) || 0;
   const totalCost = parseFloat(holding.total_cost) || shares * costPrice;
+  // ★ 昨日份额 = 当前份额 - 今日买入 + 今日卖出
+  // 今日买入的份额不产生当日收益；今日卖出的份额昨天持有，应计入当日收益
+  const yesterdayShares = Math.max(0, shares - (todayTxShares.buy || 0) + (todayTxShares.sell || 0));
 
   let marketValue = 0;
   let dailyGain = 0;
@@ -281,14 +306,16 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     marketValue = shares * realTimeData.netValue;
   }
 
-  // ★ 当确认净值可用且有昨日净值时，用净值差精确计算当日收益
+  // ★ 当确认净值可用且有昨日净值时，用净值差精确计算当日收益（仅计算昨日持有份额）
   if (isConfirmed && confirmedNav > 0 && yesterdayNav > 0) {
-    dailyGain = shares * (confirmedNav - yesterdayNav);
+    dailyGain = yesterdayShares * (confirmedNav - yesterdayNav);
     gainPercent = ((confirmedNav - yesterdayNav) / yesterdayNav) * 100;
   } else if (realTimeData && realTimeData.gainPercent != null) {
     gainPercent = realTimeData.gainPercent;
-    if (marketValue > 0) {
-      dailyGain = marketValue * gainPercent / (100 + gainPercent);
+    // ★ 用昨日份额估算当日收益（今日买入份额不产生收益）
+    const yesterdayMarketValue = yesterdayShares * (realTimeData.netValue || confirmedNav || 0);
+    if (yesterdayMarketValue > 0) {
+      dailyGain = yesterdayMarketValue * gainPercent / (100 + gainPercent);
     }
   }
 
