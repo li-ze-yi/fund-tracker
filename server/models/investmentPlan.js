@@ -3,7 +3,10 @@ const pool = require('../config/database');
 const InvestmentPlan = {
   async findByUserId(userId) {
     const [rows] = await pool.query(
-      `SELECT p.*, f.name as fund_name
+      `SELECT p.*, f.name as fund_name,
+              (SELECT COUNT(*) FROM transactions t
+               WHERE t.user_id = p.user_id AND t.fund_code = p.fund_code
+               AND t.status = 'pending' AND t.note = CONCAT('auto_plan:', p.id)) as pending_count
        FROM investment_plans p
        JOIN funds f ON p.fund_code = f.code
        WHERE p.user_id = ?

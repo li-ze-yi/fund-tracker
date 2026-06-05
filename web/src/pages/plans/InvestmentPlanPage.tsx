@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Button, Tag, Empty, List, Popconfirm, App, Space } from 'antd';
-import { PlusOutlined, PauseCircleOutlined, PlayCircleOutlined, DeleteOutlined, CalendarOutlined, DollarOutlined, SyncOutlined, EditOutlined } from '@ant-design/icons';
+import { PlusOutlined, PauseCircleOutlined, PlayCircleOutlined, DeleteOutlined, CalendarOutlined, DollarOutlined, SyncOutlined, EditOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { planService } from '@/services/planService';
 import { useHideAmountStore } from '@/store/hideAmountStore';
 import CreatePlanModal from '@/components/modals/CreatePlanModal';
@@ -349,6 +349,12 @@ export default function InvestmentPlanPage() {
                     <span className="plan-info-item">
                       <CalendarOutlined />
                       <span className="plan-info-value">{formatDate(plan.next_run_date)}</span>
+                    </span>
+                  )}
+                  {plan.pending_count > 0 && (
+                    <span className="plan-info-item">
+                      <ClockCircleOutlined />
+                      <span className="plan-info-value" style={{ color: '#d48806' }}>{plan.pending_count}笔待确认</span>
                     </span>
                   )}
                 </div>

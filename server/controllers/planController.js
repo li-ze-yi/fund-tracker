@@ -105,5 +105,11 @@ function calcNextRunDate(today, frequency, dayOfWeek, dayOfMonth) {
     default:
       d.setMonth(d.getMonth() + 1);
   }
+
+  // 确保不落在周末（非交易日无净值）
+  while (d.getDay() === 0 || d.getDay() === 6) {
+    d.setDate(d.getDate() + 1);
+  }
+
   return d.toISOString().slice(0, 10);
 }

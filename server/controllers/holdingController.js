@@ -63,22 +63,32 @@ async function settlePendingAsync(userId) {
         if (!confirmedNav) continue;
 
         const holding = await Holding.findByUserAndFund(userId, tx.fund_code);
-        if (!holding) continue;
 
         if (tx.type === 'buy') {
-          const oldEstimatedShares = parseFloat(tx.shares);
+          // 买入结算：用确认净值计算实际份额
           const actualShares = parseFloat(tx.amount) / confirmedNav;
-          const sharesDiff = actualShares - oldEstimatedShares;
 
-          const currentShares = parseFloat(holding.shares) + sharesDiff;
-          const currentTotalCost = parseFloat(holding.total_cost);
-          const currentCostPrice = currentShares ? currentTotalCost / currentShares : 0;
+          if (!holding) {
+            // 无持仓（定投首笔等场景）→ 新建持仓
+            await Holding.create({
+              userId,
+              fundCode: tx.fund_code,
+              shares: actualShares,
+              costPrice: confirmedNav,
+              totalCost: parseFloat(tx.amount)
+            });
+          } else {
+            // 已有持仓 → 加仓
+            const currentShares = parseFloat(holding.shares) + actualShares;
+            const currentTotalCost = parseFloat(holding.total_cost) + parseFloat(tx.amount);
+            const currentCostPrice = currentShares ? currentTotalCost / currentShares : 0;
 
-          await Holding.update(holding.id, userId, {
-            shares: currentShares,
-            cost_price: currentCostPrice,
-            totalCost: currentTotalCost
-          });
+            await Holding.update(holding.id, userId, {
+              shares: currentShares,
+              cost_price: currentCostPrice,
+              totalCost: currentTotalCost
+            });
+          }
 
           await Transaction.updateToConfirmed(tx.id, userId, {
             shares: actualShares,
@@ -86,17 +96,30 @@ async function settlePendingAsync(userId) {
             amount: parseFloat(tx.amount)
           });
 
-          console.log(`[HoldingController] 自动结算买入: #${tx.id}, ${oldEstimatedShares.toFixed(2)} → ${actualShares.toFixed(2)} 份额, nav=${confirmedNav}`);
+          console.log(`[HoldingController] 自动结算买入: #${tx.id}, actualShares=${actualShares.toFixed(2)}, nav=${confirmedNav}, holdingCreated=${!holding}`);
         } else if (tx.type === 'sell') {
-          const actualAmount = parseFloat(tx.shares) * confirmedNav;
-          const feeRate = parseFloat(tx.amount) > 0 && parseFloat(tx.fee) > 0
-            ? parseFloat(tx.fee) / (parseFloat(tx.amount) + parseFloat(tx.fee))
-            : 0;
+          // 卖出结算：用确认净值计算实际金额，此时才扣减持仓份额和成本
+          const sellShares = parseFloat(tx.shares);
+          const actualAmount = sellShares * confirmedNav;
+          // fee 字段存的是费率（pending 时直接存入），金额为 0 时用费率计算
+          const feeRate = parseFloat(tx.fee) || 0;
           const feeAmount = feeRate ? actualAmount * feeRate : 0;
           const actualNetAmount = actualAmount - feeAmount;
 
+          // 结算时才扣减份额和成本
+          const newShares = parseFloat(holding.shares) - sellShares;
+          const oldTotalCost = parseFloat(holding.total_cost) || parseFloat(holding.shares) * parseFloat(holding.cost_price);
+          const costPerShare = oldTotalCost / parseFloat(holding.shares);
+          const newTotalCost = costPerShare * newShares;
+
+          if (newShares <= 0) {
+            await Holding.delete(holding.id, userId);
+          } else {
+            await Holding.update(holding.id, userId, { shares: newShares, totalCost: Math.round(newTotalCost * 100) / 100 });
+          }
+
           await Transaction.updateToConfirmed(tx.id, userId, {
-            shares: parseFloat(tx.shares),
+            shares: sellShares,
             price: confirmedNav,
             amount: actualNetAmount
           });

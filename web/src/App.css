@@ -177,6 +177,36 @@
   border-bottom-color: var(--border-subtle) !important;
 }
 
+[data-theme="dark"] .ant-modal .ant-input-number-input,
+[data-theme="dark"] .ant-modal .ant-input,
+[data-theme="dark"] .ant-modal .ant-picker-input > input,
+[data-theme="dark"] .ant-input-number-input,
+[data-theme="dark"] .ant-input,
+[data-theme="dark"] .ant-picker-input > input {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}
+
+[data-theme="dark"] .ant-modal .ant-radio-input,
+[data-theme="dark"] .ant-radio-input {
+  color: #FFFFFF !important;
+}
+
+[data-theme="dark"] .ant-radio-inner {
+  border-color: #FFFFFF !important;
+  background: transparent !important;
+}
+
+[data-theme="dark"] .ant-radio-checked .ant-radio-inner {
+  border-color: var(--accent-gold) !important;
+  background: var(--accent-gold) !important;
+}
+
+[data-theme="dark"] .ant-modal .ant-radio-wrapper,
+[data-theme="dark"] .ant-radio-wrapper {
+  color: var(--text-primary) !important;
+}
+
 [data-theme="dark"] .ant-tag {
   border-color: var(--border-default) !important;
   background: var(--flat-bg) !important;

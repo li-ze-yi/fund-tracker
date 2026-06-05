@@ -1,4 +1,6 @@
 const DailyProfit = require('../models/dailyProfit');
+const Holding = require('../models/holding');
+const pool = require('../config/database');
 const fundService = require('./fundService');
 const holdingService = require('./holdingService');
 
@@ -244,6 +246,97 @@ class DailyProfitService {
       data_source: 'actual',
       note: '仅包含已确认净值的基金'
     };
+  }
+
+  /**
+   * ★ 定时兜底任务：为今天未记录日收益的用户补算
+   * 在每天 23:55 由 cron 触发，确保即使用户当天未打开 App 也能记录日收益
+   */
+  async backfillDailyProfit() {
+    const today = new Date().toISOString().slice(0, 10);
+    console.log(`\n[DailyProfit] ===== 定时兜底任务启动 (${today} 23:55) =====`);
+
+    try {
+      // ★ 周末直接跳过，避免无意义的API请求
+      const dayOfWeek = new Date().getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        console.log('[DailyProfit] 周末非交易日，跳过补算');
+        return { total: 0, skipped: 0, success: 0, failed: 0 };
+      }
+
+      // 查询所有有持仓的用户
+      const [userRows] = await pool.query(
+        `SELECT DISTINCT user_id FROM holdings`
+      );
+
+      if (!userRows.length) {
+        console.log('[DailyProfit] 无持仓用户，跳过');
+        return { total: 0, skipped: 0, success: 0, failed: 0 };
+      }
+
+      // 查询今天已有日收益记录的用户
+      const [recordedRows] = await pool.query(
+        `SELECT DISTINCT user_id FROM daily_profits WHERE date = ?`,
+        [today]
+      );
+      const recordedUserIds = new Set(recordedRows.map(r => r.user_id));
+
+      // 筛选出今天未记录的用户
+      const pendingUsers = userRows.filter(r => !recordedUserIds.has(r.user_id));
+
+      console.log(`[DailyProfit] 持仓用户: ${userRows.length}, 已记录: ${recordedUserIds.size}, 待补算: ${pendingUsers.length}`);
+
+      if (!pendingUsers.length) {
+        console.log('[DailyProfit] 所有用户今日收益已记录，无需补算');
+        return { total: userRows.length, skipped: recordedUserIds.size, success: 0, failed: 0 };
+      }
+
+      // ★ 用第一个待补算用户的持仓判断是否为交易日（含节假日检测），非交易日直接跳过
+      const firstUserHoldings = await Holding.findByUserId(pendingUsers[0].user_id);
+      if (firstUserHoldings && firstUserHoldings.length > 0) {
+        if (!await this.isTradingDay(firstUserHoldings)) {
+          console.log('[DailyProfit] 非交易日（节假日），跳过补算');
+          return { total: userRows.length, skipped: recordedUserIds.size, success: 0, failed: 0 };
+        }
+      }
+
+      // 逐用户补算（串行，避免并发请求外部API过多）
+      let success = 0;
+      let failed = 0;
+
+      for (const row of pendingUsers) {
+        const userId = row.user_id;
+        try {
+          // 清除该用户的更新缓存，允许重新计算
+          this.lastUpdateCache.delete(`${userId}_${today}`);
+
+          const holdings = await Holding.findByUserId(userId);
+          if (!holdings || holdings.length === 0) continue;
+
+          const enriched = await holdingService.enrichHoldingsWithRealTimeData(holdings, true);
+          const result = await this.calculateAndSaveDailyProfit(userId, enriched);
+
+          if (result) {
+            success++;
+            console.log(`[DailyProfit] ✓ 用户 ${userId} 补算成功: ¥${result.profit.toFixed(2)}`);
+          } else {
+            // 无确认基金，不算失败
+            console.log(`[DailyProfit] - 用户 ${userId} 跳过（无确认基金）`);
+          }
+        } catch (err) {
+          failed++;
+          console.error(`[DailyProfit] ✗ 用户 ${userId} 补算失败:`, err.message);
+        }
+      }
+
+      console.log(`[DailyProfit] ===== 兜底任务完成 =====`);
+      console.log(`   待补算: ${pendingUsers.length}, 成功: ${success}, 失败: ${failed}\n`);
+
+      return { total: userRows.length, skipped: recordedUserIds.size, success, failed };
+    } catch (error) {
+      console.error('[DailyProfit] 兜底任务异常:', error);
+      throw error;
+    }
   }
 
   clearCache() {

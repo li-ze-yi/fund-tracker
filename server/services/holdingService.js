@@ -319,7 +319,12 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     }
   }
 
-  const cumulativeReturn = marketValue - totalCost;
+  let cumulativeReturn = marketValue - totalCost;
+  // ★ 今日买入的份额不应产生累计收益（刚买入，成本就是当前价）
+  if (todayTxShares.buy > 0 && displayNav > 0 && costPrice > 0) {
+    const todayBuyProfit = todayTxShares.buy * (displayNav - costPrice);
+    cumulativeReturn -= todayBuyProfit;
+  }
 
   const now = new Date();
   const updateTime = realTimeData ? realTimeData.updateTime : null;

@@ -14,6 +14,17 @@ function nextBusinessDay(dateStr) {
   return `${year}-${month}-${day}`;
 }
 
+function ensureBusinessDay(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  while (d.getDay() === 0 || d.getDay() === 6) { // 周末顺延到工作日
+    d.setDate(d.getDate() + 1);
+  }
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function normalizeDateStr(dateVal) {
   if (dateVal instanceof Date) {
     const year = dateVal.getFullYear();
@@ -48,7 +59,7 @@ exports.buy = async (req, res, next) => {
       inputDate = inputDate.split('T')[0].split(' ')[0];
     }
 
-    const navDate = after3pm ? nextBusinessDay(inputDate) : inputDate;
+    const navDate = ensureBusinessDay(after3pm ? nextBusinessDay(inputDate) : inputDate);
     const holding = await Holding.findByUserAndFund(req.user.id, fundCode);
     if (!holding) {
       return res.status(400).json({ message: '请先添加持仓' });
@@ -85,41 +96,21 @@ exports.buy = async (req, res, next) => {
       console.log(`[TransactionController] 加仓已确认: shares=${newShares.toFixed(2)}, nav=${confirmedNav}`);
       res.json({ message: '加仓成功', shares: newShares, nav: confirmedNav, tradeDate: navDate, status: 'confirmed' });
     } else {
-      // 无确认净值 → 挂起订单，用实时估值计算预估份额
-      const realTime = await fundService.getRealTimeValue(fundCode).catch(() => null);
-      const estimatedNav = realTime && realTime.netValue > 0 ? realTime.netValue : 0;
-
-      if (!estimatedNav) {
-        return res.status(400).json({ message: '无法获取基金净值，请稍后重试' });
-      }
-
-      const estimatedShares = amount / estimatedNav;
-
-      // 用预估份额临时更新持仓（等确认净值发布后再调整）
-      const oldShares = parseFloat(holding.shares);
-      const oldCostPrice = parseFloat(holding.cost_price);
-      const oldTotalCost = parseFloat(holding.total_cost) || oldShares * oldCostPrice;
-      const totalShares = oldShares + estimatedShares;
-      const newCostPrice = totalShares ? (oldShares * oldCostPrice + amount) / totalShares : 0;
-      const newTotalCost = oldTotalCost + amount;
-
-      await Holding.update(holding.id, req.user.id, { shares: totalShares, cost_price: newCostPrice, totalCost: newTotalCost });
-
-      // 创建 pending 交易记录
+      // 无确认净值 → 创建 pending 订单，只记录金额，等净值确认后结算时再计算份额
       await Transaction.create({
         userId: req.user.id,
         fundCode,
         type: 'buy',
-        shares: estimatedShares,
-        price: estimatedNav,
+        shares: 0,
+        price: 0,
         amount,
         fee: 0,
         transactionDate: navDate,
         status: 'pending'
       });
 
-      console.log(`[TransactionController] 加仓订单挂起: estimatedShares=${estimatedShares.toFixed(2)}, estimatedNav=${estimatedNav}, navDate=${navDate}`);
-      res.json({ message: '加仓订单已提交，等待净值确认', shares: estimatedShares, nav: estimatedNav, tradeDate: navDate, status: 'pending' });
+      console.log(`[TransactionController] 加仓订单挂起: amount=${amount}, navDate=${navDate}`);
+      res.json({ message: '加仓订单已提交，等待净值确认后结算', amount, tradeDate: navDate, status: 'pending' });
     }
   } catch (err) {
     next(err);
@@ -136,7 +127,7 @@ exports.sell = async (req, res, next) => {
       inputDate = inputDate.split('T')[0].split(' ')[0];
     }
 
-    const navDate = after3pm ? nextBusinessDay(inputDate) : inputDate;
+    const navDate = ensureBusinessDay(after3pm ? nextBusinessDay(inputDate) : inputDate);
     const holding = await Holding.findByUserAndFund(req.user.id, fundCode);
     if (!holding || parseFloat(holding.shares) < sellShares) {
       return res.status(400).json({ message: '持有份额不足' });
@@ -178,44 +169,21 @@ exports.sell = async (req, res, next) => {
       console.log(`[TransactionController] 卖出已确认: shares=${sellShares}, nav=${confirmedNav}`);
       res.json({ message: '卖出成功', amount: actualAmount, fee: feeAmount, tradeDate: navDate, status: 'confirmed' });
     } else {
-      // 无确认净值 → 挂起订单，用实时估值计算预估金额
-      const realTime = await fundService.getRealTimeValue(fundCode).catch(() => null);
-      const estimatedNav = realTime && realTime.netValue > 0 ? realTime.netValue : 0;
-
-      if (!estimatedNav) {
-        return res.status(400).json({ message: '无法获取基金净值，请稍后重试' });
-      }
-
-      const estimatedAmount = sellShares * estimatedNav;
-      const feeAmount = feeRate ? estimatedAmount * feeRate : 0;
-      const estimatedActualAmount = estimatedAmount - feeAmount;
-
-      // 卖出时份额立即扣减（份额是确定的），金额待确认
-      const newShares = parseFloat(holding.shares) - sellShares;
-      const oldTotalCost = parseFloat(holding.total_cost) || parseFloat(holding.shares) * parseFloat(holding.cost_price);
-      const costPerShare = oldTotalCost / parseFloat(holding.shares);
-      const newTotalCost = costPerShare * newShares;
-
-      if (newShares <= 0) {
-        await Holding.delete(holding.id, req.user.id);
-      } else {
-        await Holding.update(holding.id, req.user.id, { shares: newShares, totalCost: Math.round(newTotalCost * 100) / 100 });
-      }
-
+      // 无确认净值 → 创建 pending 订单，只记录份额，等净值确认后结算时再计算金额
       await Transaction.create({
         userId: req.user.id,
         fundCode,
         type: 'sell',
         shares: sellShares,
-        price: estimatedNav,
-        amount: estimatedActualAmount,
-        fee: feeAmount,
+        price: 0,
+        amount: 0,
+        fee: feeRate || 0,
         transactionDate: navDate,
         status: 'pending'
       });
 
-      console.log(`[TransactionController] 卖出订单挂起: shares=${sellShares}, estimatedNav=${estimatedNav}, navDate=${navDate}`);
-      res.json({ message: '卖出订单已提交，等待净值确认', amount: estimatedActualAmount, fee: feeAmount, tradeDate: navDate, status: 'pending' });
+      console.log(`[TransactionController] 卖出订单挂起: shares=${sellShares}, navDate=${navDate}`);
+      res.json({ message: '卖出订单已提交，等待净值确认后结算', shares: sellShares, tradeDate: navDate, status: 'pending' });
     }
   } catch (err) {
     next(err);
@@ -285,27 +253,32 @@ exports.settlePending = async (req, res, next) => {
         }
 
         const holding = await Holding.findByUserAndFund(userId, tx.fund_code);
-        if (!holding) {
-          errors.push(`交易 #${tx.id} 对应的持仓不存在`);
-          continue;
-        }
 
         if (tx.type === 'buy') {
-          // 买入结算：用确认净值重新计算份额
-          const oldEstimatedShares = parseFloat(tx.shares);
+          // 买入结算：用确认净值计算实际份额
           const actualShares = parseFloat(tx.amount) / confirmedNav;
-          const sharesDiff = actualShares - oldEstimatedShares;
 
-          // 更新持仓：调整份额差额
-          const currentShares = parseFloat(holding.shares) + sharesDiff;
-          const currentTotalCost = parseFloat(holding.total_cost);
-          const currentCostPrice = currentShares ? currentTotalCost / currentShares : 0;
+          if (!holding) {
+            // 无持仓（定投首笔等场景）→ 新建持仓
+            await Holding.create({
+              userId,
+              fundCode: tx.fund_code,
+              shares: actualShares,
+              costPrice: confirmedNav,
+              totalCost: parseFloat(tx.amount)
+            });
+          } else {
+            // 已有持仓 → 加仓
+            const currentShares = parseFloat(holding.shares) + actualShares;
+            const currentTotalCost = parseFloat(holding.total_cost) + parseFloat(tx.amount);
+            const currentCostPrice = currentShares ? currentTotalCost / currentShares : 0;
 
-          await Holding.update(holding.id, userId, {
-            shares: currentShares,
-            cost_price: currentCostPrice,
-            totalCost: currentTotalCost
-          });
+            await Holding.update(holding.id, userId, {
+              shares: currentShares,
+              cost_price: currentCostPrice,
+              totalCost: currentTotalCost
+            });
+          }
 
           // 更新交易记录
           await Transaction.updateToConfirmed(tx.id, userId, {
@@ -314,25 +287,36 @@ exports.settlePending = async (req, res, next) => {
             amount: parseFloat(tx.amount)
           });
 
-          console.log(`[TransactionController] 买入订单结算: #${tx.id}, estimatedShares=${oldEstimatedShares.toFixed(2)} → actualShares=${actualShares.toFixed(2)}, nav=${confirmedNav}`);
+          console.log(`[TransactionController] 买入订单结算: #${tx.id}, actualShares=${actualShares.toFixed(2)}, nav=${confirmedNav}, holdingCreated=${!holding}`);
           settled++;
         } else if (tx.type === 'sell') {
-          // 卖出结算：用确认净值重新计算金额
-          const actualAmount = parseFloat(tx.shares) * confirmedNav;
-          const feeRate = parseFloat(tx.amount) > 0 && parseFloat(tx.fee) > 0
-            ? parseFloat(tx.fee) / (parseFloat(tx.amount) + parseFloat(tx.fee))
-            : 0;
+          // 卖出结算：用确认净值计算实际金额，此时才扣减持仓份额和成本
+          const sellShares = parseFloat(tx.shares);
+          const actualAmount = sellShares * confirmedNav;
+          // fee 字段存的是费率（pending 时直接存入），金额为 0 时用费率计算
+          const feeRate = parseFloat(tx.fee) || 0;
           const feeAmount = feeRate ? actualAmount * feeRate : 0;
           const actualNetAmount = actualAmount - feeAmount;
 
-          // 卖出时份额已经扣减，只需更新交易金额
+          // 结算时才扣减份额和成本
+          const newShares = parseFloat(holding.shares) - sellShares;
+          const oldTotalCost = parseFloat(holding.total_cost) || parseFloat(holding.shares) * parseFloat(holding.cost_price);
+          const costPerShare = oldTotalCost / parseFloat(holding.shares);
+          const newTotalCost = costPerShare * newShares;
+
+          if (newShares <= 0) {
+            await Holding.delete(holding.id, userId);
+          } else {
+            await Holding.update(holding.id, userId, { shares: newShares, totalCost: Math.round(newTotalCost * 100) / 100 });
+          }
+
           await Transaction.updateToConfirmed(tx.id, userId, {
-            shares: parseFloat(tx.shares),
+            shares: sellShares,
             price: confirmedNav,
             amount: actualNetAmount
           });
 
-          console.log(`[TransactionController] 卖出订单结算: #${tx.id}, estimatedAmount=${parseFloat(tx.amount).toFixed(2)} → actualAmount=${actualNetAmount.toFixed(2)}, nav=${confirmedNav}`);
+          console.log(`[TransactionController] 卖出订单结算: #${tx.id}, actualAmount=${actualNetAmount.toFixed(2)}, nav=${confirmedNav}`);
           settled++;
         }
       } catch (err) {

@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
 const { executeDuePlans } = require('./services/planService');
+const dailyProfitService = require('./services/dailyProfitService');
 
 const app = express();
 
@@ -37,10 +38,10 @@ app.listen(PORT, () => {
 
   // 定投计划定时调度
   // 净值确认时间说明：A股基金净值通常在收盘后18:00-20:00间由基金公司确认发布
-  // 调度策略：20:00首次执行 → 如有净值未确认的计划，21:00自动重试
+  // 调度策略：10:00 创建 pending 订单（用估值预估） → 20:00 结算 pending + 处理新到期计划
   const planCronTimes = [
-    { time: '0 20 * * *', label: '20:00 首次执行' },
-    { time: '0 21 * * *', label: '21:00 重试（处理净值延迟确认）' },
+    { time: '0 10 * * *', label: '10:00 上午执行（创建 pending 订单）' },
+    { time: '0 20 * * *', label: '20:00 晚间执行（结算 pending + 处理到期计划）' },
   ];
 
   for (const { time, label } of planCronTimes) {
@@ -57,7 +58,19 @@ app.listen(PORT, () => {
       }
     });
   }
-  console.log('[Cron] 🕐 定投计划调度器已启动 (20:00首次执行, 21:00重试)');
+  console.log('[Cron] 🕐 定投计划调度器已启动 (10:00 上午执行, 20:00 晚间执行)');
+
+  // 日收益兜底任务：每天 23:55 为当天未打开 App 的用户补算日收益
+  cron.schedule('55 23 * * *', async () => {
+    console.log(`[Cron] ⏰ 日收益兜底任务触发 | 时间: ${new Date().toLocaleString('zh-CN')}`);
+    try {
+      const result = await dailyProfitService.backfillDailyProfit();
+      console.log(`[Cron] ✅ 日收益兜底完成 | 持仓用户=${result.total} 已记录=${result.skipped} 补算成功=${result.success} 失败=${result.failed}`);
+    } catch (err) {
+      console.error(`[Cron] ❌ 日收益兜底任务异常: ${err.message}`);
+    }
+  });
+  console.log('[Cron] 🕐 日收益兜底调度器已启动 (23:55)');
 
   // 启动时也检查一次（防止服务器重启期间遗漏）
   console.log('[Startup] 🔍 启动时检查一次到期定投计划...');
