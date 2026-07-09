@@ -1,7 +1,7 @@
 # 养基发财 - Fund Tracker
 
 养基发财基金实时估值与持仓管理系统，支持跨平台持仓统一管理、实时估值追踪、分组统计、交易记录、投资计划及数据导入导出，可下载手机安卓安装包apk。
-预览地址：https://www.waidati.top/profile
+预览地址：www.fundtracker.top
 
 ## 功能概览
 
