@@ -26,7 +26,7 @@ export default function ProfilePage() {
     { key: 'settings', icon: <SettingOutlined />, label: '设置', onClick: () => navigate('/settings') },
     { key: 'import', icon: <ImportOutlined />, label: '导入持仓', onClick: () => navigate('/settings') },
     { key: 'export', icon: <ExportOutlined />, label: '导出持仓', onClick: () => navigate('/settings') },
-    { key: 'feedback', icon: <MessageOutlined />, label: '意见反馈', onClick: () => navigate('/settings') },
+    { key: 'feedback', icon: <MessageOutlined />, label: '意见反馈', onClick: () => setFeedbackOpen(true) },
     { key: 'about', icon: <InfoCircleOutlined />, label: '关于', onClick: () => navigate('/settings') },
   ];
 
@@ -222,6 +222,8 @@ export default function ProfilePage() {
       >
         退出登录
       </Button>
+
+      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </div>
   );
 }

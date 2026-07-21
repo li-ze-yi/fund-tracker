@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { Modal, Input, App } from 'antd';
+import { Modal, App } from 'antd';
 import { MessageOutlined, CloseOutlined } from '@ant-design/icons';
 import { feedbackService } from '../../services/feedbackService';
-
-const { TextArea } = Input;
 
 interface FeedbackModalProps {
   open: boolean;
@@ -48,7 +46,7 @@ export default function FeedbackModal({ open, onClose }: FeedbackModalProps) {
       width={isMobile ? 'calc(100vw - 40px)' : 440}
       closable={false}
       maskClosable={true}
-      destroyOnClose
+      destroyOnHidden
       centered
       styles={{
         content: {
@@ -141,22 +139,31 @@ export default function FeedbackModal({ open, onClose }: FeedbackModalProps) {
         </p>
 
         {/* 输入框 */}
-        <TextArea
+        <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="请输入您的反馈内容..."
-          rows={5}
+          rows={6}
           maxLength={500}
-          showCount
           style={{
+            width: '100%',
             background: 'var(--bg-input)',
-            borderColor: 'var(--border-default)',
+            border: '1px solid var(--border-default)',
             color: 'var(--text-primary)',
             borderRadius: 'var(--radius-md)',
             fontSize: 14,
-            resize: 'none',
+            fontFamily: 'inherit',
+            padding: '10px 12px',
+            resize: 'vertical',
+            minHeight: 140,
+            lineHeight: 1.6,
+            outline: 'none',
+            boxSizing: 'border-box',
           }}
         />
+        <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+          {content.length}/500
+        </div>
 
         {/* 底部按钮 */}
         <div style={{
