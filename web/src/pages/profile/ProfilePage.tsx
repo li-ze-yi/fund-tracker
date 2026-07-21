@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Button, List, App } from 'antd';
 import {
@@ -12,11 +13,13 @@ import {
   DownloadOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '@/store/authStore';
+import FeedbackModal from '@/components/modals/FeedbackModal';
 
 export default function ProfilePage() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const { message } = App.useApp();
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const menuItems = [
     { key: 'plans', icon: <ScheduleOutlined />, label: '定投计划', onClick: () => navigate('/plans') },

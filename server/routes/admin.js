@@ -16,5 +16,7 @@ router.delete('/funds/:code', ctrl.deleteFund);
 router.get('/cache/stats', ctrl.cacheStats);
 router.get('/cache/check', ctrl.cacheCheck);
 router.post('/cache/clear', ctrl.cacheClear);
+router.get('/feedbacks', ctrl.listFeedbacks);
+router.delete('/feedbacks/:id', ctrl.deleteFeedback);
 
 module.exports = router;

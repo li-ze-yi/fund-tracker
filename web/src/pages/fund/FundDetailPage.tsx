@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Button, Table, Tag, Segmented, Skeleton, App, Space } from 'antd';
-import { ArrowLeftOutlined, StarOutlined, StarFilled, PlusOutlined, MinusOutlined, ScheduleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { Card, Button, Table, Tag, Segmented, Skeleton, App, Space, Dropdown } from 'antd';
+import { ArrowLeftOutlined, StarOutlined, StarFilled, PlusOutlined, MinusOutlined, ScheduleOutlined, DeleteOutlined, EditOutlined, ThunderboltOutlined, FundOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { fundService } from '@/services/fundService';
 import { transactionService } from '@/services/transactionService';
 import { favoriteService } from '@/services/favoriteService';
+import { settingService, type ValuationMethod } from '@/services/settingService';
 import { useThemeStore } from '@/store/themeStore';
 import BuyModal from '@/components/modals/BuyModal';
 import SellModal from '@/components/modals/SellModal';
@@ -30,6 +31,10 @@ export default function FundDetailPage() {
   const [sellModalOpen, setSellModalOpen] = useState(false);
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+
+  // 估值方法
+  const [fundValuationMethod, setFundValuationMethod] = useState<ValuationMethod | null>(null);
+  const [globalValuationMethod, setGlobalValuationMethod] = useState<ValuationMethod>('tencent');
 
   const loadNavHistory = async (p: Period, fundCode: string) => {
     const now = new Date();
@@ -82,6 +87,18 @@ export default function FundDetailPage() {
 
   useEffect(() => { loadData(); }, [code]);
 
+  // 加载用户估值设置
+  useEffect(() => {
+    settingService.getSettings().then((data) => {
+      if (data?.valuation_method) setGlobalValuationMethod(data.valuation_method as ValuationMethod);
+      if (code && data?.valuation_overrides?.[code]) {
+        setFundValuationMethod(data.valuation_overrides[code] as ValuationMethod);
+      } else {
+        setFundValuationMethod(null);
+      }
+    }).catch(() => {});
+  }, [code]);
+
   useEffect(() => {
     if (code) loadNavHistory(period, code);
   }, [period, code]);
@@ -101,6 +118,29 @@ export default function FundDetailPage() {
       message.error('操作失败');
     }
   };
+
+  // 切换本基金估值方式
+  const handleFundValuationChange = async (method: ValuationMethod) => {
+    if (!code) return;
+    // 如果是全局默认方法，则清除覆盖
+    const effectiveMethod = method === globalValuationMethod ? '' : method;
+    try {
+      await settingService.setFundOverride(code, effectiveMethod);
+      if (effectiveMethod === '') {
+        setFundValuationMethod(null);
+        message.success('已恢复为全局默认');
+      } else {
+        setFundValuationMethod(method);
+        message.success(`已切换到${method === 'tencent' ? '腾讯' : '持仓穿透'}数据源`);
+      }
+      // 刷新数据以使用新方法
+      loadData();
+    } catch {
+      message.error('设置保存失败');
+    }
+  };
+
+  const effectiveValuationMethod = fundValuationMethod || globalValuationMethod;
 
   const handleDeleteTransaction = async (id: number) => {
     try {
@@ -927,6 +967,59 @@ export default function FundDetailPage() {
             }
           }}
         />
+
+        {/* 单基金估值数据源切换 Dropdown */}
+        <Dropdown
+          menu={{
+            items: [
+              {
+                key: 'tencent',
+                label: `腾讯基金（快速估算）${globalValuationMethod === 'tencent' ? ' — 全局默认' : ''}`,
+                icon: <ThunderboltOutlined />,
+              },
+              {
+                key: 'holdings',
+                label: `持仓穿透（精确估算）${globalValuationMethod === 'holdings' ? ' — 全局默认' : ''}`,
+                icon: <FundOutlined />,
+              },
+              { type: 'divider' as const },
+              {
+                key: 'reset',
+                label: '恢复全局默认',
+                danger: !!fundValuationMethod,
+                disabled: !fundValuationMethod,
+              },
+            ],
+            onClick: ({ key }) => {
+              if (key === 'reset') {
+                handleFundValuationChange(globalValuationMethod);
+              } else {
+                handleFundValuationChange(key as ValuationMethod);
+              }
+            },
+            selectedKeys: fundValuationMethod ? [fundValuationMethod] : [globalValuationMethod],
+          }}
+          trigger={['click']}
+        >
+          <Button
+            type="text"
+            icon={effectiveValuationMethod === 'holdings' ? <FundOutlined /> : <ThunderboltOutlined />}
+            style={{
+              fontSize: 16,
+              width: 40,
+              height: 40,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '50%',
+              color: fundValuationMethod ? 'var(--accent-green)' : 'var(--text-muted)',
+              background: fundValuationMethod ? 'var(--accent-green-dim)' : 'transparent',
+              transition: 'all var(--transition-fast)',
+              border: fundValuationMethod ? '1px solid var(--accent-green)' : '1px solid transparent',
+            }}
+            title={`盘中估算: ${effectiveValuationMethod === 'holdings' ? '持仓穿透' : '腾讯基金'}${fundValuationMethod ? '（单基金覆盖）' : ''}`}
+          />
+        </Dropdown>
       </div>
 
       {/* 核心数据卡片 */}

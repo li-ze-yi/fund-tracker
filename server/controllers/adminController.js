@@ -262,3 +262,44 @@ exports.cacheClear = async (req, res, next) => {
     next(err);
   }
 };
+
+// 反馈管理
+exports.listFeedbacks = async (req, res, next) => {
+  try {
+    const { page = 1, pageSize = 20, keyword } = req.query;
+    const _page = parseInt(page) || 1;
+    const _pageSize = parseInt(pageSize) || 20;
+    const offset = (_page - 1) * _pageSize;
+
+    let where = '';
+    const params = [];
+    if (keyword) {
+      where = 'WHERE fb.content LIKE ? OR u.username LIKE ?';
+      params.push(`%${keyword}%`, `%${keyword}%`);
+    }
+
+    const [countRows] = await pool.query(
+      `SELECT COUNT(*) AS total FROM feedbacks fb LEFT JOIN users u ON fb.user_id = u.id ${where}`,
+      params
+    );
+    const total = countRows[0].total;
+
+    const [rows] = await pool.query(
+      `SELECT fb.*, u.username FROM feedbacks fb LEFT JOIN users u ON fb.user_id = u.id ${where} ORDER BY fb.created_at DESC LIMIT ? OFFSET ?`,
+      [...params, _pageSize, offset]
+    );
+
+    res.json({ list: rows, total });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteFeedback = async (req, res, next) => {
+  try {
+    await pool.query('DELETE FROM feedbacks WHERE id = ?', [req.params.id]);
+    res.json({ message: '反馈已删除' });
+  } catch (err) {
+    next(err);
+  }
+};

@@ -25,22 +25,30 @@ function getFundMarketStatus(realTimeData, globalMarketStatus) {
 
   // 全局开市，但有实时数据 → 检查 updateTime 是否为今天
   if (realTimeData && realTimeData.updateTime) {
-    // gztime 格式: "2024-01-15 14:30"（北京时间）
-    const updateDate = (realTimeData.updateTime || '').split(' ')[0];
+    const updateTime = realTimeData.updateTime || '';
+    const hasTimeComponent = updateTime.includes(' ');
+    // 旧格式: "2024-01-15 14:30"（fundgz 实时估值，含时间）
+    // 新格式: "2026-07-21"（lsjz 确认净值，仅日期）
+    const updateDate = updateTime.split(' ')[0];
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     if (updateDate === todayStr) {
-      // 实时数据是今天的 → 市场今天有开市
+      // 数据是今天的 → 市场今天有开市
       return { isMarketOpen: true, reason: 'normal' };
     }
 
-    // 实时数据不是今天的 → 该基金所在市场今天休市
-    return {
-      isMarketOpen: false,
-      reason: 'holiday',
-      dayOfWeek: dayNames[now.getDay()],
-      message: '非交易日'
-    };
+    // 数据不是今天的
+    if (hasTimeComponent) {
+      // 旧格式（实时估值）：updateTime 不是今天 → 该基金所在市场今天休市
+      return {
+        isMarketOpen: false,
+        reason: 'holiday',
+        dayOfWeek: dayNames[now.getDay()],
+        message: '非交易日'
+      };
+    }
+    // 新格式（确认净值）：updateTime 不是今天属于正常情况（当日净值尚未公布）
+    // 回退到全局市场状态判断
   }
 
   // 全局开市，但没有实时数据 → 保持全局状态（A股基金正常开市）
@@ -164,7 +172,7 @@ async function checkMarketStatus(holdings) {
 
 // ✨ 优化2：合并两轮请求为一轮（同时获取实时数据和确认状态）
 // ✨ 新增：支持强制刷新参数（跳过缓存）
-async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false) {
+async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, valuationOverrides = {}) {
   if (!holdings.length) return [];
   
   const startTime = Date.now();
@@ -202,9 +210,9 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false) {
 
         const [realTimeData, historyData] = await Promise.all([
           forceRefresh 
-            ? fundService.getRealTimeValue(fundCode).catch(err => { console.error(`强制刷新${fundCode}失败:`, err); return null; })
+            ? fundService.getRealTimeValueWithMethod(fundCode, valuationOverrides[fundCode] || 'tencent').catch(err => { console.error(`强制刷新${fundCode}失败:`, err); return null; })
             : globalCache.getOrFetch(realtimeCacheKey, () => 
-                fundService.getRealTimeValue(fundCode),
+                fundService.getRealTimeValueWithMethod(fundCode, valuationOverrides[fundCode] || 'tencent'),
                 { type: 'realtime' }
               ),
           
@@ -289,30 +297,52 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
   const shares = parseFloat(holding.shares) || 0;
   const costPrice = parseFloat(holding.cost_price) || 0;
   const totalCost = parseFloat(holding.total_cost) || shares * costPrice;
-  // ★ 昨日份额 = 当前份额 - 今日买入 + 今日卖出
-  // 今日买入的份额不产生当日收益；今日卖出的份额昨天持有，应计入当日收益
+  // 昨日份额 = 当前份额 - 今日买入 + 今日卖出
   const yesterdayShares = Math.max(0, shares - (todayTxShares.buy || 0) + (todayTxShares.sell || 0));
+
+  const now = new Date();
+  const hour = now.getHours();
+  const isTradingHours = hour >= 9 && hour < 15;
+
+  // 盘中估算数据
+  const estValue = realTimeData?.estimatedValue;
+  const estChange = realTimeData?.estimatedChange;
 
   let marketValue = 0;
   let dailyGain = 0;
   let gainPercent = null;
   let displayNav = null;
+  let usedEstimated = false;
 
+  // 净值优先级：确认净值 > 盘中估算 > 实时接口 netValue
   if (confirmedNav > 0) {
     displayNav = confirmedNav;
     marketValue = shares * confirmedNav;
+  } else if (isTradingHours && estValue != null && estValue > 0) {
+    // 交易时段：优先使用盘中估算净值计算市值
+    displayNav = estValue;
+    marketValue = shares * estValue;
+    usedEstimated = true;
   } else if (realTimeData && realTimeData.netValue) {
     displayNav = realTimeData.netValue;
     marketValue = shares * realTimeData.netValue;
   }
 
-  // ★ 当确认净值可用且有昨日净值时，用净值差精确计算当日收益（仅计算昨日持有份额）
+  // 收益计算
   if (isConfirmed && confirmedNav > 0 && yesterdayNav > 0) {
+    // 确认净值可用 → 精确计算（确认净值差）
     dailyGain = yesterdayShares * (confirmedNav - yesterdayNav);
     gainPercent = ((confirmedNav - yesterdayNav) / yesterdayNav) * 100;
+  } else if (isTradingHours && estChange != null && displayNav > 0) {
+    // 交易时段：使用盘中估算涨跌幅
+    gainPercent = estChange;
+    const yesterdayMarketValue = yesterdayShares * (realTimeData?.netValue || confirmedNav || displayNav);
+    if (yesterdayMarketValue > 0) {
+      dailyGain = yesterdayMarketValue * gainPercent / (100 + gainPercent);
+    }
+    usedEstimated = true;
   } else if (realTimeData && realTimeData.gainPercent != null) {
     gainPercent = realTimeData.gainPercent;
-    // ★ 用昨日份额估算当日收益（今日买入份额不产生收益）
     const yesterdayMarketValue = yesterdayShares * (realTimeData.netValue || confirmedNav || 0);
     if (yesterdayMarketValue > 0) {
       dailyGain = yesterdayMarketValue * gainPercent / (100 + gainPercent);
@@ -320,13 +350,11 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
   }
 
   let cumulativeReturn = marketValue - totalCost;
-  // ★ 今日买入的份额不应产生累计收益（刚买入，成本就是当前价）
   if (todayTxShares.buy > 0 && displayNav > 0 && costPrice > 0) {
     const todayBuyProfit = todayTxShares.buy * (displayNav - costPrice);
     cumulativeReturn -= todayBuyProfit;
   }
 
-  const now = new Date();
   const updateTime = realTimeData ? realTimeData.updateTime : null;
   let update_status, data_source, is_fresh;
 
@@ -350,9 +378,7 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     };
   }
 
-  const hour = now.getHours();
   if (hour < 9) {
-    // 盘前待开市：无论是否已确认，都显示待开市，清空涨幅和收益
     update_status = 'pre_market';
     data_source = 'actual';
     is_fresh = false;
@@ -362,9 +388,9 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     update_status = 'confirmed';
     data_source = 'actual';
     is_fresh = true;
-  } else if (hour >= 9 && hour < 15) {
+  } else if (isTradingHours) {
     update_status = 'estimating';
-    data_source = 'estimated';
+    data_source = usedEstimated ? 'estimated' : 'actual';
     is_fresh = true;
   } else {
     update_status = 'pending_confirm';

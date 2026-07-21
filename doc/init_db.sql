@@ -1,7 +1,7 @@
 -- ============================================================
 -- 养基发财 - Fund Tracker 数据库初始化脚本
 -- 数据库：real_time | 字符集：utf8mb4 | 引擎：InnoDB
--- 生成时间：2026-05-21（v4 - 定投计划支持biweekly频率，交易记录增加note字段）
+-- 生成时间：2026-07-21（v6 - user_settings 新增估值方法字段）
 -- ============================================================
 
 CREATE DATABASE IF NOT EXISTS `real_time`
@@ -143,6 +143,8 @@ CREATE TABLE `user_settings` (
   `id` int NOT NULL AUTO_INCREMENT,
   `user_id` int NOT NULL,
   `refresh_frequency` int NOT NULL DEFAULT '30',
+  `valuation_method` varchar(20) DEFAULT 'tencent' COMMENT '盘中估算方式: tencent=腾讯基金, holdings=持仓穿透',
+  `valuation_overrides` text DEFAULT NULL COMMENT '单基金覆盖设置，如 {"161725":"holdings"}',
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `user_id` (`user_id`),
@@ -182,3 +184,22 @@ CREATE TABLE `feedbacks` (
   KEY `idx_user_id` (`user_id`),
   CONSTRAINT `feedbacks_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- -----------------------------------------------------------
+-- 11. 公告表
+-- -----------------------------------------------------------
+CREATE TABLE `announcements` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `title` varchar(200) NOT NULL COMMENT '公告标题',
+  `content` text NOT NULL COMMENT '公告内容',
+  `type` enum('popup','banner') NOT NULL DEFAULT 'popup' COMMENT '公告类型: popup=弹窗, banner=横幅',
+  `status` enum('active','inactive') NOT NULL DEFAULT 'active' COMMENT '状态: active=启用, inactive=停用',
+  `publish_version` int NOT NULL DEFAULT 1 COMMENT '发布版本号，重新发布时递增',
+  `start_date` datetime DEFAULT NULL COMMENT '生效开始时间',
+  `end_date` datetime DEFAULT NULL COMMENT '生效结束时间',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_date_range` (`start_date`,`end_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='公告表';

@@ -25,6 +25,7 @@ app.use('/api/image-import', require('./routes/imageImport'));
 app.use('/api/feedback', require('./routes/feedback'));
 app.use('/api/indices', require('./routes/indices'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/announcements', require('./routes/announcements'));
 
 // 全局错误处理
 app.use((err, req, res, next) => {

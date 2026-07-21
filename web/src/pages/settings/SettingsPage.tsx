@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Card, Upload, Button, App, Modal, Divider, Switch } from 'antd';
-import { UploadOutlined, DownloadOutlined, SettingOutlined } from '@ant-design/icons';
-import { settingService } from '@/services/settingService';
+import { Card, Upload, Button, App, Modal, Divider, Switch, Segmented } from 'antd';
+import { UploadOutlined, DownloadOutlined, ThunderboltOutlined, FundOutlined } from '@ant-design/icons';
+import { settingService, type ValuationMethod } from '@/services/settingService';
 import { importExportService } from '@/services/importExportService';
 import { useThemeStore } from '@/store/themeStore';
 import { useHideAmountStore } from '@/store/hideAmountStore';
@@ -12,6 +12,7 @@ import type { UploadFile } from 'antd';
 
 export default function SettingsPage() {
   const [frequency, setFrequency] = useState(30);
+  const [valuationMethod, setValuationMethod] = useState<ValuationMethod>('tencent');
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -23,10 +24,22 @@ export default function SettingsPage() {
 
   useEffect(() => {
     settingService.getSettings().then((data) => {
-      const d = data.settings || data;
-      if (d?.refresh_frequency != null) setFrequency(d.refresh_frequency);
+      if (data?.refresh_frequency != null) setFrequency(data.refresh_frequency);
+      if (data?.valuation_method) setValuationMethod(data.valuation_method as ValuationMethod);
     }).catch(() => {});
   }, []);
+
+  const handleValuationChange = async (method: ValuationMethod) => {
+    setValuationMethod(method);
+    try {
+      await settingService.updateValuationMethod(method);
+      message.success('估值数据源切换成功');
+      // 通知持仓页面刷新
+      window.dispatchEvent(new CustomEvent('valuation-method-changed', { detail: method }));
+    } catch {
+      message.error('设置保存失败');
+    }
+  };
 
   const handleUpload = (file: File) => {
     setImportFile(file);
@@ -145,6 +158,29 @@ export default function SettingsPage() {
             onChange={(checked) => setHideAmount(checked)}
             checkedChildren="隐藏"
             unCheckedChildren="显示"
+          />
+        </div>
+      </Card>
+
+      <Card
+        className="settings-card"
+        title="盘中估算数据源" style={{ marginBottom: 20, background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }} styles={{ title: { color: 'var(--text-primary)', fontWeight: 600 } }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>选择盘中估算方式</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+              确认净值始终使用东方财富盘后数据。盘中估值可选：
+              {valuationMethod === 'tencent' && '腾讯基金接口（快速，覆盖全市场）'}
+              {valuationMethod === 'holdings' && '持仓穿透法（基于持仓股票实时行情加权计算，数据更透明）'}
+            </div>
+          </div>
+          <Segmented
+            value={valuationMethod}
+            onChange={(val) => handleValuationChange(val as ValuationMethod)}
+            options={[
+              { label: '腾讯基金', value: 'tencent', icon: <ThunderboltOutlined /> },
+              { label: '持仓穿透', value: 'holdings', icon: <FundOutlined /> },
+            ]}
           />
         </div>
       </Card>

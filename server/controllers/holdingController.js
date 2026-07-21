@@ -5,6 +5,7 @@ const holdingService = require('../services/holdingService');
 const fundService = require('../services/fundService');
 const dailyProfitService = require('../services/dailyProfitService');
 const globalCache = require('../services/globalCache');
+const UserSetting = require('../models/userSetting');
 
 exports.list = async (req, res, next) => {
   try {
@@ -18,11 +19,19 @@ exports.list = async (req, res, next) => {
     // ✅ 获取前端传递的强制刷新参数
     const forceRefresh = req.query.forceRefresh === '1';
 
+    // 获取用户的估值方法设置
+    let valuationOverrides = {};
+    try {
+      const settings = await UserSetting.findByUserId(userId);
+      valuationOverrides = settings?.valuation_overrides || {};
+    } catch { /* ignore */ }
+
     // ✨ holdingService.enrichHoldingsWithRealTimeData 已经内部查询每只基金的确认状态
     // 并正确设置 update_status (confirmed/pending_confirm/estimating)
     const enrichedWithStatus = await holdingService.enrichHoldingsWithRealTimeData(
       holdings,
-      forceRefresh  // ✅ 传递强制刷新参数
+      forceRefresh,  // ✅ 传递强制刷新参数
+      valuationOverrides  // ✅ 传递估值方法覆盖
     );
 
     // 事件驱动：异步计算并保存当日收益（不阻塞主流程）

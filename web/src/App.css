@@ -1153,3 +1153,15 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     padding: 6px 10px !important;
   }
 }
+
+/* ── 公告横幅动画 ── */
+@keyframes bannerSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -16,7 +16,6 @@ import FundDetailPage from './pages/fund/FundDetailPage';
 import MarketDetailPage from './pages/market/MarketDetailPage';
 import InvestmentPlanPage from './pages/plans/InvestmentPlanPage';
 import SettingsPage from './pages/settings/SettingsPage';
-
 import './App.css';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {

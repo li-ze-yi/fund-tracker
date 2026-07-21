@@ -4,6 +4,21 @@ const Favorite = require('../models/favorite');
 const fundService = require('../services/fundService');
 const holdingService = require('../services/holdingService');
 const pool = require('../config/database');
+const UserSetting = require('../models/userSetting');
+
+// 获取用户对某个基金的估值方法
+async function getUserValuationMethod(userId, fundCode) {
+  if (!userId) return 'tencent';
+  try {
+    const settings = await UserSetting.findByUserId(userId);
+    const overrides = settings?.valuation_overrides || {};
+    // 单基金覆盖 > 全局设置 > 默认（腾讯）
+    if (overrides[fundCode]) return overrides[fundCode];
+    return settings?.valuation_method || 'tencent';
+  } catch {
+    return 'tencent';
+  }
+}
 
 exports.search = async (req, res, next) => {
   try {
@@ -26,7 +41,9 @@ exports.getByCode = async (req, res, next) => {
       return res.status(404).json({ message: '基金不存在' });
     }
 
-    const realTime = await fundService.getRealTimeValue(code).catch(() => null);
+    // 获取用户设置的估值方法
+    const valuationMethod = req.user ? await getUserValuationMethod(req.user.id, code) : 'tencent';
+    const realTime = await fundService.getRealTimeValueWithMethod(code, valuationMethod).catch(() => null);
 
     const result = {
       code: fund.code,
@@ -35,6 +52,11 @@ exports.getByCode = async (req, res, next) => {
       net_value: realTime ? realTime.netValue : null,
       estimated_change: realTime ? realTime.gainPercent : null,
       update_time: realTime ? realTime.updateTime : null,
+      // 盘中估算字段
+      estimated_value: realTime?.estimatedValue ?? null,
+      estimated_change_pct: realTime?.estimatedChange ?? null,
+      estimation_method: realTime?.estimationMethod ?? null,
+      estimation_coverage: realTime?.estimationCoverage ?? null,
     };
 
     // ★ 计算更新状态（与holdingService统一使用checkMarketStatus）
