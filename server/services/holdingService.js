@@ -190,19 +190,18 @@ async function checkMarketStatus(holdings) {
   }
 }
 
-// ✨ 优化2：合并两轮请求为一轮（同时获取实时数据和确认状态）
-// ✨ 新增：支持强制刷新参数（跳过缓存）
-// ✨ 修复：缓存 key 含 method，避免切换数据源后返回旧缓存
+// ✨ 优化3：批量获取所有基金数据（替代逐个请求）
+// 核心优化：新浪估值用1次请求替代N次，确认净值并行获取
 async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, valuationMethod = 'sina', valuationOverrides = {}) {
   if (!holdings.length) return [];
 
   const startTime = Date.now();
-  console.log(`[holdingService] 开始处理 ${holdings.length} 只基金... (强制刷新: ${forceRefresh}, 全局方法: ${valuationMethod})`);
+  const fundCodes = holdings.map(h => h.fund_code);
+  console.log(`[holdingService] 开始批量处理 ${holdings.length} 只基金... (强制刷新: ${forceRefresh}, 全局方法: ${valuationMethod})`);
 
   const marketStatus = await checkMarketStatus(holdings);
 
-  // ★ 查询今日交易份额，用于排除当日交易对日收益的影响
-  // 昨日份额 = 当前份额 - 今日买入 + 今日卖出（买入的不产生收益，卖出的昨天持有应计入）
+  // ★ 查询今日交易份额
   const today = new Date().toISOString().slice(0, 10);
   const userId = holdings[0].user_id;
   let todayTxSharesMap = {};
@@ -221,99 +220,148 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     console.error('[holdingService] 查询今日交易份额失败:', e.message);
   }
 
-  const enrichedWithAllData = await Promise.all(
-    holdings.map(async (holding) => {
-      const fundCode = holding.fund_code;
+  // ═══════════════════════════════════════════
+  // ★ 核心优化：批量获取所有基金数据
+  // 原来：N只基金 × 每只2-3个串行API = 几十次外部请求
+  // 现在：1次新浪批量 + N个并行确认净值 + N个并行历史净值 = 2N+1次，但并行执行
+  // ═══════════════════════════════════════════
 
-      try {
-        // ★ 缓存 key 包含 method，避免切换数据源后命中旧缓存
-        const effectiveMethod = valuationOverrides[fundCode] || valuationMethod || 'sina';
-        const realtimeCacheKey = `realtime_${fundCode}_${effectiveMethod}`;
-        // ★ 缓存 key 含查询范围，避免不同范围的历史净值互相覆盖
-        const historyCacheKey = `history_${fundCode}_3d_${new Date().toISOString().slice(0, 10)}`;
+  // 按估值方法分组（相同方法可以批量请求）
+  const methodGroups = {};
+  for (const code of fundCodes) {
+    const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
+    if (!methodGroups[effectiveMethod]) methodGroups[effectiveMethod] = [];
+    methodGroups[effectiveMethod].push(code);
+  }
 
-        const [realTimeData, historyData] = await Promise.all([
-          forceRefresh
-            ? fundService.getRealTimeValueWithMethod(fundCode, effectiveMethod).catch(err => { console.error(`强制刷新${fundCode}失败:`, err); return null; })
-            : globalCache.getOrFetch(realtimeCacheKey, () =>
-                fundService.getRealTimeValueWithMethod(fundCode, effectiveMethod),
-                { type: 'realtime' }
-              ),
-          
-          globalCache.getOrFetch(historyCacheKey, () => {
-            const today = new Date().toISOString().slice(0, 10);
-            const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-            return fundService.getHistoryNetValues(fundCode, threeDaysAgo, today)
-              .then(data => data || null);
-          }, { type: 'history_recent' })
-        ]);
+  // 并行获取各方法组的实时数据
+  const realtimeDataMap = {}; // fundCode -> realTimeData
+  const historyDataMap = {};  // fundCode -> historyData
 
-        const today = new Date().toISOString().slice(0, 10);
-        const latestHistoryNav = historyData && historyData.length > 0 ? parseFloat(historyData[0].nav) || 0 : 0;
-        const latestHistoryDate = historyData && historyData.length > 0 ? historyData[0].date : null;
-        const isConfirmed = latestHistoryDate === today;
-        // ★ 提取昨日（上一交易日）净值，用于精确计算当日收益
-        const yesterdayNav = historyData && historyData.length > 1 ? parseFloat(historyData[1].nav) || 0 : 0;
+  const batchPromises = [];
 
-        const dbConfirmedNav = parseFloat(holding.confirmed_nav) || 0;
-        const dbConfirmedNavDate = holding.confirmed_nav_date ? holding.confirmed_nav_date.toISOString().slice(0, 10) : null;
+  for (const [method, codes] of Object.entries(methodGroups)) {
+    // 批量获取实时数据（确认净值 + 盘中估算）
+    const cacheKeys = codes.map(code => {
+      const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
+      return { code, cacheKey: `realtime_${code}_${effectiveMethod}` };
+    });
 
-        let effectiveNav = latestHistoryNav > 0 ? latestHistoryNav : dbConfirmedNav;
-
-        if (latestHistoryNav > 0 && latestHistoryDate && latestHistoryDate > dbConfirmedNavDate) {
-          Holding.update(holding.id, holding.user_id, {
-            confirmedNav: latestHistoryNav,
-            confirmedNavDate: latestHistoryDate
-          }).catch(err => console.error(`[holdingService] 更新confirmed_nav失败:`, err.message));
+    // 检查哪些需要从外部获取（缓存未命中或强制刷新）
+    const needFetch = forceRefresh ? codes : codes.filter(code => {
+      const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
+      const cacheKey = `realtime_${code}_${effectiveMethod}`;
+      const cached = globalCache.cache.get(cacheKey);
+      if (cached) {
+        const ttl = globalCache.getTTL('realtime');
+        const age = Date.now() - cached.timestamp;
+        if (age < ttl) {
+          realtimeDataMap[code] = cached.data;
+          return false;
         }
-
-        return {
-          ...holding,
-          realTimeData: realTimeData,
-          _confirmed: isConfirmed,
-          _confirmedNav: effectiveNav,
-          _yesterdayNav: yesterdayNav
-        };
-        
-      } catch (error) {
-        console.error(`[holdingService] 处理基金 ${fundCode} 失败:`, error.message);
-        return {
-          ...holding,
-          realTimeData: null,
-          _confirmed: false,
-          _confirmedNav: parseFloat(holding.confirmed_nav) || 0,
-          _yesterdayNav: 0
-        };
       }
-    })
-  );
+      return true;
+    });
 
-  const result = enrichedWithAllData.map(holding => {
-    // 为每只基金独立判断市场状态：基于实时数据的 updateTime 判断
-    // 如果全局开市但该基金 updateTime 不是今天，说明该基金所在市场休市
-    const fundMarketStatus = getFundMarketStatus(holding.realTimeData, marketStatus);
+    if (needFetch.length > 0) {
+      batchPromises.push(
+        fundService.batchGetRealTimeValuesWithMethod(needFetch, method).then(map => {
+          // 存入缓存
+          for (const [code, data] of Object.entries(map)) {
+            const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
+            const cacheKey = `realtime_${code}_${effectiveMethod}`;
+            if (data) {
+              globalCache.set(cacheKey, data, 'realtime');
+            }
+            realtimeDataMap[code] = data;
+          }
+        })
+      );
+    }
+
+    // 批量获取历史净值
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const historyNeedFetch = codes.filter(code => {
+      const cacheKey = `history_${code}_3d_${today}`;
+      const cached = globalCache.cache.get(cacheKey);
+      if (cached) {
+        const ttl = globalCache.getTTL('history_recent');
+        const age = Date.now() - cached.timestamp;
+        if (age < ttl) {
+          historyDataMap[code] = cached.data;
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (historyNeedFetch.length > 0) {
+      batchPromises.push(
+        fundService.batchGetHistoryNetValues(historyNeedFetch, threeDaysAgo, today).then(map => {
+          for (const [code, data] of Object.entries(map)) {
+            const cacheKey = `history_${code}_3d_${today}`;
+            if (data && data.length > 0) {
+              globalCache.set(cacheKey, data, 'history_recent');
+            }
+            historyDataMap[code] = data;
+          }
+        })
+      );
+    }
+  }
+
+  // 等待所有批量请求完成
+  await Promise.all(batchPromises);
+
+  // ═══════════════════════════════════════════
+  // 合并数据并计算指标
+  // ═══════════════════════════════════════════
+
+  const result = holdings.map(holding => {
+    const fundCode = holding.fund_code;
+    const realTimeData = realtimeDataMap[fundCode] || null;
+    const historyData = historyDataMap[fundCode] || null;
+
+    const latestHistoryNav = historyData && historyData.length > 0 ? parseFloat(historyData[0].nav) || 0 : 0;
+    const latestHistoryDate = historyData && historyData.length > 0 ? historyData[0].date : null;
+    const isConfirmed = latestHistoryDate === today;
+    const yesterdayNav = historyData && historyData.length > 1 ? parseFloat(historyData[1].nav) || 0 : 0;
+
+    const dbConfirmedNav = parseFloat(holding.confirmed_nav) || 0;
+    const dbConfirmedNavDate = holding.confirmed_nav_date ? holding.confirmed_nav_date.toISOString().slice(0, 10) : null;
+
+    let effectiveNav = latestHistoryNav > 0 ? latestHistoryNav : dbConfirmedNav;
+
+    if (latestHistoryNav > 0 && latestHistoryDate && latestHistoryDate > dbConfirmedNavDate) {
+      Holding.update(holding.id, holding.user_id, {
+        confirmedNav: latestHistoryNav,
+        confirmedNavDate: latestHistoryDate
+      }).catch(err => console.error(`[holdingService] 更新confirmed_nav失败:`, err.message));
+    }
+
+    const fundMarketStatus = getFundMarketStatus(realTimeData, marketStatus);
 
     return {
       ...holding,
+      realTimeData: realTimeData,
       ...calculateHoldingMetrics(
         holding,
-        holding.realTimeData,
-        holding._confirmed,
-        holding._confirmedNav,
+        realTimeData,
+        isConfirmed,
+        effectiveNav,
         fundMarketStatus,
-        holding._yesterdayNav,
-        todayTxSharesMap[holding.fund_code] || { buy: 0, sell: 0 }
+        yesterdayNav,
+        todayTxSharesMap[fundCode] || { buy: 0, sell: 0 }
       )
     };
   });
 
   const endTime = Date.now();
   const duration = endTime - startTime;
-  
   const stats = globalCache.getStats();
-  console.log(`[holdingService] 处理完成: ${holdings.length}只基金, 耗时${duration}ms`);
+  console.log(`[holdingService] 批量处理完成: ${holdings.length}只基金, 耗时${duration}ms`);
   console.log(`[GlobalCache] 统计: 命中率=${stats.hitRate}, 缓存数=${stats.size}/${stats.maxSize}`);
-  
+
   return result;
 }
 

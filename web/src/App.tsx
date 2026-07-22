@@ -1,22 +1,24 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider, App as AntApp, theme as antTheme, Spin } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { useAuthStore } from './store/authStore';
 import { useThemeStore } from './store/themeStore';
 import MainLayout from './layouts/MainLayout';
 import AuthLayout from './layouts/AuthLayout';
-import LoginPage from './pages/auth/LoginPage';
-import RegisterPage from './pages/auth/RegisterPage';
-import PortfolioPage from './pages/portfolio/PortfolioPage';
-import WatchlistPage from './pages/watchlist/WatchlistPage';
-import StatsPage from './pages/stats/StatsPage';
-import ProfilePage from './pages/profile/ProfilePage';
-import FundDetailPage from './pages/fund/FundDetailPage';
-import MarketDetailPage from './pages/market/MarketDetailPage';
-import InvestmentPlanPage from './pages/plans/InvestmentPlanPage';
-import SettingsPage from './pages/settings/SettingsPage';
 import './App.css';
+
+// 路由级懒加载 - 首屏只加载当前页面，其余按需加载
+const LoginPage = lazy(() => import('./pages/auth/LoginPage'));
+const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'));
+const PortfolioPage = lazy(() => import('./pages/portfolio/PortfolioPage'));
+const WatchlistPage = lazy(() => import('./pages/watchlist/WatchlistPage'));
+const StatsPage = lazy(() => import('./pages/stats/StatsPage'));
+const ProfilePage = lazy(() => import('./pages/profile/ProfilePage'));
+const FundDetailPage = lazy(() => import('./pages/fund/FundDetailPage'));
+const MarketDetailPage = lazy(() => import('./pages/market/MarketDetailPage'));
+const InvestmentPlanPage = lazy(() => import('./pages/plans/InvestmentPlanPage'));
+const SettingsPage = lazy(() => import('./pages/settings/SettingsPage'));
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -81,29 +83,31 @@ export default function App() {
     >
       <AntApp>
         <BrowserRouter>
-          <Routes>
-            <Route element={<AuthLayout />}>
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
-            </Route>
-            <Route
-              element={
-                <ProtectedRoute>
-                  <MainLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route path="/" element={<Navigate to="/portfolio" replace />} />
-              <Route path="/portfolio" element={<PortfolioPage />} />
-              <Route path="/watchlist" element={<WatchlistPage />} />
-              <Route path="/stats" element={<StatsPage />} />
-              <Route path="/profile" element={<ProfilePage />} />
-              <Route path="/fund/:code" element={<FundDetailPage />} />
-              <Route path="/market" element={<MarketDetailPage />} />
-              <Route path="/plans" element={<InvestmentPlanPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Route>
-          </Routes>
+          <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}><Spin size="large" /></div>}>
+            <Routes>
+              <Route element={<AuthLayout />}>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
+              </Route>
+              <Route
+                element={
+                  <ProtectedRoute>
+                    <MainLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route path="/" element={<Navigate to="/portfolio" replace />} />
+                <Route path="/portfolio" element={<PortfolioPage />} />
+                <Route path="/watchlist" element={<WatchlistPage />} />
+                <Route path="/stats" element={<StatsPage />} />
+                <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/fund/:code" element={<FundDetailPage />} />
+                <Route path="/market" element={<MarketDetailPage />} />
+                <Route path="/plans" element={<InvestmentPlanPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+              </Route>
+            </Routes>
+          </Suspense>
         </BrowserRouter>
       </AntApp>
     </ConfigProvider>

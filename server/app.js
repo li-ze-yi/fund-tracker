@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const cron = require('node-cron');
 const { executeDuePlans } = require('./services/planService');
 const dailyProfitService = require('./services/dailyProfitService');
@@ -8,6 +9,7 @@ const dailyProfitService = require('./services/dailyProfitService');
 const app = express();
 
 app.use(cors());
+app.use(compression()); // 启用 gzip 压缩，API 响应体积可减少 60-80%
 app.use(express.json());
 
 // 路由挂载

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Empty, Skeleton, Alert, Button, App } from 'antd';
-import { ReloadOutlined, StarFilled } from '@ant-design/icons';
+import { Empty, Skeleton, App } from 'antd';
+import { StarFilled } from '@ant-design/icons';
 import { favoriteService } from '@/services/favoriteService';
 import { fundService } from '@/services/fundService';
 import FundListItem from '@/components/FundListItem';
@@ -34,59 +34,30 @@ export default function WatchlistPage() {
       const list: FavoriteItem[] = data.favorites || data || [];
       if (list.length === 0) { setFavorites(list); return; }
 
-      // 限制并发数，避免同时发起太多请求
-      const concurrencyLimit = 3;
-      const enriched: FavoriteItem[] = [];
-      
-      for (let i = 0; i < list.length; i += concurrencyLimit) {
-        const batch = list.slice(i, i + concurrencyLimit);
-        const batchResults = await Promise.all(
-          batch.map(async (item: any) => {
-            try {
-              const info = await fundService.getFundInfo(item.fund_code);
-              return {
-                ...item,
-                fund_name: info.name || item.fund_code,
-                fund_type: info.type || '',
-                net_value: info.net_value ?? undefined,
-                estimated_change: info.estimated_change ?? undefined,
-                market_value: info.market_value ?? undefined,
-                daily_profit: info.daily_profit ?? undefined,
-                accumulated_profit: info.accumulated_profit ?? undefined,
-                // 传递更新状态字段
-                last_updated: info.last_updated ?? null,
-                is_fresh: info.is_fresh ?? false,
-                update_status: info.update_status ?? 'estimating',
-                data_source: info.data_source ?? 'estimated',
-                day_of_week: info.day_of_week ?? undefined,
-              };
-            } catch {
-              return { 
-                ...item, 
-                fund_name: item.fund_code, 
-                fund_type: '', 
-                net_value: undefined, 
-                estimated_change: undefined, 
-                market_value: undefined, 
-                daily_profit: undefined, 
-                accumulated_profit: undefined,
-                // 默认更新状态
-                last_updated: null,
-                is_fresh: false,
-                update_status: 'estimating' as const,
-                data_source: 'estimated' as const,
-                day_of_week: undefined,
-              };
-            }
-          })
-        );
-        enriched.push(...batchResults);
-        // 批次间添加小延迟
-        if (i + concurrencyLimit < list.length) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-      }
-      
+      // ★ 使用批量接口：1次请求获取所有基金数据（替代逐个调用 /funds/:code）
+      const codes = list.map((item: any) => item.fund_code);
+      const batchInfo: any[] = await fundService.batchGetFundInfo(codes);
+
+      // 合并自选ID和基金实时数据
+      const enriched: FavoriteItem[] = list.map((item: any, index: number) => {
+        const info = batchInfo[index] || {};
+        return {
+          ...item,
+          fund_name: info.name || item.fund_code,
+          fund_type: info.type || '',
+          net_value: info.net_value ?? undefined,
+          estimated_change: info.estimated_change ?? undefined,
+          market_value: info.market_value ?? undefined,
+          daily_profit: info.daily_profit ?? undefined,
+          accumulated_profit: info.accumulated_profit ?? undefined,
+          last_updated: info.last_updated ?? null,
+          is_fresh: info.is_fresh ?? false,
+          update_status: info.update_status ?? 'estimating',
+          data_source: info.data_source ?? 'estimated',
+          day_of_week: info.day_of_week ?? undefined,
+        };
+      });
+
       setFavorites(enriched);
     } catch {
       message.error('获取自选列表失败');

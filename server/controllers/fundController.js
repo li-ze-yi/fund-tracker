@@ -3,20 +3,21 @@ const Holding = require('../models/holding');
 const Favorite = require('../models/favorite');
 const fundService = require('../services/fundService');
 const holdingService = require('../services/holdingService');
+const globalCache = require('../services/globalCache');
 const pool = require('../config/database');
 const UserSetting = require('../models/userSetting');
 
 // 获取用户对某个基金的估值方法
 async function getUserValuationMethod(userId, fundCode) {
-  if (!userId) return 'tencent';
+  if (!userId) return 'sina';
   try {
     const settings = await UserSetting.findByUserId(userId);
     const overrides = settings?.valuation_overrides || {};
-    // 单基金覆盖 > 全局设置 > 默认（腾讯）
+    // 单基金覆盖 > 全局设置 > 默认（新浪）
     if (overrides[fundCode]) return overrides[fundCode];
-    return settings?.valuation_method || 'tencent';
+    return settings?.valuation_method || 'sina';
   } catch {
-    return 'tencent';
+    return 'sina';
   }
 }
 
@@ -200,6 +201,191 @@ exports.getByCode = async (req, res, next) => {
     }
 
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * 批量获取基金实时信息（供自选页使用）
+ * 一次请求获取多只基金的实时数据，替代前端逐个调用 /funds/:code
+ * POST /api/funds/batch  { codes: ['001234', '005678'] }
+ */
+exports.batchGetInfo = async (req, res, next) => {
+  try {
+    const { codes } = req.body;
+    if (!codes || !Array.isArray(codes) || codes.length === 0) {
+      return res.json([]);
+    }
+
+    // 限制最多50只
+    const fundCodes = codes.slice(0, 50);
+    const userId = req.user?.id || null;
+
+    // 获取用户估值方法
+    let valuationMethod = 'sina';
+    let valuationOverrides = {};
+    if (userId) {
+      try {
+        const settings = await UserSetting.findByUserId(userId);
+        valuationMethod = settings?.valuation_method || 'sina';
+        valuationOverrides = settings?.valuation_overrides || {};
+      } catch { /* ignore */ }
+    }
+
+    // ★ 批量获取实时数据（核心优化：1次新浪请求 + 并行确认净值）
+    const realtimeMap = await fundService.batchGetRealTimeValuesWithMethod(fundCodes, valuationMethod);
+
+    // 批量获取历史净值
+    const today = new Date().toISOString().slice(0, 10);
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const historyMap = await fundService.batchGetHistoryNetValues(fundCodes, threeDaysAgo, today);
+
+    // 市场状态（用前3只基金检测）
+    const marketStatus = await holdingService.checkMarketStatus(fundCodes.slice(0, 3).map(c => ({ fund_code: c })));
+
+    // 并行查询所有基金的基本信息和持仓
+    const fundInfoPromises = fundCodes.map(async (code) => {
+      const fund = await Fund.findByCode(code).catch(() => null);
+      return { code, fund };
+    });
+
+    const holdingPromises = userId
+      ? fundCodes.map(async (code) => {
+          const holding = await Holding.findByUserAndFund(userId, code).catch(() => null);
+          return { code, holding };
+        })
+      : [];
+
+    const [fundInfoResults, holdingResults] = await Promise.all([
+      Promise.allSettled(fundInfoPromises),
+      Promise.allSettled(holdingPromises),
+    ]);
+
+    // 构建查找表
+    const fundMap = {};
+    for (const r of fundInfoResults) {
+      if (r.status === 'fulfilled' && r.value.fund) fundMap[r.value.code] = r.value.fund;
+    }
+    const holdingMap = {};
+    for (const r of holdingResults) {
+      if (r.status === 'fulfilled' && r.value.holding) holdingMap[r.value.code] = r.value.holding;
+    }
+
+    // 查询今日交易份额
+    let todayTxSharesMap = {};
+    if (userId) {
+      try {
+        const [rows] = await pool.query(
+          `SELECT fund_code, type, SUM(shares) as total_shares FROM transactions
+           WHERE user_id = ? AND transaction_date = ? AND status = 'confirmed'
+           GROUP BY fund_code, type`,
+          [userId, today]
+        );
+        rows.forEach(r => {
+          if (!todayTxSharesMap[r.fund_code]) todayTxSharesMap[r.fund_code] = { buy: 0, sell: 0 };
+          todayTxSharesMap[r.fund_code][r.type] = parseFloat(r.total_shares) || 0;
+        });
+      } catch { /* ignore */ }
+    }
+
+    // 组装结果
+    const now = new Date();
+    const results = fundCodes.map(code => {
+      const fund = fundMap[code];
+      const realTime = realtimeMap[code] || null;
+      const history = historyMap[code] || [];
+      const holding = holdingMap[code] || null;
+      const txShares = todayTxSharesMap[code] || { buy: 0, sell: 0 };
+
+      const latestHistoryNav = history.length > 0 ? parseFloat(history[0].nav) || 0 : 0;
+      const latestHistoryDate = history.length > 0 ? history[0].date : null;
+      const isConfirmed = latestHistoryDate === today;
+      const yesterdayNav = history.length > 1 ? parseFloat(history[1].nav) || 0 : 0;
+
+      const fundMarketStatus = holdingService.getFundMarketStatus(realTime, marketStatus);
+      const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+      const result = {
+        code: code,
+        name: fund?.name || code,
+        type: fund?.type || '',
+        net_value: realTime?.netValue ?? null,
+        estimated_change: realTime?.gainPercent ?? null,
+        update_time: realTime?.updateTime ?? null,
+        estimated_value: realTime?.estimatedValue ?? null,
+        estimated_change_pct: realTime?.estimatedChange ?? null,
+        estimation_method: realTime?.estimationMethod ?? null,
+        estimation_coverage: realTime?.estimationCoverage ?? null,
+      };
+
+      // 更新状态
+      if (!fundMarketStatus.isMarketOpen) {
+        result.last_updated = realTime?.updateTime || null;
+        result.data_source = 'actual';
+        result.is_fresh = false;
+        result.update_status = 'market_closed';
+        result.day_of_week = fundMarketStatus.dayOfWeek || dayNames[now.getDay()];
+      } else {
+        result.last_updated = realTime?.updateTime || null;
+        const hour = now.getHours();
+        if (hour < 9) {
+          result.update_status = 'pre_market';
+          result.data_source = 'actual';
+          result.is_fresh = false;
+          result.estimated_change = null;
+        } else if (isConfirmed && latestHistoryNav > 0) {
+          result.update_status = 'confirmed';
+          result.data_source = 'actual';
+          result.is_fresh = true;
+          result.net_value = latestHistoryNav;
+          if (yesterdayNav > 0) {
+            result.estimated_change = parseFloat(((latestHistoryNav - yesterdayNav) / yesterdayNav * 100).toFixed(2));
+          }
+        } else if (hour >= 9 && hour < 15) {
+          result.update_status = 'estimating';
+          result.data_source = 'estimated';
+          result.is_fresh = true;
+          if (realTime?.estimatedChange != null) result.estimated_change = realTime.estimatedChange;
+        } else {
+          result.update_status = 'pending_confirm';
+          result.data_source = 'estimated';
+          result.is_fresh = false;
+          if (realTime?.estimatedChange != null) result.estimated_change = realTime.estimatedChange;
+        }
+      }
+
+      // 持仓信息
+      if (holding) {
+        const shares = parseFloat(holding.shares) || 0;
+        const costPrice = parseFloat(holding.cost_price) || 0;
+        const totalCost = parseFloat(holding.total_cost) || shares * costPrice;
+        const effectiveNav = result.net_value || realTime?.netValue || 0;
+        let currentValue = shares * effectiveNav;
+        let dailyGain = 0;
+        const yesterdayShares = Math.max(0, shares - txShares.buy + txShares.sell);
+
+        if (result.update_status === 'confirmed' && effectiveNav > 0 && result.estimated_change != null) {
+          const yesterdayValue = yesterdayShares * effectiveNav;
+          dailyGain = yesterdayValue * result.estimated_change / (100 + result.estimated_change);
+        } else if (realTime?.gainPercent && effectiveNav > 0) {
+          const yesterdayValue = yesterdayShares * effectiveNav;
+          dailyGain = yesterdayValue * realTime.gainPercent / (100 + realTime.gainPercent);
+        }
+
+        result.shares = shares;
+        result.cost_price = costPrice;
+        result.total_cost = totalCost;
+        result.market_value = Math.round(currentValue * 100) / 100;
+        result.accumulated_profit = Math.round((currentValue - totalCost) * 100) / 100;
+        result.daily_profit = Math.round(dailyGain * 100) / 100;
+        result.holding_id = holding.id;
+      }
+
+      return result;
+    });
+
+    res.json(results);
   } catch (err) {
     next(err);
   }

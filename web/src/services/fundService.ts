@@ -25,4 +25,8 @@ export const fundService = {
         ...(timestamp && { _t: timestamp }),
       },
     }).then((r) => r.data),
+
+  // 批量获取基金实时信息（1次请求替代N次，大幅加速自选页）
+  batchGetFundInfo: (codes: string[]) =>
+    api.post('/funds/batch', { codes }).then((r) => r.data),
 };
