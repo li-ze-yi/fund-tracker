@@ -19,10 +19,12 @@ exports.list = async (req, res, next) => {
     // ✅ 获取前端传递的强制刷新参数
     const forceRefresh = req.query.forceRefresh === '1';
 
-    // 获取用户的估值方法设置
+    // 获取用户的估值方法设置（全局方法 + 单基金覆盖）
+    let valuationMethod = 'sina';
     let valuationOverrides = {};
     try {
       const settings = await UserSetting.findByUserId(userId);
+      valuationMethod = settings?.valuation_method || 'sina';
       valuationOverrides = settings?.valuation_overrides || {};
     } catch { /* ignore */ }
 
@@ -31,7 +33,8 @@ exports.list = async (req, res, next) => {
     const enrichedWithStatus = await holdingService.enrichHoldingsWithRealTimeData(
       holdings,
       forceRefresh,  // ✅ 传递强制刷新参数
-      valuationOverrides  // ✅ 传递估值方法覆盖
+      valuationMethod,      // ✅ 全局估值方法
+      valuationOverrides    // ✅ 单基金覆盖
     );
 
     // 事件驱动：异步计算并保存当日收益（不阻塞主流程）
@@ -182,7 +185,7 @@ exports.create = async (req, res, next) => {
     try {
       const today = new Date().toISOString().slice(0, 10);
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      const historyCacheKey = `history_${fundCode}_${today}`;
+      const historyCacheKey = `history_${fundCode}_30d_${today}`;
       
       try {
         const recentHistory = await globalCache.getOrFetch(

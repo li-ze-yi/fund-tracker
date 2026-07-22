@@ -140,12 +140,32 @@ async function checkMarketStatus(holdings) {
           status = { isMarketOpen: true, reason: 'unknown' };
         }
       } else if (latestUpdateTime) {
-        const timeDiff = now - latestUpdateTime;
-        const hoursDiff = timeDiff / (1000 * 60 * 60);
+        // 检查 updateTime 是否为纯日期格式（确认净值，如 "2026-07-21"）
+        const sampleUpdateStr = results.find(r => r.status === 'fulfilled' && r.value?.updateTime)?.value?.updateTime || '';
+        const isDateOnly = !sampleUpdateStr.includes(' ');
+
         const hour = now.getHours();
         const isInTradingHours = hour >= 9 && hour < 15;
+        let isStale = false;
 
-        if (hoursDiff > 72 || (isInTradingHours && hoursDiff > 20)) {
+        if (isDateOnly) {
+          // 纯日期格式（确认净值）：按日历天数判断
+          // 交易日盘中，昨日确认净值是正常的（当日净值尚未公布）
+          const updateDate = new Date(latestUpdateTime.getFullYear(), latestUpdateTime.getMonth(), latestUpdateTime.getDate());
+          const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const dayDiff = Math.round((todayDate - updateDate) / (24 * 60 * 60 * 1000));
+          const dayOfWeek = now.getDay();
+          // 周一允许3天差值（周五数据），其他交易日允许1天差值
+          const maxNormalDiff = dayOfWeek === 1 ? 3 : 1;
+          isStale = dayDiff > maxNormalDiff;
+        } else {
+          // 含时间格式（实时估值）：按小时判断
+          const timeDiff = now - latestUpdateTime;
+          const hoursDiff = timeDiff / (1000 * 60 * 60);
+          isStale = hoursDiff > 72 || (isInTradingHours && hoursDiff > 20);
+        }
+
+        if (isStale) {
           status = {
             isMarketOpen: false,
             reason: 'stale_data',
@@ -172,11 +192,12 @@ async function checkMarketStatus(holdings) {
 
 // ✨ 优化2：合并两轮请求为一轮（同时获取实时数据和确认状态）
 // ✨ 新增：支持强制刷新参数（跳过缓存）
-async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, valuationOverrides = {}) {
+// ✨ 修复：缓存 key 含 method，避免切换数据源后返回旧缓存
+async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, valuationMethod = 'sina', valuationOverrides = {}) {
   if (!holdings.length) return [];
-  
+
   const startTime = Date.now();
-  console.log(`[holdingService] 开始处理 ${holdings.length} 只基金... (强制刷新: ${forceRefresh})`);
+  console.log(`[holdingService] 开始处理 ${holdings.length} 只基金... (强制刷新: ${forceRefresh}, 全局方法: ${valuationMethod})`);
 
   const marketStatus = await checkMarketStatus(holdings);
 
@@ -205,14 +226,17 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
       const fundCode = holding.fund_code;
 
       try {
-        const realtimeCacheKey = `realtime_${fundCode}`;
-        const historyCacheKey = `history_${fundCode}_${new Date().toISOString().slice(0, 10)}`;
+        // ★ 缓存 key 包含 method，避免切换数据源后命中旧缓存
+        const effectiveMethod = valuationOverrides[fundCode] || valuationMethod || 'sina';
+        const realtimeCacheKey = `realtime_${fundCode}_${effectiveMethod}`;
+        // ★ 缓存 key 含查询范围，避免不同范围的历史净值互相覆盖
+        const historyCacheKey = `history_${fundCode}_3d_${new Date().toISOString().slice(0, 10)}`;
 
         const [realTimeData, historyData] = await Promise.all([
-          forceRefresh 
-            ? fundService.getRealTimeValueWithMethod(fundCode, valuationOverrides[fundCode] || 'tencent').catch(err => { console.error(`强制刷新${fundCode}失败:`, err); return null; })
-            : globalCache.getOrFetch(realtimeCacheKey, () => 
-                fundService.getRealTimeValueWithMethod(fundCode, valuationOverrides[fundCode] || 'tencent'),
+          forceRefresh
+            ? fundService.getRealTimeValueWithMethod(fundCode, effectiveMethod).catch(err => { console.error(`强制刷新${fundCode}失败:`, err); return null; })
+            : globalCache.getOrFetch(realtimeCacheKey, () =>
+                fundService.getRealTimeValueWithMethod(fundCode, effectiveMethod),
                 { type: 'realtime' }
               ),
           
@@ -314,12 +338,13 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
   let displayNav = null;
   let usedEstimated = false;
 
-  // 净值优先级：确认净值 > 盘中估算 > 实时接口 netValue
+  // 净值优先级：今日确认净值 > 盘中估算 > 昨日确认净值
+  // 注意：pending_confirm 状态（15:00后但今日净值未确认）也应使用盘中估算
   if (confirmedNav > 0) {
     displayNav = confirmedNav;
     marketValue = shares * confirmedNav;
-  } else if (isTradingHours && estValue != null && estValue > 0) {
-    // 交易时段：优先使用盘中估算净值计算市值
+  } else if (estValue != null && estValue > 0) {
+    // 无今日确认净值但有盘中估算 → 使用盘中估算净值（盘中+盘后待确认均适用）
     displayNav = estValue;
     marketValue = shares * estValue;
     usedEstimated = true;
@@ -333,8 +358,8 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     // 确认净值可用 → 精确计算（确认净值差）
     dailyGain = yesterdayShares * (confirmedNav - yesterdayNav);
     gainPercent = ((confirmedNav - yesterdayNav) / yesterdayNav) * 100;
-  } else if (isTradingHours && estChange != null && displayNav > 0) {
-    // 交易时段：使用盘中估算涨跌幅
+  } else if (estChange != null && displayNav > 0) {
+    // 无今日确认净值但有盘中估算涨跌幅 → 使用今日估算涨跌幅（盘中+盘后待确认均适用）
     gainPercent = estChange;
     const yesterdayMarketValue = yesterdayShares * (realTimeData?.netValue || confirmedNav || displayNav);
     if (yesterdayMarketValue > 0) {

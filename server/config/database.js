@@ -1,12 +1,15 @@
 const mysql = require('mysql2/promise');
 
+const CONNECTION_LIMIT = 10;
+
 const pool = mysql.createPool({
   host: process.env.MYSQL_HOST,
   port: parseInt(process.env.MYSQL_PORT) || 3306,
   user: process.env.MYSQL_USER,
   password: process.env.MYSQL_PASSWORD,
   database: process.env.MYSQL_DATABASE,
-  connectionLimit: 10,
+  connectionLimit: CONNECTION_LIMIT,
+  connectTimeout: 10000,  // 10秒连接超时，避免无限期挂起
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,  // 10秒后开始发送心跳
   waitForConnections: true,
@@ -16,11 +19,12 @@ const pool = mysql.createPool({
 });
 
 // 添加连接池错误处理
+// 注意：不要在事件处理器中访问 pool.pool._config，会导致 mysql2/promise 连接静默挂起
 let connectionCount = 0;
-pool.on('connection', (connection) => {
+pool.on('connection', () => {
   connectionCount++;
   if (connectionCount <= 3) {
-    console.log(`MySQL connection established (${connectionCount}/${pool.pool._config.connectionLimit})`);
+    console.log(`MySQL connection established (${connectionCount}/${CONNECTION_LIMIT})`);
   }
 });
 

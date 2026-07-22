@@ -34,7 +34,7 @@ export default function FundDetailPage() {
 
   // 估值方法
   const [fundValuationMethod, setFundValuationMethod] = useState<ValuationMethod | null>(null);
-  const [globalValuationMethod, setGlobalValuationMethod] = useState<ValuationMethod>('tencent');
+  const [globalValuationMethod, setGlobalValuationMethod] = useState<ValuationMethod>('sina');
 
   const loadNavHistory = async (p: Period, fundCode: string) => {
     const now = new Date();
@@ -131,7 +131,7 @@ export default function FundDetailPage() {
         message.success('已恢复为全局默认');
       } else {
         setFundValuationMethod(method);
-        message.success(`已切换到${method === 'tencent' ? '腾讯' : '持仓穿透'}数据源`);
+        message.success(`已切换到${method === 'sina' ? '新浪财经' : '持仓穿透'}数据源`);
       }
       // 刷新数据以使用新方法
       loadData();
@@ -973,8 +973,8 @@ export default function FundDetailPage() {
           menu={{
             items: [
               {
-                key: 'tencent',
-                label: `腾讯基金（快速估算）${globalValuationMethod === 'tencent' ? ' — 全局默认' : ''}`,
+                key: 'sina',
+                label: `新浪财经（快速估算）${globalValuationMethod === 'sina' ? ' — 全局默认' : ''}`,
                 icon: <ThunderboltOutlined />,
               },
               {
@@ -1017,7 +1017,7 @@ export default function FundDetailPage() {
               transition: 'all var(--transition-fast)',
               border: fundValuationMethod ? '1px solid var(--accent-green)' : '1px solid transparent',
             }}
-            title={`盘中估算: ${effectiveValuationMethod === 'holdings' ? '持仓穿透' : '腾讯基金'}${fundValuationMethod ? '（单基金覆盖）' : ''}`}
+            title={`盘中估算: ${effectiveValuationMethod === 'holdings' ? '持仓穿透' : '新浪财经'}${fundValuationMethod ? '（单基金覆盖）' : ''}`}
           />
         </Dropdown>
       </div>

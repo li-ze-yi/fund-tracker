@@ -452,27 +452,42 @@ async function getHoldingsEstimatedValue(fundCode) {
 }
 
 // ═══════════════════════════════════════════
-// 盘中实时估算（腾讯基金接口）
+// 盘中实时估算（新浪财经接口）
+// 新浪提供基金盘中实时估值数据（含估算净值和估算涨幅）
 // ═══════════════════════════════════════════
-async function getTencentEstimatedValue(fundCode) {
+async function getSinaEstimatedValue(fundCode) {
   try {
-    const { data } = await axios.get(`http://qt.gtimg.cn/q=jj${fundCode}`, {
+    const { data } = await axios.get(`http://hq.sinajs.cn/list=fu_${fundCode}`, {
       timeout: TIMEOUT,
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://finance.sina.com.cn/',
+      },
       responseType: 'text',
     });
-    const line = data.split('\n').find(l => l.includes('v_jj'));
-    if (!line) return null;
-    const content = line.split('="')[1]?.replace(/";$/, '');
-    if (!content) return null;
-    const fields = content.split('~');
-    // fields: [5]unit_nav, [7]change%
-    const nav = parseFloat(fields[5]);
-    if (!isNaN(nav) && nav > 0) {
+    const match = data.match(/hq_str_fu_\d+="(.+?)"/);
+    if (!match) return null;
+    const fields = match[1].split(',');
+    // fields: [0]name, [1]time, [2]estimated_nav, [3]prev_nav, [6]change%, [7]date
+    const dateStr = fields[7] || '';
+    const timeStr = fields[1] || '';
+
+    // 检查数据日期是否为今天
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    if (dateStr && dateStr !== todayStr) {
+      return null;
+    }
+
+    const estimatedNav = parseFloat(fields[2]);
+    const estimatedChange = parseFloat(fields[6]);
+
+    if (!isNaN(estimatedNav) && estimatedNav > 0) {
       return {
-        estimatedValue: nav,
-        estimatedChange: parseFloat(fields[7]) || null,
-        estimationMethod: 'tencent',
+        estimatedValue: estimatedNav,
+        estimatedChange: !isNaN(estimatedChange) ? estimatedChange : null,
+        estimationMethod: 'sina',
+        updateTime: timeStr ? `${dateStr} ${timeStr}` : dateStr,
       };
     }
   } catch (e) { /* fall through */ }
@@ -485,8 +500,8 @@ async function getTencentEstimatedValue(fundCode) {
 async function getHoldingsEstimatedOverlay(fundCode) {
   const holdings = await getFundHoldings(fundCode);
   if (!holdings.length) {
-    // 无持仓数据 → 回退到腾讯估算
-    return getTencentEstimatedValue(fundCode);
+    // 无持仓数据 → 回退到新浪估算
+    return getSinaEstimatedValue(fundCode);
   }
 
   // 获取持仓股票实时行情
@@ -505,8 +520,8 @@ async function getHoldingsEstimatedOverlay(fundCode) {
   }
 
   if (totalRatio < 30) {
-    // 覆盖率不足 → 回退到腾讯估算
-    return getTencentEstimatedValue(fundCode);
+    // 覆盖率不足 → 回退到新浪估算
+    return getSinaEstimatedValue(fundCode);
   }
 
   // 基于加权涨跌幅估算净值
@@ -540,10 +555,10 @@ async function getHoldingsEstimatedOverlay(fundCode) {
 }
 
 // ═══════════════════════════════════════════
-// 统一入口：确认净值（东方财富）+ 盘中估算（腾讯/持仓穿透）
-// method: 'tencent' | 'holdings'（仅控制盘中估算方式）
+// 统一入口：确认净值（东方财富）+ 盘中估算（新浪/持仓穿透）
+// method: 'sina' | 'holdings'（仅控制盘中估算方式）
 // ═══════════════════════════════════════════
-async function getRealTimeValueWithMethod(fundCode, method = 'tencent') {
+async function getRealTimeValueWithMethod(fundCode, method = 'sina') {
   // 始终获取东方财富确认净值作为基准
   const confirmed = await getRealTimeValue(fundCode).catch(() => null);
 
@@ -552,7 +567,12 @@ async function getRealTimeValueWithMethod(fundCode, method = 'tencent') {
   if (method === 'holdings') {
     estimated = await getHoldingsEstimatedOverlay(fundCode).catch(() => null);
   } else {
-    estimated = await getTencentEstimatedValue(fundCode).catch(() => null);
+    // 新浪财经接口提供盘中实时估值
+    estimated = await getSinaEstimatedValue(fundCode).catch(() => null);
+    // 新浪接口未返回数据 → 回退到持仓穿透法
+    if (!estimated) {
+      estimated = await getHoldingsEstimatedOverlay(fundCode).catch(() => null);
+    }
   }
 
   // 合并：确认净值 + 估算值
@@ -574,7 +594,7 @@ async function getRealTimeValueWithMethod(fundCode, method = 'tencent') {
 module.exports = {
   getRealTimeValue,
   getRealTimeValueWithMethod,
-  getTencentEstimatedValue,
+  getSinaEstimatedValue,
   getHoldingsEstimatedOverlay,
   getHistoryNetValues,
   getFundInfo,

@@ -1,6 +1,6 @@
 import api from './api';
 
-export type ValuationMethod = 'tencent' | 'holdings';
+export type ValuationMethod = 'sina' | 'holdings';
 
 export interface SettingsData {
   refresh_frequency: number;

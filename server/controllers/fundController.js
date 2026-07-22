@@ -42,7 +42,7 @@ exports.getByCode = async (req, res, next) => {
     }
 
     // 获取用户设置的估值方法
-    const valuationMethod = req.user ? await getUserValuationMethod(req.user.id, code) : 'tencent';
+    const valuationMethod = req.user ? await getUserValuationMethod(req.user.id, code) : 'sina';
     const realTime = await fundService.getRealTimeValueWithMethod(code, valuationMethod).catch(() => null);
 
     const result = {
@@ -128,10 +128,18 @@ exports.getByCode = async (req, res, next) => {
         result.update_status = 'estimating';
         result.data_source = 'estimated';
         result.is_fresh = true;
+        // 盘中估算：使用估算涨跌幅替代确认净值涨幅
+        if (realTime?.estimatedChange != null) {
+          result.estimated_change = realTime.estimatedChange;
+        }
       } else {
         result.update_status = 'pending_confirm';
         result.data_source = 'estimated';
         result.is_fresh = false;
+        // 待确认：使用估算涨跌幅
+        if (realTime?.estimatedChange != null) {
+          result.estimated_change = realTime.estimatedChange;
+        }
       }
     }
 

@@ -252,7 +252,7 @@ exports.confirmImport = async (req, res, next) => {
         try {
           const today = new Date().toISOString().slice(0, 10);
           const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-          const historyCacheKey = `history_${fundCode}_${today}`;
+          const historyCacheKey = `history_${fundCode}_30d_${today}`;
 
           try {
             const recentHistory = await globalCache.getOrFetch(

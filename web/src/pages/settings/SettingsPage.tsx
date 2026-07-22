@@ -12,7 +12,7 @@ import type { UploadFile } from 'antd';
 
 export default function SettingsPage() {
   const [frequency, setFrequency] = useState(30);
-  const [valuationMethod, setValuationMethod] = useState<ValuationMethod>('tencent');
+  const [valuationMethod, setValuationMethod] = useState<ValuationMethod>('sina');
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -170,7 +170,7 @@ export default function SettingsPage() {
             <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>选择盘中估算方式</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
               确认净值始终使用东方财富盘后数据。盘中估值可选：
-              {valuationMethod === 'tencent' && '腾讯基金接口（快速，覆盖全市场）'}
+              {valuationMethod === 'sina' && '新浪财经接口（快速，覆盖全市场）'}
               {valuationMethod === 'holdings' && '持仓穿透法（基于持仓股票实时行情加权计算，数据更透明）'}
             </div>
           </div>
@@ -178,7 +178,7 @@ export default function SettingsPage() {
             value={valuationMethod}
             onChange={(val) => handleValuationChange(val as ValuationMethod)}
             options={[
-              { label: '腾讯基金', value: 'tencent', icon: <ThunderboltOutlined /> },
+              { label: '新浪财经', value: 'sina', icon: <ThunderboltOutlined /> },
               { label: '持仓穿透', value: 'holdings', icon: <FundOutlined /> },
             ]}
           />
