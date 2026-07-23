@@ -18,8 +18,9 @@ interface FundListItemProps {
     accumulated_profit?: number;
     // 更新状态字段（4种状态：估算中/待确认/已确认/休市）
     last_updated?: string | null;
+    update_time?: string | null;
     is_fresh?: boolean;
-    update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market';
+    update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate';
     data_source?: 'actual' | 'estimated';
     day_of_week?: string;  // 非交易日时显示星期几
   };
@@ -162,6 +163,37 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
           </span>
         );
 
+      case 'no_estimate':
+        // 估算失败（灰色）- 显示前一日数据
+        return (
+          <span
+            data-label="前一日"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontSize: '10px',
+              fontWeight: 500,
+              color: '#6B7280',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              background: 'rgba(107, 114, 128, 0.1)',
+              letterSpacing: '0.02em',
+            }}
+          >
+            <span
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: '#6B7280',
+                display: 'inline-block',
+              }}
+            />
+            前一日
+          </span>
+        );
+
       case 'confirmed':
       default:
         // ✅ 已确认（浅金黄色）- 基金公司确认的实际净值，数据准确
@@ -267,7 +299,19 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
                 {fund.fund_type}
               </Tag>
             )}
-            {fund.net_value && (
+            {fund.update_status === 'no_estimate' ? (
+              <span className="number-tabular" style={{
+                fontSize: 11,
+                color: 'var(--text-dim)',
+                fontFamily: 'var(--font-mono)',
+                background: 'var(--flat-bg)',
+                padding: '1px 5px',
+                borderRadius: 3,
+                opacity: 0.4,
+              }}>
+                净值 --
+              </span>
+            ) : fund.net_value && (
               <span className="number-tabular" style={{
                 fontSize: 11,
                 color: 'var(--text-secondary)',
@@ -403,6 +447,16 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
         <span className="change-percent" style={{ fontSize: 15, fontWeight: 700, color: isMarketClosed ? 'var(--text-dim)' : (isUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
           {isMarketClosed ? '--' : `${isUp ? '+' : ''}${(fund.estimated_change ?? 0).toFixed(2)}%`}
         </span>
+        {fund.update_status === 'no_estimate' && (fund.update_time || fund.last_updated) && (
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
+            ({(() => {
+              const dateStr = fund.update_time || fund.last_updated || '';
+              const d = new Date(dateStr);
+              if (isNaN(d.getTime())) return '';
+              return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            })()})
+          </div>
+        )}
       </div>
 
       <div className="number-tabular" style={{ flex: 1, textAlign: 'right' }} data-col="daily_profit">

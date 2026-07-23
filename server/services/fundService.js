@@ -304,6 +304,7 @@ async function getAllFunds() {
 // ═══════════════════════════════════════════
 // 方案一：腾讯基金接口（qt.gtimg.cn）
 // ═══════════════════════════════════════════
+/* 【已废弃】死代码，仅被 getHoldingsEstimatedValue 调用，未导出。腾讯基金接口不提供盘中实时估值，仅返回前一日确认净值。
 async function getTencentValue(fundCode) {
   try {
     const { data } = await axios.get(`http://qt.gtimg.cn/q=jj${fundCode}`, {
@@ -326,9 +327,10 @@ async function getTencentValue(fundCode) {
         source: 'tencent',
       };
     }
-  } catch (e) { /* fall through */ }
+  } catch (e) { // fall through }
   return null;
 }
+*/
 
 // ═══════════════════════════════════════════
 // 方案二：持仓穿透法 - 自行计算基金估值
@@ -417,6 +419,7 @@ async function getStocksRealtime(stockCodes) {
   }
 }
 
+/* 【已废弃】死代码，被 getHoldingsEstimatedOverlay 替代，未导出。
 async function getHoldingsEstimatedValue(fundCode) {
   const errors = [];
 
@@ -494,12 +497,14 @@ async function getHoldingsEstimatedValue(fundCode) {
 
   return null;
 }
+*/
 
 // ═══════════════════════════════════════════
 // 盘中实时估算（天天基金移动端估值走势接口 - 新浪替代方案）
 // fundmobapi.eastmoney.com 是天天基金APP使用的接口，不会403封禁
 // 交易时段返回盘中分时估值数据，非交易时段返回空
 // ═══════════════════════════════════════════
+/* 【已废弃】实测(2026-07-23交易时段)总返回null，天天基金估值走势接口已不再提供盘中实时估值数据。
 async function getFundgzEstimatedValue(fundCode) {
   try {
     const { data } = await axios.get(
@@ -527,9 +532,10 @@ async function getFundgzEstimatedValue(fundCode) {
         updateTime: parts[0] || null,
       };
     }
-  } catch (e) { /* fall through */ }
+  } catch (e) { // fall through }
   return null;
 }
+*/
 
 // ═══════════════════════════════════════════
 // 盘中实时估算（新浪财经接口 - 备用方案）
@@ -583,18 +589,47 @@ async function getSinaEstimatedValue(fundCode) {
 // 但可以通过股票行情接口获取实时价格作为估值
 // ═══════════════════════════════════════════
 async function getETFRealtimeQuote(fundCode) {
+  // 腾讯接口获取场内ETF实时行情（push2.eastmoney.com 已不可用，socket hang up）
+  // 沪市ETF: 51/56开头 → sh, 深市ETF: 15/16开头 → sz
   try {
-    // 沪市ETF: 51xxxx/56xxxx → secid=1.xxxx, 深市ETF: 15xxxx/16xxxx → secid=0.xxxx
-    const market = fundCode.startsWith('15') || fundCode.startsWith('16') ? '0' : '1';
-    const secId = `${market}.${fundCode}`;
+    const prefix = fundCode.startsWith('15') || fundCode.startsWith('16') ? 'sz' : 'sh';
     const { data } = await axios.get(
-      `https://push2.eastmoney.com/api/qt/stock/get?secid=${secId}&fields=f43,f44,f170,f58`,
-      { timeout: TIMEOUT, headers: defaultHeaders('https://quote.eastmoney.com/') }
+      `http://qt.gtimg.cn/q=${prefix}${fundCode}`,
+      { timeout: TIMEOUT, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }, responseType: 'text' }
     );
-    if (data?.data?.f43 != null) {
-      const price = data.data.f43 / 1000;
-      const changePercent = data.data.f170 != null ? data.data.f170 / 100 : null;
+    const line = data.split('\n').find(l => l.includes(`v_${prefix}`));
+    if (line) {
+      const content = line.split('="')[1]?.replace(/";$/, '');
+      const fields = content?.split('~');
+      // 腾讯字段: [1]名称 [3]当前价 [32]涨跌幅%
+      const price = parseFloat(fields?.[3]);
+      const changePercent = parseFloat(fields?.[32]);
       if (!isNaN(price) && price > 0) {
+        return {
+          estimatedValue: price,
+          estimatedChange: !isNaN(changePercent) ? changePercent : null,
+          estimationMethod: 'etf_quote',
+          updateTime: '',
+        };
+      }
+    }
+  } catch (e) { /* fall through */ }
+
+  // 备用：新浪接口获取场内ETF行情
+  try {
+    const prefix = fundCode.startsWith('15') || fundCode.startsWith('16') ? 'sz' : 'sh';
+    const { data } = await axios.get(
+      `http://hq.sinajs.cn/list=${prefix}${fundCode}`,
+      { timeout: TIMEOUT, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Referer': 'https://finance.sina.com.cn/' }, responseType: 'text' }
+    );
+    // 新浪格式: var hq_str_sz159516="名称,昨收,今开,当前价,最高,最低,..."
+    const match = data.match(/="([^"]*)"/);
+    if (match) {
+      const fields = match[1].split(',');
+      const price = parseFloat(fields[3]); // 当前价
+      const prevClose = parseFloat(fields[2]); // 昨收
+      if (!isNaN(price) && price > 0 && !isNaN(prevClose) && prevClose > 0) {
+        const changePercent = parseFloat(((price - prevClose) / prevClose * 100).toFixed(2));
         return {
           estimatedValue: price,
           estimatedChange: changePercent,
@@ -604,7 +639,82 @@ async function getETFRealtimeQuote(fundCode) {
       }
     }
   } catch (e) { /* fall through */ }
+
   return null;
+}
+
+// ═══════════════════════════════════════════
+// ETF联接基金估值（通过母ETF实时行情估算）
+// ETF联接基金持仓是母ETF而非个股，持仓穿透法不适用
+// 方案：通过天天基金持仓接口获取母ETF代码 → 获取母ETF实时涨跌幅 → 估算净值
+// ═══════════════════════════════════════════
+const etfLinkageCache = new Map(); // 母ETF代码缓存（TTL 24小时）
+
+/**
+ * 通过基金代码获取母ETF场内代码
+ * 使用天天基金APP持仓接口 FundMNInverstPosition，返回 ETFCODE 字段
+ */
+async function getUnderlyingETFCode(fundCode) {
+  const now = Date.now();
+  const cached = etfLinkageCache.get(fundCode);
+  if (cached && (now - cached.ts) < 24 * 60 * 60 * 1000) {
+    return cached.code;
+  }
+
+  try {
+    const { data } = await axios.get(
+      `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNInverstPosition?FCODE=${fundCode}&deviceid=Wap&plat=Wap&product=EFund&version=2.0.0`,
+      { timeout: TIMEOUT, headers: MOBILE_HEADERS }
+    );
+    if (data?.Datas?.ETFCODE) {
+      const etfCode = data.Datas.ETFCODE;
+      etfLinkageCache.set(fundCode, { code: etfCode, ts: now });
+      return etfCode;
+    }
+  } catch (e) { /* fall through */ }
+
+  return null;
+}
+
+/**
+ * ETF联接基金盘中估值：通过母ETF实时涨跌幅估算
+ * 1. 获取母ETF代码（天天基金持仓接口，缓存24小时）
+ * 2. 获取母ETF实时行情（东方财富push2接口）
+ * 3. 用母ETF涨跌幅 + 昨日确认净值 计算估算净值
+ */
+async function getETFBasedEstimatedValue(fundCode) {
+  const etfCode = await getUnderlyingETFCode(fundCode);
+  if (!etfCode) return null;
+
+  // 获取母ETF实时行情（复用getETFRealtimeQuote）
+  const etfQuote = await getETFRealtimeQuote(etfCode).catch(() => null);
+  if (!etfQuote || etfQuote.estimatedChange == null) return null;
+
+  const changePercent = etfQuote.estimatedChange;
+
+  // 获取昨日确认净值，计算估算净值
+  let estimatedValue = null;
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const { data } = await axios.get(
+      `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=1&startDate=${threeDaysAgo}&endDate=${today}`,
+      { timeout: TIMEOUT, headers: defaultHeaders(`http://fundf10.eastmoney.com/jjjz_${fundCode}.html`) }
+    );
+    if (data?.Data?.LSJZList?.length) {
+      const yesterdayNav = parseFloat(data.Data.LSJZList[0].DWJZ);
+      if (!isNaN(yesterdayNav) && yesterdayNav > 0) {
+        estimatedValue = parseFloat((yesterdayNav * (1 + changePercent / 100)).toFixed(4));
+      }
+    }
+  } catch (e) { /* fall through */ }
+
+  return {
+    estimatedValue,
+    estimatedChange: changePercent,
+    estimationMethod: 'etf_linkage',
+    estimationCoverage: 100,
+  };
 }
 
 // ═══════════════════════════════════════════
@@ -613,8 +723,8 @@ async function getETFRealtimeQuote(fundCode) {
 async function getHoldingsEstimatedOverlay(fundCode) {
   const holdings = await getFundHoldings(fundCode);
   if (!holdings.length) {
-    // 无持仓数据 → 回退到新浪估算（会自动检测可用性）
-    return getSinaEstimatedValue(fundCode);
+    // 无股票持仓 → 尝试ETF联接基金估值（通过母ETF行情）
+    return getETFBasedEstimatedValue(fundCode);
   }
 
   // 获取持仓股票实时行情
@@ -633,8 +743,8 @@ async function getHoldingsEstimatedOverlay(fundCode) {
   }
 
   if (totalRatio < 30) {
-    // 覆盖率不足 → 回退到新浪估算（会自动检测可用性）
-    return getSinaEstimatedValue(fundCode);
+    // 覆盖率不足 → 返回null，不回退到其他数据源
+    return null;
   }
 
   // 基于加权涨跌幅估算净值
@@ -649,7 +759,7 @@ async function getHoldingsEstimatedOverlay(fundCode) {
       const yesterdayNav = parseFloat(data.Data.LSJZList[0].DWJZ);
       if (!isNaN(yesterdayNav) && yesterdayNav > 0) {
         const normalizedChange = totalRatio > 0
-          ? parseFloat((weightedChange / totalRatio * totalRatio / 100).toFixed(2))
+          ? parseFloat((weightedChange / totalRatio).toFixed(2))
           : 0;
         const estimatedNav = parseFloat((yesterdayNav * (1 + normalizedChange / 100)).toFixed(4));
 
@@ -668,46 +778,34 @@ async function getHoldingsEstimatedOverlay(fundCode) {
 }
 
 // ═══════════════════════════════════════════
-// 统一入口：确认净值（东方财富）+ 盘中估算（fundgz/新浪/持仓穿透）
-// method: 'sina' | 'holdings'（仅控制盘中估算方式）
-// 优先级: fundgz → 新浪 → 持仓穿透法
+// 统一入口：确认净值（东方财富）+ 盘中估算（新浪/持仓穿透）
+// method: 'sina' | 'holdings'（控制盘中估算方式，两个数据源互不回退）
 // ═══════════════════════════════════════════
 async function getRealTimeValueWithMethod(fundCode, method = 'sina') {
-  // 优先使用fundgz获取实时估值（同时包含确认净值和估算值，一次请求搞定）
-  const fundgzData = await getFundgzEstimatedValue(fundCode).catch(() => null);
-
-  // 始终获取东方财富确认净值作为基准
+  // 获取东方财富确认净值作为基准
   const confirmed = await getRealTimeValue(fundCode).catch(() => null);
 
-  // 获取盘中实时估算
+  // 根据用户选择的数据源获取盘中估算
   let estimated = null;
   if (method === 'holdings') {
+    // 持仓穿透法：股票持仓加权计算 + ETF联接基金母ETF估值
     estimated = await getHoldingsEstimatedOverlay(fundCode).catch(() => null);
-  } else {
-    // 1. 优先使用fundgz估算（如果已获取到且是今天的数据）
-    if (fundgzData) {
-      const now = new Date();
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      if (fundgzData.updateTime && fundgzData.updateTime.includes(todayStr)) {
-        estimated = fundgzData;
-      }
-    }
-    // 2. fundgz无数据 → 尝试新浪
-    if (!estimated) {
-      estimated = await getSinaEstimatedValue(fundCode).catch(() => null);
-    }
-    // 3. 新浪也无数据 → 回退到持仓穿透法
+  } else if (method === 'auto') {
+    // 自动模式：先尝试新浪，失败回退持仓穿透
+    estimated = await getSinaEstimatedValue(fundCode).catch(() => null);
     if (!estimated) {
       estimated = await getHoldingsEstimatedOverlay(fundCode).catch(() => null);
     }
+  } else {
+    // 新浪财经盘中估值
+    estimated = await getSinaEstimatedValue(fundCode).catch(() => null);
   }
 
   // 合并：确认净值 + 估算值
-  // 如果fundgz同时返回了确认净值，优先使用fundgz的（更新）
   const result = {
-    netValue: fundgzData?.netValue ?? confirmed?.netValue ?? null,
+    netValue: confirmed?.netValue ?? null,
     gainPercent: confirmed?.gainPercent ?? null,
-    updateTime: fundgzData?.updateTime ?? confirmed?.updateTime ?? null,
+    updateTime: confirmed?.updateTime ?? null,
     // 盘中估算覆盖字段
     estimatedValue: estimated?.estimatedValue ?? null,
     estimatedChange: estimated?.estimatedChange ?? null,
@@ -778,6 +876,7 @@ async function batchGetFundmobapiInfo(fundCodes) {
  * 批量获取fundgz盘中估值（天天基金官方估值接口）
  * fundgz不支持批量，需逐个请求，但响应极快（~100ms/只）
  */
+/* 【已废弃】依赖 getFundgzEstimatedValue，该接口已不可用。
 async function batchGetFundgzEstimatedValues(fundCodes) {
   const result = {};
   if (!fundCodes || !fundCodes.length) return result;
@@ -818,6 +917,7 @@ async function batchGetFundgzEstimatedValues(fundCodes) {
 
   return result;
 }
+*/
 
 /**
  * 批量获取新浪盘中估值
@@ -965,8 +1065,8 @@ async function batchGetHistoryNetValues(fundCodes, startDate, endDate) {
 
 /**
  * 批量统一入口：确认净值 + 盘中估算
- * 核心优化：fundmobapi批量1次请求同时返回确认净值+实时估值（GSZ/GSZZL字段）
- * 交易时段GSZ有值 → 自动显示实时估值；非交易时段GSZ为空 → 只显示确认净值
+ * fundmobapi 仅用于批量获取确认净值（NAV, NAVCHGRT）
+ * 盘中估算根据 method 选择数据源，两个数据源互不回退
  * 返回 { fundCode: { netValue, gainPercent, estimatedValue, estimatedChange, ... } }
  */
 async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina') {
@@ -975,87 +1075,68 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina') {
 
   const startTime = Date.now();
 
-  // 1次fundmobapi批量请求同时获取确认净值+实时估值
-  let mobapiMap = await batchGetFundmobapiInfo(fundCodes);
+  // 1. fundmobapi 批量获取确认净值
+  const mobapiMap = await batchGetFundmobapiInfo(fundCodes);
 
-  // 检查fundmobapi是否有有效数据，如果没有则回退到旧接口
-  const hasMobapiData = Object.values(mobapiMap).some(v => v !== null);
-
-  if (!hasMobapiData) {
-    // fundmobapi完全不可用，回退到并行请求
-    const [confirmedMap, estimatedMap] = await Promise.all([
-      batchGetRealTimeValues(fundCodes),
-      method === 'holdings'
-        ? (async () => {
-            const map = {};
-            const promises = fundCodes.map(async (code) => {
-              try { return { code, data: await getHoldingsEstimatedOverlay(code) }; }
-              catch { return { code, data: null }; }
-            });
-            const responses = await Promise.allSettled(promises);
-            for (const resp of responses) {
-              if (resp.status === 'fulfilled') map[resp.value.code] = resp.value.data;
-            }
-            for (const code of fundCodes) { if (!(code in map)) map[code] = null; }
-            return map;
-          })()
-        : batchGetSinaEstimatedValues(fundCodes),
-    ]);
-
-    for (const fundCode of fundCodes) {
-      const confirmed = confirmedMap[fundCode] || null;
-      const estimated = estimatedMap[fundCode] || null;
-      let finalEstimated = estimated;
-      if (!estimated && method !== 'holdings') {
-        finalEstimated = await getHoldingsEstimatedOverlay(fundCode).catch(() => null);
-      }
-      result[fundCode] = {
-        netValue: confirmed?.netValue ?? null,
-        gainPercent: confirmed?.gainPercent ?? null,
-        updateTime: confirmed?.updateTime ?? null,
-        estimatedValue: finalEstimated?.estimatedValue ?? null,
-        estimatedChange: finalEstimated?.estimatedChange ?? null,
-        estimationMethod: finalEstimated?.estimationMethod ?? method,
-        estimationCoverage: finalEstimated?.estimationCoverage ?? null,
-        estimationHoldingsCount: finalEstimated?.estimationHoldingsCount ?? null,
-      };
+  // 2. 根据 method 批量获取盘中估算
+  let estimatedMap = {};
+  if (method === 'holdings') {
+    // 持仓穿透法：并行调用
+    const promises = fundCodes.map(async (code) => {
+      try { return { code, data: await getHoldingsEstimatedOverlay(code) }; }
+      catch { return { code, data: null }; }
+    });
+    const responses = await Promise.allSettled(promises);
+    for (const resp of responses) {
+      if (resp.status === 'fulfilled') estimatedMap[resp.value.code] = resp.value.data;
     }
-
-    const duration = Date.now() - startTime;
-    console.log(`[fundService] 批量获取${fundCodes.length}只基金数据完成(回退模式), 耗时${duration}ms`);
-    return result;
+  } else if (method === 'auto') {
+    // 自动模式：先批量新浪，对失败的逐个回退持仓穿透
+    estimatedMap = await batchGetSinaEstimatedValues(fundCodes);
+    const fallbackCodes = fundCodes.filter(code => !estimatedMap[code]);
+    if (fallbackCodes.length) {
+      const fallbackPromises = fallbackCodes.map(async (code) => {
+        try { return { code, data: await getHoldingsEstimatedOverlay(code) }; }
+        catch { return { code, data: null }; }
+      });
+      const responses = await Promise.allSettled(fallbackPromises);
+      for (const resp of responses) {
+        if (resp.status === 'fulfilled' && resp.value.data) {
+          estimatedMap[resp.value.code] = resp.value.data;
+        }
+      }
+    }
+  } else {
+    // 新浪批量获取
+    estimatedMap = await batchGetSinaEstimatedValues(fundCodes);
   }
 
-  // fundmobapi可用 - 直接使用（1次请求搞定！）
+  // 3. 合并结果（不互相回退）
   for (const fundCode of fundCodes) {
     const mobapi = mobapiMap[fundCode] || null;
-
-    // 如果fundmobapi没有估值数据且不是holdings模式，回退到其他估值方式
-    let estimated = null;
-    if (!mobapi?.estimatedValue && method !== 'holdings') {
-      // 非交易时段fundmobapi无估值，依次尝试：估值走势 → 新浪 → ETF场内行情 → 持仓穿透
-      estimated = await getFundgzEstimatedValue(fundCode).catch(() => null);
-      if (!estimated) estimated = await getSinaEstimatedValue(fundCode).catch(() => null);
-      if (!estimated) estimated = await getETFRealtimeQuote(fundCode).catch(() => null);
-      if (!estimated) estimated = await getHoldingsEstimatedOverlay(fundCode).catch(() => null);
-    } else if (method === 'holdings' && !mobapi?.estimatedValue) {
-      estimated = await getETFRealtimeQuote(fundCode).catch(() => null);
-      if (!estimated) estimated = await getHoldingsEstimatedOverlay(fundCode).catch(() => null);
-    }
-
-    // 使用fundmobapi的估值或回退估值
-    const finalEstimated = mobapi?.estimatedValue ? mobapi : estimated;
+    const estimated = estimatedMap[fundCode] || null;
 
     result[fundCode] = {
       netValue: mobapi?.netValue ?? null,
       gainPercent: mobapi?.gainPercent ?? null,
-      updateTime: mobapi?.estimateTime ?? mobapi?.updateTime ?? null,
-      estimatedValue: finalEstimated?.estimatedValue ?? null,
-      estimatedChange: finalEstimated?.estimatedChange ?? null,
-      estimationMethod: finalEstimated?.estimationMethod ?? method,
-      estimationCoverage: finalEstimated?.estimationCoverage ?? null,
-      estimationHoldingsCount: finalEstimated?.estimationHoldingsCount ?? null,
+      updateTime: mobapi?.updateTime ?? null,
+      estimatedValue: estimated?.estimatedValue ?? null,
+      estimatedChange: estimated?.estimatedChange ?? null,
+      estimationMethod: estimated?.estimationMethod ?? method,
+      estimationCoverage: estimated?.estimationCoverage ?? null,
+      estimationHoldingsCount: estimated?.estimationHoldingsCount ?? null,
     };
+  }
+
+  // 补 null
+  for (const code of fundCodes) {
+    if (!(code in result)) {
+      result[code] = {
+        netValue: null, gainPercent: null, updateTime: null,
+        estimatedValue: null, estimatedChange: null,
+        estimationMethod: method, estimationCoverage: null, estimationHoldingsCount: null,
+      };
+    }
   }
 
   const duration = Date.now() - startTime;
@@ -1069,14 +1150,14 @@ module.exports = {
   getRealTimeValue,
   getRealTimeValueWithMethod,
   getSinaEstimatedValue,
-  getFundgzEstimatedValue,
   getHoldingsEstimatedOverlay,
+  getETFBasedEstimatedValue,
+  getUnderlyingETFCode,
   getHistoryNetValues,
   getFundInfo,
   getAllFunds,
   // 批量接口
   batchGetSinaEstimatedValues,
-  batchGetFundgzEstimatedValues,
   batchGetFundmobapiInfo,
   batchGetRealTimeValues,
   batchGetRealTimeValuesWithMethod,

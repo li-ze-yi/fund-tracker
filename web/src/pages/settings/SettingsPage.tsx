@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card, Upload, Button, App, Modal, Divider, Switch, Segmented } from 'antd';
-import { UploadOutlined, DownloadOutlined, ThunderboltOutlined, FundOutlined } from '@ant-design/icons';
+import { UploadOutlined, DownloadOutlined, ThunderboltOutlined, FundOutlined, AimOutlined } from '@ant-design/icons';
 import { settingService, type ValuationMethod } from '@/services/settingService';
 import { importExportService } from '@/services/importExportService';
 import { useThemeStore } from '@/store/themeStore';
@@ -170,6 +170,7 @@ export default function SettingsPage() {
             <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>选择盘中估算方式</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
               确认净值始终使用东方财富盘后数据。盘中估值可选：
+              {valuationMethod === 'auto' && '自动选择数据源（默认新浪，不可用时回退持仓穿透）'}
               {valuationMethod === 'sina' && '新浪财经接口（快速，覆盖全市场）'}
               {valuationMethod === 'holdings' && '持仓穿透法（基于持仓股票实时行情加权计算，数据更透明）'}
             </div>
@@ -178,6 +179,7 @@ export default function SettingsPage() {
             value={valuationMethod}
             onChange={(val) => handleValuationChange(val as ValuationMethod)}
             options={[
+              { label: '自动', value: 'auto', icon: <AimOutlined /> },
               { label: '新浪财经', value: 'sina', icon: <ThunderboltOutlined /> },
               { label: '持仓穿透', value: 'holdings', icon: <FundOutlined /> },
             ]}

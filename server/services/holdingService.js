@@ -462,13 +462,27 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     data_source = 'actual';
     is_fresh = true;
   } else if (isTradingHours) {
-    update_status = 'estimating';
-    data_source = usedEstimated ? 'estimated' : 'actual';
-    is_fresh = true;
+    if (usedEstimated) {
+      update_status = 'estimating';
+      data_source = 'estimated';
+      is_fresh = true;
+    } else {
+      // 盘中估算失败 → 显示前一天确认数据
+      update_status = 'no_estimate';
+      data_source = 'actual';
+      is_fresh = false;
+    }
   } else {
-    update_status = 'pending_confirm';
-    data_source = 'estimated';
-    is_fresh = false;
+    if (usedEstimated) {
+      update_status = 'pending_confirm';
+      data_source = 'estimated';
+      is_fresh = false;
+    } else {
+      // 估算失败 → 显示前一天确认数据
+      update_status = 'no_estimate';
+      data_source = 'actual';
+      is_fresh = false;
+    }
   }
 
   return {

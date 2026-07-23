@@ -30,7 +30,7 @@ exports.update = async (req, res, next) => {
 exports.updateValuationMethod = async (req, res, next) => {
   try {
     const { method } = req.body;
-    const validMethods = ['sina', 'holdings'];
+    const validMethods = ['auto', 'sina', 'holdings'];
     if (!validMethods.includes(method)) {
       return res.status(400).json({ message: '无效的估值方法，可选: sina, holdings' });
     }
@@ -48,7 +48,7 @@ exports.setFundOverride = async (req, res, next) => {
     if (!fundCode) {
       return res.status(400).json({ message: '缺少基金代码' });
     }
-    const validMethods = ['sina', 'holdings', ''];
+    const validMethods = ['auto', 'sina', 'holdings', ''];
 
     if (method === '' || method === null) {
       // 删除覆盖，恢复全局默认

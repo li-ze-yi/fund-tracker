@@ -51,7 +51,7 @@ exports.getByCode = async (req, res, next) => {
       name: fund.name,
       type: fund.type,
       net_value: realTime ? realTime.netValue : null,
-      estimated_change: realTime ? realTime.gainPercent : null,
+      estimated_change: null, // 初始置null，后续根据市场状态分支赋值（避免估算失败时显示昨日涨幅）
       update_time: realTime ? realTime.updateTime : null,
       // 盘中估算字段
       estimated_value: realTime?.estimatedValue ?? null,
@@ -126,20 +126,34 @@ exports.getByCode = async (req, res, next) => {
           }
         }
       } else if (hour >= 9 && hour < 15) {
-        result.update_status = 'estimating';
-        result.data_source = 'estimated';
-        result.is_fresh = true;
-        // 盘中估算：使用估算涨跌幅替代确认净值涨幅
         if (realTime?.estimatedChange != null) {
+          // 盘中估算成功
+          result.update_status = 'estimating';
+          result.data_source = 'estimated';
+          result.is_fresh = true;
           result.estimated_change = realTime.estimatedChange;
+        } else {
+          // 盘中估算失败 → 显示前一天确认数据
+          result.update_status = 'no_estimate';
+          result.data_source = 'actual';
+          result.is_fresh = false;
+          result.estimated_change = realTime?.gainPercent ?? null;
+          result.net_value = realTime?.netValue ?? null;
         }
       } else {
-        result.update_status = 'pending_confirm';
-        result.data_source = 'estimated';
-        result.is_fresh = false;
-        // 待确认：使用估算涨跌幅
         if (realTime?.estimatedChange != null) {
+          // 待确认：使用估算涨跌幅
+          result.update_status = 'pending_confirm';
+          result.data_source = 'estimated';
+          result.is_fresh = false;
           result.estimated_change = realTime.estimatedChange;
+        } else {
+          // 估算失败 → 显示前一天确认数据
+          result.update_status = 'no_estimate';
+          result.data_source = 'actual';
+          result.is_fresh = false;
+          result.estimated_change = realTime?.gainPercent ?? null;
+          result.net_value = realTime?.netValue ?? null;
         }
       }
     }
@@ -311,7 +325,7 @@ exports.batchGetInfo = async (req, res, next) => {
         name: fund?.name || code,
         type: fund?.type || '',
         net_value: realTime?.netValue ?? null,
-        estimated_change: realTime?.gainPercent ?? null,
+        estimated_change: null, // 初始置null，后续根据市场状态分支赋值
         update_time: realTime?.updateTime ?? null,
         estimated_value: realTime?.estimatedValue ?? null,
         estimated_change_pct: realTime?.estimatedChange ?? null,
@@ -343,15 +357,33 @@ exports.batchGetInfo = async (req, res, next) => {
             result.estimated_change = parseFloat(((latestHistoryNav - yesterdayNav) / yesterdayNav * 100).toFixed(2));
           }
         } else if (hour >= 9 && hour < 15) {
-          result.update_status = 'estimating';
-          result.data_source = 'estimated';
-          result.is_fresh = true;
-          if (realTime?.estimatedChange != null) result.estimated_change = realTime.estimatedChange;
+          if (realTime?.estimatedChange != null) {
+            result.update_status = 'estimating';
+            result.data_source = 'estimated';
+            result.is_fresh = true;
+            result.estimated_change = realTime.estimatedChange;
+          } else {
+            // 盘中估算失败 → 显示前一天确认数据
+            result.update_status = 'no_estimate';
+            result.data_source = 'actual';
+            result.is_fresh = false;
+            result.estimated_change = realTime?.gainPercent ?? null;
+            result.net_value = realTime?.netValue ?? null;
+          }
         } else {
-          result.update_status = 'pending_confirm';
-          result.data_source = 'estimated';
-          result.is_fresh = false;
-          if (realTime?.estimatedChange != null) result.estimated_change = realTime.estimatedChange;
+          if (realTime?.estimatedChange != null) {
+            result.update_status = 'pending_confirm';
+            result.data_source = 'estimated';
+            result.is_fresh = false;
+            result.estimated_change = realTime.estimatedChange;
+          } else {
+            // 估算失败 → 显示前一天确认数据
+            result.update_status = 'no_estimate';
+            result.data_source = 'actual';
+            result.is_fresh = false;
+            result.estimated_change = realTime?.gainPercent ?? null;
+            result.net_value = realTime?.netValue ?? null;
+          }
         }
       }
 

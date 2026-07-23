@@ -25,7 +25,7 @@ interface FundHolding {
   // 更新状态字段（与自选页面一致）
   last_updated?: string | null;
   is_fresh?: boolean;
-  update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market';
+  update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate';
   data_source?: 'actual' | 'estimated';
   day_of_week?: string;
 }

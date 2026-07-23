@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Button, Table, Tag, Segmented, Skeleton, App, Space, Dropdown } from 'antd';
-import { ArrowLeftOutlined, StarOutlined, StarFilled, PlusOutlined, MinusOutlined, ScheduleOutlined, DeleteOutlined, EditOutlined, ThunderboltOutlined, FundOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, StarOutlined, StarFilled, PlusOutlined, MinusOutlined, ScheduleOutlined, DeleteOutlined, EditOutlined, ThunderboltOutlined, FundOutlined, AimOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { fundService } from '@/services/fundService';
 import { transactionService } from '@/services/transactionService';
@@ -131,7 +131,7 @@ export default function FundDetailPage() {
         message.success('已恢复为全局默认');
       } else {
         setFundValuationMethod(method);
-        message.success(`已切换到${method === 'sina' ? '新浪财经' : '持仓穿透'}数据源`);
+        message.success(`已切换到${method === 'sina' ? '新浪财经' : method === 'holdings' ? '持仓穿透' : '自动'}数据源`);
       }
       // 刷新数据以使用新方法
       loadData();
@@ -677,6 +677,7 @@ export default function FundDetailPage() {
 
   const isUp = (fund.estimated_change ?? 0) >= 0;
   const isMarketClosed = fund.update_status === 'market_closed' || fund.update_status === 'pre_market';
+  const isNoEstimate = fund.update_status === 'no_estimate';
 
   return (
     <div className="fund-detail-page" style={{ paddingTop: 20, paddingLeft: 16, paddingRight: 16, paddingBottom: 100 }}>
@@ -973,6 +974,11 @@ export default function FundDetailPage() {
           menu={{
             items: [
               {
+                key: 'auto',
+                label: `自动（新浪优先，失败回退持仓穿透）${globalValuationMethod === 'auto' ? ' — 全局默认' : ''}`,
+                icon: <AimOutlined />,
+              },
+              {
                 key: 'sina',
                 label: `新浪财经（快速估算）${globalValuationMethod === 'sina' ? ' — 全局默认' : ''}`,
                 icon: <ThunderboltOutlined />,
@@ -1003,7 +1009,7 @@ export default function FundDetailPage() {
         >
           <Button
             type="text"
-            icon={effectiveValuationMethod === 'holdings' ? <FundOutlined /> : <ThunderboltOutlined />}
+            icon={effectiveValuationMethod === 'holdings' ? <FundOutlined /> : effectiveValuationMethod === 'auto' ? <AimOutlined /> : <ThunderboltOutlined />}
             style={{
               fontSize: 16,
               width: 40,
@@ -1017,7 +1023,7 @@ export default function FundDetailPage() {
               transition: 'all var(--transition-fast)',
               border: fundValuationMethod ? '1px solid var(--accent-green)' : '1px solid transparent',
             }}
-            title={`盘中估算: ${effectiveValuationMethod === 'holdings' ? '持仓穿透' : '新浪财经'}${fundValuationMethod ? '（单基金覆盖）' : ''}`}
+            title={`盘中估算: ${effectiveValuationMethod === 'holdings' ? '持仓穿透' : effectiveValuationMethod === 'auto' ? '自动' : '新浪财经'}${fundValuationMethod ? '（单基金覆盖）' : ''}`}
           />
         </Dropdown>
       </div>
@@ -1045,12 +1051,12 @@ export default function FundDetailPage() {
               fontFamily: 'var(--font-mono)',
               letterSpacing: '-0.02em',
             }}>
-              ¥{fund.net_value?.toFixed(4) || '-'}
+              {isNoEstimate ? '--' : `¥${fund.net_value?.toFixed(4) || '-'}`}
             </div>
           </div>
           <div>
             <div className="fund-detail-data-label" style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {fund.update_status === 'confirmed' ? '涨幅' : '估算涨幅'}
+              {fund.update_status === 'confirmed' ? '涨幅' : (isNoEstimate ? '前一日涨幅' : '估算涨幅')}
             </div>
             <div className="fund-detail-data-value number-tabular" style={{
               fontSize: 28,
@@ -1060,6 +1066,15 @@ export default function FundDetailPage() {
               letterSpacing: '-0.02em',
             }}>
               {isMarketClosed ? '--' : `${isUp ? '+' : ''}${fund.estimated_change?.toFixed(2) || '0.00'}%`}
+              {isNoEstimate && fund.update_time && (
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', marginTop: 2, fontWeight: 400 }}>
+                  ({(() => {
+                    const d = new Date(fund.update_time);
+                    if (isNaN(d.getTime())) return '';
+                    return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                  })()})
+                </div>
+              )}
             </div>
           </div>
           <div>
