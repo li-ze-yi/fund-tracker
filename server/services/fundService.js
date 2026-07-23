@@ -340,7 +340,8 @@ async function getTencentValue(fundCode) {
 const holdingsCache = new Map();
 
 function getStockPrefix(code) {
-  return code.startsWith('6') ? 'sh' : 'sz';
+  if (code.length === 5) return 'hk'; // 港股
+  return code.startsWith('6') ? 'sh' : 'sz'; // A股
 }
 
 async function getFundHoldings(fundCode) {
@@ -373,7 +374,7 @@ async function getFundHoldings(fundCode) {
       const stockName = tdMatch[2].replace(/<[^>]+>/g, '').trim();
       const ratioStr = tdMatch[6].replace(/<[^>]+>/g, '').trim().replace('%', '');
 
-      if (!stockCode || stockCode.length !== 6 || !/^\d+$/.test(stockCode)) continue;
+      if (!stockCode || !/^\d{5,6}$/.test(stockCode)) continue;
 
       const ratio = parseFloat(ratioStr);
       if (isNaN(ratio) || ratio <= 0) continue;
@@ -401,7 +402,7 @@ async function getStocksRealtime(stockCodes) {
     const result = {};
     const lines = data.split('\n').filter(l => l.includes('="'));
     for (const line of lines) {
-      const codeMatch = line.match(/v_(?:sh|sz)(\d+)="(.+)"/);
+      const codeMatch = line.match(/v_(?:sh|sz|hk)(\d+)="(.+)"/);
       if (!codeMatch) continue;
       const stockCode = codeMatch[1];
       const fields = codeMatch[2].split('~');
@@ -743,7 +744,11 @@ async function getHoldingsEstimatedOverlay(fundCode) {
   }
 
   if (totalRatio < 30) {
-    // 覆盖率不足 → 返回null，不回退到其他数据源
+    // 覆盖率极低时，尝试ETF联接基金估值（可能是ETF联接基金的指数成分股持仓）
+    if (totalRatio < 5) {
+      const etfResult = await getETFBasedEstimatedValue(fundCode);
+      if (etfResult) return etfResult;
+    }
     return null;
   }
 
