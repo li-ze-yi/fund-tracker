@@ -744,12 +744,12 @@ async function getHoldingsEstimatedOverlay(fundCode) {
   }
 
   if (totalRatio < 30) {
-    // 覆盖率极低时，尝试ETF联接基金估值（可能是ETF联接基金的指数成分股持仓）
-    if (totalRatio < 5) {
-      const etfResult = await getETFBasedEstimatedValue(fundCode);
-      if (etfResult) return etfResult;
-    }
-    return null;
+    // 覆盖率不足时，尝试ETF联接基金估值（ETF联接基金股票持仓天然较低，不能仅靠<5阈值判断）
+    const etfResult = await getETFBasedEstimatedValue(fundCode);
+    if (etfResult) return etfResult;
+    // ETF回退失败（非ETF联接基金），若持仓行情完全无效才返回null
+    // 持仓行情有效时继续走低覆盖率加权计算（偏股混合型基金前十大~20%属常态，加权涨跌幅仍有参考价值）
+    if (totalRatio === 0) return null;
   }
 
   // 基于加权涨跌幅估算净值
