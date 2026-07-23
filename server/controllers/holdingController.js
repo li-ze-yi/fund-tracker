@@ -20,11 +20,11 @@ exports.list = async (req, res, next) => {
     const forceRefresh = req.query.forceRefresh === '1';
 
     // 获取用户的估值方法设置（全局方法 + 单基金覆盖）
-    let valuationMethod = 'sina';
+    let valuationMethod = 'holdings';
     let valuationOverrides = {};
     try {
       const settings = await UserSetting.findByUserId(userId);
-      valuationMethod = settings?.valuation_method || 'sina';
+      valuationMethod = settings?.valuation_method || 'holdings';
       valuationOverrides = settings?.valuation_overrides || {};
     } catch { /* ignore */ }
 

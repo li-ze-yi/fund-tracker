@@ -353,18 +353,31 @@ async function getFundHoldings(fundCode) {
 
   try {
     const { data } = await axios.get(
-      `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${fundCode}&topline=10`,
+      `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${fundCode}`,
       {
         timeout: TIMEOUT,
         headers: defaultHeaders(`http://fundf10.eastmoney.com/ccmx_${fundCode}.html`),
       }
     );
+
+    // 解析报告期（如 2026-06-30）
+    let reportDate = null;
+    const dateMatch = data.match(/报告期[：:]\s*(\d{4}-\d{2}-\d{2})/);
+    if (dateMatch) {
+      reportDate = dateMatch[1];
+    }
+
     // 解析 HTML table 中的持仓数据
     const tbodyMatch = data.match(/<tbody>([\s\S]*?)<\/tbody>/);
-    if (!tbodyMatch) return [];
+    if (!tbodyMatch) {
+      const result = { holdings: [], totalStockRatio: 0, reportDate };
+      holdingsCache.set(fundCode, { data: result, ts: now });
+      return result;
+    }
 
     const rows = tbodyMatch[1].match(/<tr>[\s\S]*?<\/tr>/g) || [];
     const holdings = [];
+    let totalStockRatio = 0;
 
     for (const row of rows) {
       const tdMatch = row.match(/<td[^>]*>([\s\S]*?)<\/td>/g);
@@ -380,16 +393,84 @@ async function getFundHoldings(fundCode) {
       if (isNaN(ratio) || ratio <= 0) continue;
 
       holdings.push({ code: stockCode, name: stockName, ratio });
+      totalStockRatio += ratio;
     }
 
-    holdingsCache.set(fundCode, { data: holdings, ts: now });
-    return holdings;
+    const result = { holdings, totalStockRatio: parseFloat(totalStockRatio.toFixed(1)), reportDate };
+    holdingsCache.set(fundCode, { data: result, ts: now });
+    return result;
   } catch (e) {
-    return [];
+    return { holdings: [], totalStockRatio: 0, reportDate: null };
   }
 }
 
+/**
+ * 获取沪深300指数实时涨跌幅，用于填补缺失股票的收益假设
+ * 超时2秒，失败返回0
+ */
+async function getBenchmarkChange() {
+  try {
+    const { data } = await axios.get('http://qt.gtimg.cn/q=sh000300', {
+      timeout: 2000,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      responseType: 'text',
+    });
+    const line = data.split('\n').find(l => l.includes('v_sh000300'));
+    if (line) {
+      const content = line.split('="')[1]?.replace(/";$/, '');
+      const fields = content?.split('~');
+      // 腾讯字段: [32]涨跌幅%
+      const changePercent = parseFloat(fields?.[32]);
+      if (!isNaN(changePercent)) return changePercent;
+    }
+  } catch (e) { /* fall through */ }
+  return 0;
+}
+
+/**
+ * 获取国债指数（sh000012）实时涨跌幅，用于债券部分的基准收益率
+ * 超时2秒，失败返回0
+ */
+async function getBondBenchmarkChange() {
+  try {
+    const { data } = await axios.get('http://qt.gtimg.cn/q=sh000012', {
+      timeout: 2000,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      responseType: 'text',
+    });
+    const line = data.split('\n').find(l => l.includes('v_sh000012'));
+    if (line) {
+      const content = line.split('="')[1]?.replace(/";$/, '');
+      const fields = content?.split('~');
+      // 腾讯字段: [32]涨跌幅%
+      const changePercent = parseFloat(fields?.[32]);
+      if (!isNaN(changePercent)) return changePercent;
+    }
+  } catch (e) { /* fall through */ }
+  return 0;
+}
+
 async function getStocksRealtime(stockCodes) {
+  if (!stockCodes || stockCodes.length === 0) return {};
+
+  // 分批查询：每批最多50只，避免URL过长被截断
+  const BATCH_SIZE = 50;
+  if (stockCodes.length <= BATCH_SIZE) {
+    return getStocksRealtimeBatch(stockCodes);
+  }
+
+  const batches = [];
+  for (let i = 0; i < stockCodes.length; i += BATCH_SIZE) {
+    batches.push(stockCodes.slice(i, i + BATCH_SIZE));
+  }
+
+  const results = await Promise.all(batches.map(b => getStocksRealtimeBatch(b).catch(() => ({}))));
+
+  // 合并所有批次结果
+  return Object.assign({}, ...results);
+}
+
+async function getStocksRealtimeBatch(stockCodes) {
   if (!stockCodes || stockCodes.length === 0) return {};
 
   const qtCodes = stockCodes.map(c => `${getStockPrefix(c)}${c}`).join(',');
@@ -721,38 +802,58 @@ async function getETFBasedEstimatedValue(fundCode) {
 // ═══════════════════════════════════════════
 // 盘中实时估算（持仓穿透法）
 // ═══════════════════════════════════════════
+
+
+
 async function getHoldingsEstimatedOverlay(fundCode) {
-  const holdings = await getFundHoldings(fundCode);
+  // 1. 获取全部持仓 + 总股票仓位比例 + 报告期
+  const { holdings, totalStockRatio, reportDate } = await getFundHoldings(fundCode);
+
+  // 2. 无股票持仓 → 尝试ETF联接基金估值
   if (!holdings.length) {
-    // 无股票持仓 → 尝试ETF联接基金估值（通过母ETF行情）
     return getETFBasedEstimatedValue(fundCode);
   }
 
-  // 获取持仓股票实时行情
+  // 3. ETF联接特判：仅1只持仓且占比>90%，直接走母ETF通道
+  if (holdings.length === 1 && holdings[0].ratio > 90) {
+    return getETFBasedEstimatedValue(fundCode);
+  }
+
+  // 5. 获取所有持仓股票实时行情
   const stockCodes = holdings.map(h => h.code);
   const stockQuotes = await getStocksRealtime(stockCodes);
 
-  // 计算加权涨跌幅
-  let totalRatio = 0;
-  let weightedChange = 0;
+  // 6. 计算已覆盖贡献 & 缺失股票权重
+  let coveredContribution = 0;
+  let missingStockWeight = 0;
 
-  for (const holding of holdings) {
-    const quote = stockQuotes[holding.code];
-    if (!quote || quote.changePercent == null) continue;
-    weightedChange += quote.changePercent * holding.ratio;
-    totalRatio += holding.ratio;
+  for (const h of holdings) {
+    const q = stockQuotes[h.code];
+    if (q && q.changePercent != null) {
+      coveredContribution += h.ratio * q.changePercent;
+    } else {
+      missingStockWeight += h.ratio;
+    }
   }
 
-  if (totalRatio < 30) {
-    // 覆盖率不足时，尝试ETF联接基金估值（ETF联接基金股票持仓天然较低，不能仅靠<5阈值判断）
-    const etfResult = await getETFBasedEstimatedValue(fundCode);
-    if (etfResult) return etfResult;
-    // ETF回退失败（非ETF联接基金），若持仓行情完全无效才返回null
-    // 持仓行情有效时继续走低覆盖率加权计算（偏股混合型基金前十大~20%属常态，加权涨跌幅仍有参考价值）
-    if (totalRatio === 0) return null;
+  // 7. 获取基准指数涨跌幅用于填补缺失股票 + 国债指数用于债券部分
+  let benchmarkReturn = 0;
+  if (missingStockWeight > 0) {
+    benchmarkReturn = await getBenchmarkChange();
   }
+  const bondBenchmarkChange = await getBondBenchmarkChange();
+  console.log(`[holdings] ${fundCode} 沪深300=${benchmarkReturn}% 国债=${bondBenchmarkChange}%`);
 
-  // 基于加权涨跌幅估算净值
+  // 8. 新公式：精确计算各组成部分贡献
+  //    已覆盖贡献 = Σ(持仓比例_i × 涨跌幅_i)
+  //    缺失股票贡献 = 缺失权重 × 沪深300涨跌幅
+  //    债券贡献 = (100 - 总股票仓位) × 国债指数涨跌幅
+  const bondWeight = Math.max(0, 100 - totalStockRatio);
+  const missingContribution = missingStockWeight * benchmarkReturn;
+  const bondContribution = bondWeight * bondBenchmarkChange;
+  const estimatedChange = (coveredContribution + missingContribution + bondContribution) / 100;
+
+  // 9. 获取昨日净值计算估算价格
   try {
     const today = new Date().toISOString().slice(0, 10);
     const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -763,17 +864,13 @@ async function getHoldingsEstimatedOverlay(fundCode) {
     if (data?.Data?.LSJZList?.length) {
       const yesterdayNav = parseFloat(data.Data.LSJZList[0].DWJZ);
       if (!isNaN(yesterdayNav) && yesterdayNav > 0) {
-        const normalizedChange = totalRatio > 0
-          ? parseFloat((weightedChange / totalRatio).toFixed(2))
-          : 0;
-        const estimatedNav = parseFloat((yesterdayNav * (1 + normalizedChange / 100)).toFixed(4));
-
         return {
-          estimatedValue: estimatedNav,
-          estimatedChange: normalizedChange,
+          estimatedValue: parseFloat((yesterdayNav * (1 + estimatedChange / 100)).toFixed(4)),
+          estimatedChange: parseFloat(estimatedChange.toFixed(2)),
           estimationMethod: 'holdings',
-          estimationCoverage: parseFloat(totalRatio.toFixed(1)),
+          estimationCoverage: parseFloat(totalStockRatio.toFixed(1)),
           estimationHoldingsCount: holdings.length,
+          dataReportDate: reportDate,
         };
       }
     }

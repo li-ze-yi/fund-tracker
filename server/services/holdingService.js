@@ -192,7 +192,7 @@ async function checkMarketStatus(holdings) {
 
 // ✨ 优化3：批量获取所有基金数据（替代逐个请求）
 // 核心优化：新浪估值用1次请求替代N次，确认净值并行获取
-async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, valuationMethod = 'sina', valuationOverrides = {}) {
+async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, valuationMethod = 'holdings', valuationOverrides = {}) {
   if (!holdings.length) return [];
 
   const startTime = Date.now();
@@ -401,13 +401,23 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     marketValue = shares * realTimeData.netValue;
   }
 
-  // 收益计算
-  if (isConfirmed && confirmedNav > 0 && yesterdayNav > 0) {
-    // 确认净值可用 → 精确计算（确认净值差）
+  // 收益计算（优先级：API除权涨幅 > 确认净值差 > 估算涨跌幅 > 回退涨幅）
+  if (isConfirmed && confirmedNav > 0 && realTimeData?.gainPercent != null) {
+    // 1. 已确认 → 优先使用东方财富API的除权涨幅（NAVCHGRT，已扣除分红影响）
+    gainPercent = realTimeData.gainPercent;
+    if (yesterdayShares > 0 && confirmedNav > 0) {
+      dailyGain = yesterdayShares * confirmedNav * gainPercent / (100 + gainPercent);
+    }
+  } else if (isConfirmed && confirmedNav > 0 && yesterdayNav > 0) {
+    // 2. 已确认但API无除权涨幅 → 使用原始净值差计算（含分红，可能偏大）
     dailyGain = yesterdayShares * (confirmedNav - yesterdayNav);
     gainPercent = ((confirmedNav - yesterdayNav) / yesterdayNav) * 100;
+  } else if (isConfirmed && confirmedNav > 0) {
+    // 3. 已确认但无法获取任何涨幅数据 → 不显示涨幅（绝不用估算值）
+    gainPercent = null;
+    dailyGain = 0;
   } else if (estChange != null && displayNav > 0) {
-    // 无今日确认净值但有盘中估算涨跌幅 → 使用今日估算涨跌幅（盘中+盘后待确认均适用）
+    // 4. 无今日确认净值但有盘中估算涨跌幅 → 使用今日估算涨跌幅（盘中+盘后待确认均适用）
     gainPercent = estChange;
     const yesterdayMarketValue = yesterdayShares * (realTimeData?.netValue || confirmedNav || displayNav);
     if (yesterdayMarketValue > 0) {
@@ -415,6 +425,7 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     }
     usedEstimated = true;
   } else if (realTimeData && realTimeData.gainPercent != null) {
+    // 5. 回退到东方财富API的确认涨幅
     gainPercent = realTimeData.gainPercent;
     const yesterdayMarketValue = yesterdayShares * (realTimeData.netValue || confirmedNav || 0);
     if (yesterdayMarketValue > 0) {

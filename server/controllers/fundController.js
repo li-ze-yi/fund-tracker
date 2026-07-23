@@ -9,15 +9,15 @@ const UserSetting = require('../models/userSetting');
 
 // 获取用户对某个基金的估值方法
 async function getUserValuationMethod(userId, fundCode) {
-  if (!userId) return 'sina';
+  if (!userId) return 'holdings';
   try {
     const settings = await UserSetting.findByUserId(userId);
     const overrides = settings?.valuation_overrides || {};
-    // 单基金覆盖 > 全局设置 > 默认（新浪）
+    // 单基金覆盖 > 全局设置 > 默认（持仓穿透）
     if (overrides[fundCode]) return overrides[fundCode];
-    return settings?.valuation_method || 'sina';
+    return settings?.valuation_method || 'holdings';
   } catch {
-    return 'sina';
+    return 'holdings';
   }
 }
 
@@ -43,7 +43,7 @@ exports.getByCode = async (req, res, next) => {
     }
 
     // 获取用户设置的估值方法
-    const valuationMethod = req.user ? await getUserValuationMethod(req.user.id, code) : 'sina';
+    const valuationMethod = req.user ? await getUserValuationMethod(req.user.id, code) : 'holdings';
     const realTime = await fundService.getRealTimeValueWithMethod(code, valuationMethod).catch(() => null);
 
     const result = {
@@ -118,11 +118,17 @@ exports.getByCode = async (req, res, next) => {
         result.update_status = 'confirmed';
         result.data_source = 'actual';
         result.is_fresh = true;
-        // ★ 确认净值后，用确认净值重算涨幅和当日收益
+        // ★ 确认净值后，优先使用API的除权涨跌幅（NAVCHGRT，已扣除分红影响）
         if (confirmedNav > 0) {
           result.net_value = confirmedNav;
-          if (yesterdayNav > 0) {
+          // 优先：东方财富API除权涨幅
+          if (realTime?.gainPercent != null) {
+            result.estimated_change = realTime.gainPercent;
+          } else if (yesterdayNav > 0) {
+            // 回退：原始净值差计算（含分红，可能偏大）
             result.estimated_change = parseFloat(((confirmedNav - yesterdayNav) / yesterdayNav * 100).toFixed(2));
+          } else {
+            result.estimated_change = null;
           }
         }
       } else if (hour >= 9 && hour < 15) {
@@ -237,12 +243,12 @@ exports.batchGetInfo = async (req, res, next) => {
     const userId = req.user?.id || null;
 
     // 获取用户估值方法
-    let valuationMethod = 'sina';
+    let valuationMethod = 'holdings';
     let valuationOverrides = {};
     if (userId) {
       try {
         const settings = await UserSetting.findByUserId(userId);
-        valuationMethod = settings?.valuation_method || 'sina';
+        valuationMethod = settings?.valuation_method || 'holdings';
         valuationOverrides = settings?.valuation_overrides || {};
       } catch { /* ignore */ }
     }
@@ -353,8 +359,14 @@ exports.batchGetInfo = async (req, res, next) => {
           result.data_source = 'actual';
           result.is_fresh = true;
           result.net_value = latestHistoryNav;
-          if (yesterdayNav > 0) {
+          // 优先：东方财富API除权涨幅（NAVCHGRT，已扣除分红影响）
+          if (realTime?.gainPercent != null) {
+            result.estimated_change = realTime.gainPercent;
+          } else if (yesterdayNav > 0) {
+            // 回退：原始净值差计算（含分红，可能偏大）
             result.estimated_change = parseFloat(((latestHistoryNav - yesterdayNav) / yesterdayNav * 100).toFixed(2));
+          } else {
+            result.estimated_change = null;
           }
         } else if (hour >= 9 && hour < 15) {
           if (realTime?.estimatedChange != null) {

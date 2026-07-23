@@ -4,8 +4,8 @@ exports.get = async (req, res, next) => {
   try {
     const settings = await UserSetting.findByUserId(req.user.id);
     // 兼容旧数据：将 'tencent' 映射为 'sina'（腾讯接口已替换为新浪）
-    let valuationMethod = settings?.valuation_method || 'sina';
-    if (valuationMethod === 'tencent') valuationMethod = 'sina';
+    let valuationMethod = settings?.valuation_method || 'holdings';
+    if (valuationMethod === 'tencent') valuationMethod = 'holdings';
     res.json({
       refresh_frequency: settings?.refresh_frequency || 30,
       valuation_method: valuationMethod,
