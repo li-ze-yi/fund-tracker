@@ -351,61 +351,45 @@ async function getFundHoldings(fundCode) {
     return cached.data;
   }
 
+  // 数据源：fundmobapi JSON 接口（FundMNInverstPosition）
+  // 注：fundf10 HTML 接口（FundArchivesDatas.aspx?type=jjcc）已不再返回持仓数据，
+  // 所有基金的 <tbody> 均为空，持仓数据仅通过 fundmobapi 的 fundStocks 字段提供
   try {
     const { data } = await axios.get(
-      `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${fundCode}`,
-      {
-        timeout: TIMEOUT,
-        headers: defaultHeaders(`http://fundf10.eastmoney.com/ccmx_${fundCode}.html`),
-      }
+      `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNInverstPosition?FCODE=${fundCode}&deviceid=Wap&plat=Wap&product=EFund&version=2.0.0`,
+      { timeout: TIMEOUT, headers: MOBILE_HEADERS }
     );
 
-    // 解析报告期（如 2026-06-30）
-    let reportDate = null;
-    const dateMatch = data.match(/报告期[：:]\s*(\d{4}-\d{2}-\d{2})/);
-    if (dateMatch) {
-      reportDate = dateMatch[1];
-    }
+    const fundStocks = data?.Datas?.fundStocks || [];
+    const etfCode = data?.Datas?.ETFCODE || null;
 
-    // 解析 HTML table 中的持仓数据
-    const tbodyMatch = data.match(/<tbody>([\s\S]*?)<\/tbody>/);
-    if (!tbodyMatch) {
-      console.warn(`[holdings][warn] ${fundCode} 响应无 tbody（可能无持仓或页面结构变化）`);
-      const result = { holdings: [], totalStockRatio: 0, reportDate };
-      holdingsCache.set(fundCode, { data: result, ts: now });
-      return result;
-    }
-
-    const rows = tbodyMatch[1].match(/<tr>[\s\S]*?<\/tr>/g) || [];
     const holdings = [];
     let totalStockRatio = 0;
 
-    for (const row of rows) {
-      const tdMatch = row.match(/<td[^>]*>([\s\S]*?)<\/td>/g);
-      if (!tdMatch || tdMatch.length < 8) continue;
+    for (const s of fundStocks) {
+      const stockCode = s.GPDM;
+      const stockName = s.GPJC;
+      const ratio = parseFloat(s.JZBL);
 
-      const stockCode = tdMatch[1].replace(/<[^>]+>/g, '').trim();
-      const stockName = tdMatch[2].replace(/<[^>]+>/g, '').trim();
-      const ratioStr = tdMatch[6].replace(/<[^>]+>/g, '').trim().replace('%', '');
-
+      // 过滤非数字代码（美股 SNDK/MU 等字母代码）和无效占比
       if (!stockCode || !/^\d{5,6}$/.test(stockCode)) continue;
-
-      const ratio = parseFloat(ratioStr);
       if (isNaN(ratio) || ratio <= 0) continue;
 
       holdings.push({ code: stockCode, name: stockName, ratio });
       totalStockRatio += ratio;
     }
 
-    if (holdings.length === 0) {
-      console.warn(`[holdings][warn] ${fundCode} 持仓解析为空`);
-    }
-    const result = { holdings, totalStockRatio: parseFloat(totalStockRatio.toFixed(1)), reportDate };
+    const result = {
+      holdings,
+      totalStockRatio: parseFloat(totalStockRatio.toFixed(1)),
+      reportDate: null,
+      etfCode,
+    };
     holdingsCache.set(fundCode, { data: result, ts: now });
     return result;
   } catch (e) {
-    console.warn(`[holdings][warn] ${fundCode} fundf10 API 失败: ${e.message}`);
-    return { holdings: [], totalStockRatio: 0, reportDate: null };
+    console.warn(`[holdings][warn] ${fundCode} fundmobapi 持仓接口失败: ${e.message}`);
+    return { holdings: [], totalStockRatio: 0, reportDate: null, etfCode: null };
   }
 }
 
@@ -748,15 +732,12 @@ async function getUnderlyingETFCode(fundCode) {
     return cached.code;
   }
 
+  // 复用 getFundHoldings 的缓存结果（fundmobapi 返回的 ETFCODE 字段）
   try {
-    const { data } = await axios.get(
-      `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNInverstPosition?FCODE=${fundCode}&deviceid=Wap&plat=Wap&product=EFund&version=2.0.0`,
-      { timeout: TIMEOUT, headers: MOBILE_HEADERS }
-    );
-    if (data?.Datas?.ETFCODE) {
-      const etfCode = data.Datas.ETFCODE;
-      etfLinkageCache.set(fundCode, { code: etfCode, ts: now });
-      return etfCode;
+    const holdingsResult = await getFundHoldings(fundCode);
+    if (holdingsResult?.etfCode) {
+      etfLinkageCache.set(fundCode, { code: holdingsResult.etfCode, ts: now });
+      return holdingsResult.etfCode;
     }
   } catch (e) { /* fall through */ }
 
@@ -812,13 +793,13 @@ async function getETFBasedEstimatedValue(fundCode) {
 
 async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
   // 1. 获取全部持仓 + 总股票仓位比例 + 报告期
-  const { holdings, totalStockRatio, reportDate } = await getFundHoldings(fundCode);
+  const { holdings, totalStockRatio, reportDate, etfCode } = await getFundHoldings(fundCode);
 
   // 2. 无股票持仓 → 尝试ETF联接基金估值
   if (!holdings.length) {
     const etfResult = await getETFBasedEstimatedValue(fundCode);
     if (!etfResult) {
-      console.warn(`[holdings][warn] ${fundCode} 估算失败: 持仓为空且非ETF联接基金`);
+      console.warn(`[holdings][warn] ${fundCode} 估算失败: 持仓为空 (fundStocks=0, etfCode=${etfCode || 'null'})`);
     }
     return etfResult;
   }
