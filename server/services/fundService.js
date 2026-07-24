@@ -370,6 +370,7 @@ async function getFundHoldings(fundCode) {
     // 解析 HTML table 中的持仓数据
     const tbodyMatch = data.match(/<tbody>([\s\S]*?)<\/tbody>/);
     if (!tbodyMatch) {
+      console.warn(`[holdings][warn] ${fundCode} 响应无 tbody（可能无持仓或页面结构变化）`);
       const result = { holdings: [], totalStockRatio: 0, reportDate };
       holdingsCache.set(fundCode, { data: result, ts: now });
       return result;
@@ -396,10 +397,14 @@ async function getFundHoldings(fundCode) {
       totalStockRatio += ratio;
     }
 
+    if (holdings.length === 0) {
+      console.warn(`[holdings][warn] ${fundCode} 持仓解析为空`);
+    }
     const result = { holdings, totalStockRatio: parseFloat(totalStockRatio.toFixed(1)), reportDate };
     holdingsCache.set(fundCode, { data: result, ts: now });
     return result;
   } catch (e) {
+    console.warn(`[holdings][warn] ${fundCode} fundf10 API 失败: ${e.message}`);
     return { holdings: [], totalStockRatio: 0, reportDate: null };
   }
 }
@@ -805,23 +810,41 @@ async function getETFBasedEstimatedValue(fundCode) {
 
 
 
-async function getHoldingsEstimatedOverlay(fundCode) {
+async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
   // 1. 获取全部持仓 + 总股票仓位比例 + 报告期
   const { holdings, totalStockRatio, reportDate } = await getFundHoldings(fundCode);
 
   // 2. 无股票持仓 → 尝试ETF联接基金估值
   if (!holdings.length) {
-    return getETFBasedEstimatedValue(fundCode);
+    const etfResult = await getETFBasedEstimatedValue(fundCode);
+    if (!etfResult) {
+      console.warn(`[holdings][warn] ${fundCode} 估算失败: 持仓为空且非ETF联接基金`);
+    }
+    return etfResult;
   }
 
   // 3. ETF联接特判：仅1只持仓且占比>90%，直接走母ETF通道
   if (holdings.length === 1 && holdings[0].ratio > 90) {
-    return getETFBasedEstimatedValue(fundCode);
+    const etfResult = await getETFBasedEstimatedValue(fundCode);
+    if (!etfResult) {
+      console.warn(`[holdings][warn] ${fundCode} 估算失败: ETF联接估值失败`);
+    }
+    return etfResult;
   }
+
+  console.log(`[holdings] ${fundCode} 持仓: ${holdings.length}只, 覆盖率=${totalStockRatio}%, 报告期=${reportDate}`);
 
   // 5. 获取所有持仓股票实时行情
   const stockCodes = holdings.map(h => h.code);
   const stockQuotes = await getStocksRealtime(stockCodes);
+
+  // 统计成功的行情数
+  let successCount = 0;
+  for (const h of holdings) {
+    const q = stockQuotes[h.code];
+    if (q && q.changePercent != null) successCount++;
+  }
+  console.log(`[holdings] ${fundCode} 行情: ${successCount}/${holdings.length}只成功`);
 
   // 6. 计算已覆盖贡献 & 缺失股票权重
   let coveredContribution = 0;
@@ -853,7 +876,21 @@ async function getHoldingsEstimatedOverlay(fundCode) {
   const bondContribution = bondWeight * bondBenchmarkChange;
   const estimatedChange = (coveredContribution + missingContribution + bondContribution) / 100;
 
-  // 9. 获取昨日净值计算估算价格
+  // 9. 计算估算价格
+  //    若调用方提供了 confirmedNav（正数），直接使用，跳过 lsjz 调用（避免冗余请求）
+  if (typeof confirmedNav === 'number' && confirmedNav > 0) {
+    console.log(`[holdings] ${fundCode} 估值成功: method=holdings, change=${estimatedChange.toFixed(2)}%, coverage=${totalStockRatio}%`);
+    return {
+      estimatedValue: parseFloat((confirmedNav * (1 + estimatedChange / 100)).toFixed(4)),
+      estimatedChange: parseFloat(estimatedChange.toFixed(2)),
+      estimationMethod: 'holdings',
+      estimationCoverage: parseFloat(totalStockRatio.toFixed(1)),
+      estimationHoldingsCount: holdings.length,
+      dataReportDate: reportDate,
+    };
+  }
+
+  // 10. confirmedNav 不可用 → 回退到 lsjz API 获取昨日净值
   try {
     const today = new Date().toISOString().slice(0, 10);
     const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -864,6 +901,7 @@ async function getHoldingsEstimatedOverlay(fundCode) {
     if (data?.Data?.LSJZList?.length) {
       const yesterdayNav = parseFloat(data.Data.LSJZList[0].DWJZ);
       if (!isNaN(yesterdayNav) && yesterdayNav > 0) {
+        console.log(`[holdings] ${fundCode} 估值成功: method=holdings, change=${estimatedChange.toFixed(2)}%, coverage=${totalStockRatio}%`);
         return {
           estimatedValue: parseFloat((yesterdayNav * (1 + estimatedChange / 100)).toFixed(4)),
           estimatedChange: parseFloat(estimatedChange.toFixed(2)),
@@ -874,9 +912,20 @@ async function getHoldingsEstimatedOverlay(fundCode) {
         };
       }
     }
-  } catch (e) { /* fall through */ }
+  } catch (e) {
+    console.warn(`[holdings][warn] ${fundCode} lsjz调用失败: ${e.message}`);
+  }
 
-  return null;
+  // 11. lsjz 失败或返回空，但 estimatedChange 已成功计算 → 返回部分结果（不丢弃 estimatedChange）
+  console.warn(`[holdings][warn] ${fundCode} 估算失败: 无法获取昨日净值，返回部分结果(estimatedChange only)`);
+  return {
+    estimatedValue: null,
+    estimatedChange: parseFloat(estimatedChange.toFixed(2)),
+    estimationMethod: 'holdings',
+    estimationCoverage: parseFloat(totalStockRatio.toFixed(1)),
+    estimationHoldingsCount: holdings.length,
+    dataReportDate: reportDate,
+  };
 }
 
 // ═══════════════════════════════════════════
@@ -891,12 +940,12 @@ async function getRealTimeValueWithMethod(fundCode, method = 'sina') {
   let estimated = null;
   if (method === 'holdings') {
     // 持仓穿透法：股票持仓加权计算 + ETF联接基金母ETF估值
-    estimated = await getHoldingsEstimatedOverlay(fundCode).catch(() => null);
+    estimated = await getHoldingsEstimatedOverlay(fundCode, confirmed?.netValue).catch(() => null);
   } else if (method === 'auto') {
     // 自动模式：先尝试新浪，失败回退持仓穿透
     estimated = await getSinaEstimatedValue(fundCode).catch(() => null);
     if (!estimated) {
-      estimated = await getHoldingsEstimatedOverlay(fundCode).catch(() => null);
+      estimated = await getHoldingsEstimatedOverlay(fundCode, confirmed?.netValue).catch(() => null);
     }
   } else {
     // 新浪财经盘中估值
@@ -1185,7 +1234,7 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina') {
   if (method === 'holdings') {
     // 持仓穿透法：并行调用
     const promises = fundCodes.map(async (code) => {
-      try { return { code, data: await getHoldingsEstimatedOverlay(code) }; }
+      try { return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue) }; }
       catch { return { code, data: null }; }
     });
     const responses = await Promise.allSettled(promises);
@@ -1198,7 +1247,7 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina') {
     const fallbackCodes = fundCodes.filter(code => !estimatedMap[code]);
     if (fallbackCodes.length) {
       const fallbackPromises = fallbackCodes.map(async (code) => {
-        try { return { code, data: await getHoldingsEstimatedOverlay(code) }; }
+        try { return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue) }; }
         catch { return { code, data: null }; }
       });
       const responses = await Promise.allSettled(fallbackPromises);
