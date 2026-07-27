@@ -671,7 +671,37 @@ async function getSinaEstimatedValue(fundCode) {
 // 但可以通过股票行情接口获取实时价格作为估值
 // ═══════════════════════════════════════════
 async function getETFRealtimeQuote(fundCode) {
-  // 腾讯接口获取场内ETF实时行情（push2.eastmoney.com 已不可用，socket hang up）
+  // 东方财富push2接口（主要数据源）
+  try {
+    const market = fundCode.startsWith('15') || fundCode.startsWith('16') ? '0' : '1';
+    console.log(`[${getTimestamp()}] [etf] ${fundCode} push2尝试...`);
+    const { data } = await axios.get(
+      `https://push2.eastmoney.com/api/qt/stock/get?secid=${market}.${fundCode}&fields=f43,f44,f170`,
+      { timeout: TIMEOUT, headers: defaultHeaders('https://quote.eastmoney.com/') }
+    );
+    if (data?.data) {
+      const price = data.data.f43 / 1000;
+      const changePercent = data.data.f170 / 100;
+      if (!isNaN(price) && price > 0) {
+        console.log(`[${getTimestamp()}] [etf] ${fundCode} push2成功: price=${price}, change=${changePercent}%`);
+        return {
+          estimatedValue: price,
+          estimatedChange: changePercent,
+          estimationMethod: 'etf_quote',
+          updateTime: '',
+        };
+      } else {
+        console.log(`[${getTimestamp()}] [etf][warn] ${fundCode} push2失败: 价格无效(${price}), 回退腾讯`);
+      }
+    } else {
+      console.log(`[${getTimestamp()}] [etf][warn] ${fundCode} push2失败: 无data字段, 回退腾讯`);
+    }
+  } catch (e) {
+    console.log(`[${getTimestamp()}] [etf][warn] ${fundCode} push2失败: ${e.message}, 回退腾讯`);
+    /* fall through */
+  }
+
+  // 腾讯接口获取场内ETF实时行情
   // 沪市ETF: 51/56开头 → sh, 深市ETF: 15/16开头 → sz
   try {
     const prefix = fundCode.startsWith('15') || fundCode.startsWith('16') ? 'sz' : 'sh';
