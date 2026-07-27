@@ -263,7 +263,7 @@ class GlobalCache {
       case 'history_older':   // 更早的历史净值
         return 72 * 60 * 60 * 1000;  // ✨ 3天（原24小时，历史数据固定不变）
 
-      case 'history_chart':   // 走势图历史净值（固定24h，不复用 history_recent 的动态TTL）
+      case 'history_chart':   // 走势图历史净值（固定24h，不复用 history_recent：cleanup 按 type 取 TTL，history_recent 黄金窗口仅 5min 会导致走势图缓存被过早清理）
         return 24 * 60 * 60 * 1000;  // 24小时（历史净值一旦确认就固定不变，配合 latestDate 三分支判断）
         
       case 'fund_info':       // 基金基本信息（名称、类型等）
