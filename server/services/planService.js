@@ -2,6 +2,7 @@ const InvestmentPlan = require('../models/investmentPlan');
 const Holding = require('../models/holding');
 const Transaction = require('../models/transaction');
 const fundService = require('./fundService');
+const globalCache = require('./globalCache');
 const pool = require('../config/database');
 
 async function executeDuePlans() {
@@ -61,7 +62,11 @@ async function executeDuePlans() {
           // pending 交易 → 上次净值未确认创建的，尝试结算
           console.log(`[PlanService]   [Plan#${plan.id}] 🔄 今日有 pending 定投交易(id=${existingTx[0].id})，尝试结算`);
           try {
-            const history = await fundService.getHistoryNetValues(plan.fund_code, today, today);
+            const history = await globalCache.getOrFetch(
+              `history_${plan.fund_code}_1d_${today}`, // 定投结算历史净值缓存（eastmoney/lsjz）
+              () => fundService.getHistoryNetValues(plan.fund_code, today, today),
+              { type: 'history_recent' } // 近期历史净值缓存
+            );
             const confirmedNav = history && history.length > 0
               ? (parseFloat(history[0].netValue) || parseFloat(history[0].nav) || 0)
               : 0;
@@ -120,7 +125,11 @@ async function executeDuePlans() {
       try {
         // ★ 核心策略：优先使用今日确认净值
         console.log(`[PlanService]   [Plan#${plan.id}] 查询今日(${today})确认净值...`);
-        const history = await fundService.getHistoryNetValues(plan.fund_code, today, today);
+        const history = await globalCache.getOrFetch(
+          `history_${plan.fund_code}_1d_${today}`, // 定投结算历史净值缓存（eastmoney/lsjz）
+          () => fundService.getHistoryNetValues(plan.fund_code, today, today),
+          { type: 'history_recent' } // 近期历史净值缓存
+        );
 
         if (history && history.length > 0) {
           // 今日确认净值已发布 → 使用它

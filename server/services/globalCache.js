@@ -262,12 +262,19 @@ class GlobalCache {
         
       case 'history_older':   // 更早的历史净值
         return 72 * 60 * 60 * 1000;  // ✨ 3天（原24小时，历史数据固定不变）
+
+      case 'history_chart':   // 走势图历史净值（固定24h，不复用 history_recent 的动态TTL）
+        return 24 * 60 * 60 * 1000;  // 24小时（历史净值一旦确认就固定不变，配合 latestDate 三分支判断）
         
       case 'fund_info':       // 基金基本信息（名称、类型等）
         return 14 * 24 * 60 * 1000;  // ✨ 14天（原7天，极少变化）
         
       case 'fund_list':       // 基金列表（搜索用）
         return 6 * 60 * 60 * 1000;   // ✨ 6小时（原1小时）
+        
+      case 'stock_quote':     // 股票实时行情缓存（腾讯 qt.gtimg.cn）
+      case 'etf_quote':       // ETF实时行情缓存（东方财富 push2 / 腾讯 / 新浪）
+        return this.getRealtimeTTL();
         
       case 'market_status':   // 市场开闭状态
         return 60 * 1000;     // ✨ 1分钟（原15秒，适度延长）

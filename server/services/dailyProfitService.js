@@ -2,6 +2,7 @@ const DailyProfit = require('../models/dailyProfit');
 const Holding = require('../models/holding');
 const pool = require('../config/database');
 const fundService = require('./fundService');
+const globalCache = require('./globalCache');
 const holdingService = require('./holdingService');
 
 /**
@@ -154,7 +155,11 @@ class DailyProfitService {
     const results = await Promise.all(
       holdings.map(async (holding) => {
         try {
-          const history = await fundService.getHistoryNetValues(holding.fund_code, today, today);
+          const history = await globalCache.getOrFetch(
+            `history_${holding.fund_code}_1d_${today}`, // 日收益确认历史净值缓存（eastmoney/lsjz）
+            () => fundService.getHistoryNetValues(holding.fund_code, today, today),
+            { type: 'history_recent' } // 近期历史净值缓存
+          );
           const isConfirmed = history && history.length > 0;
           return {
             ...holding,

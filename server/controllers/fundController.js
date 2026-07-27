@@ -450,7 +450,57 @@ exports.getNavHistory = async (req, res, next) => {
   try {
     const { code, startDate, endDate } = req.query;
     if (!code) return res.status(400).json({ message: '缺少基金代码' });
+
+    // 走势图历史净值缓存（按日期范围区分，跨天自动 miss，外部 API：eastmoney/lsjz）
+    const cacheKey = `history_${code}_${startDate || ''}_${endDate || ''}`; // 走势图历史净值缓存键
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const cached = globalCache.cache.get(cacheKey);
+
+    // 检查缓存是否命中且未过期（history_chart 类型，固定 24h TTL）
+    if (cached) {
+      const ttl = globalCache.getTTL('history_chart'); // 24h（历史净值一旦确认就固定不变）
+      const age = Date.now() - cached.timestamp;
+
+      if (age < ttl) {
+        // 缓存命中，取最新记录日期（借鉴 getByCode L82-106）
+        const latestDate = cached.data && cached.data.length > 0 ? cached.data[0].date : null;
+
+        if (latestDate === today) {
+          // 情况1：缓存最新 = 今天 → 今天净值已确认，数据完整，直接返回缓存
+          console.log(`[FundController] 走势图缓存命中: ${code} (latestDate=${latestDate}=今天)`);
+          return res.json({ records: cached.data });
+        }
+
+        if (latestDate === yesterday) {
+          // 情况2：缓存最新 = 昨天 → 检查今天是否已确认
+          try {
+            const todayCheck = await fundService.getHistoryNetValues(code, today, today); // 轻量查询（仅查1天，极小开销）
+            if (todayCheck && todayCheck.length > 0) {
+              // 今天净值已确认，缓存过期，重新请求完整日期范围
+              console.log(`[FundController] 走势图缓存过期: ${code} (latestDate=${latestDate}=昨天, 今天净值已确认)`);
+            } else {
+              // 今天净值未确认，返回缓存（昨天数据仍是当前最新）
+              console.log(`[FundController] 走势图缓存命中: ${code} (latestDate=${latestDate}=昨天, 今天净值未确认)`);
+              return res.json({ records: cached.data });
+            }
+          } catch (e) {
+            // 轻量查询失败，降级返回缓存
+            console.warn(`[FundController] 走势图确认检查失败: ${code}, ${e.message}, 降级使用缓存`);
+            return res.json({ records: cached.data });
+          }
+        } else if (latestDate && latestDate < yesterday) {
+          // 情况3：缓存最新 < 昨天 → 缓存落后（至少缺了昨天的确认净值），直接重新请求
+          console.log(`[FundController] 走势图缓存落后: ${code} (latestDate=${latestDate} < 昨天=${yesterday}), 重新请求`);
+        }
+      }
+    }
+
+    // 缓存未命中/已过期/落后 → 重新请求完整日期范围（eastmoney/lsjz）
     const records = await fundService.getHistoryNetValues(code, startDate || '', endDate || '');
+    if (records && records.length > 0) {
+      globalCache.set(cacheKey, records, 'history_chart'); // 走势图专用缓存，固定 24h TTL
+    }
     res.json({ records });
   } catch (err) {
     next(err);

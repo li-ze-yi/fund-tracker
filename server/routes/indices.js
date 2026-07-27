@@ -259,7 +259,7 @@ router.get('/:code/intraday', async (req, res) => {
       }
 
       return result;
-    }, { type: 'history_recent' });
+    }, { type: 'realtime' }); // 盘中实时数据缓存，28s 刷新
 
     if (!data) {
       return res.status(500).json({ error: 'Failed to generate intraday data', code });

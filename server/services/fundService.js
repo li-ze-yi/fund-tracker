@@ -1,4 +1,5 @@
 const axios = require('axios');
+const globalCache = require('./globalCache');
 
 const TIMEOUT = 3000; // 3秒超时（原8秒太长，失败时串行等待浪费大量时间）
 
@@ -451,21 +452,23 @@ async function getBondBenchmarkChange() {
 async function getStocksRealtime(stockCodes) {
   if (!stockCodes || stockCodes.length === 0) return {};
 
-  // 分批查询：每批最多50只，避免URL过长被截断
-  const BATCH_SIZE = 50;
-  if (stockCodes.length <= BATCH_SIZE) {
-    return getStocksRealtimeBatch(stockCodes);
-  }
+  // 股票实时行情缓存（腾讯 qt.gtimg.cn）
+  const sortedCodes = [...stockCodes].sort();
+  const cacheKey = `stock_quotes_${sortedCodes.join(',')}`; // 股票实时行情缓存键
 
-  const batches = [];
-  for (let i = 0; i < stockCodes.length; i += BATCH_SIZE) {
-    batches.push(stockCodes.slice(i, i + BATCH_SIZE));
-  }
-
-  const results = await Promise.all(batches.map(b => getStocksRealtimeBatch(b).catch(() => ({}))));
-
-  // 合并所有批次结果
-  return Object.assign({}, ...results);
+  return await globalCache.getOrFetch(cacheKey, async () => {
+    // 原有逻辑不变
+    const BATCH_SIZE = 50;
+    if (stockCodes.length <= BATCH_SIZE) {
+      return getStocksRealtimeBatch(stockCodes);
+    }
+    const batches = [];
+    for (let i = 0; i < stockCodes.length; i += BATCH_SIZE) {
+      batches.push(stockCodes.slice(i, i + BATCH_SIZE));
+    }
+    const results = await Promise.all(batches.map(b => getStocksRealtimeBatch(b).catch(() => ({}))));
+    return Object.assign({}, ...results);
+  }, { type: 'stock_quote' }); // 股票实时行情缓存（腾讯 qt.gtimg.cn）
 }
 
 async function getStocksRealtimeBatch(stockCodes) {
@@ -671,7 +674,9 @@ async function getSinaEstimatedValue(fundCode) {
 // 但可以通过股票行情接口获取实时价格作为估值
 // ═══════════════════════════════════════════
 async function getETFRealtimeQuote(fundCode) {
-  // 东方财富push2接口（主要数据源）
+  const cacheKey = `etf_quote_${fundCode}`; // ETF实时行情缓存
+  return await globalCache.getOrFetch(cacheKey, async () => {
+    // 东方财富push2接口（主要数据源）
   try {
     const market = fundCode.startsWith('15') || fundCode.startsWith('16') ? '0' : '1';
     console.log(`[${getTimestamp()}] [etf] ${fundCode} push2尝试...`);
@@ -753,6 +758,7 @@ async function getETFRealtimeQuote(fundCode) {
   } catch (e) { /* fall through */ }
 
   return null;
+  }, { type: 'etf_quote' }); // ETF实时行情缓存（东方财富 push2 / 腾讯 / 新浪）
 }
 
 // ═══════════════════════════════════════════

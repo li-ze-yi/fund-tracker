@@ -191,7 +191,7 @@ exports.create = async (req, res, next) => {
         const recentHistory = await globalCache.getOrFetch(
           historyCacheKey,
           () => fundService.getHistoryNetValues(fundCode, thirtyDaysAgo, today),
-          { type: 'history_recent' }
+          { type: 'history_older' } // 远期历史净值缓存，72h TTL
         );
         
         if (recentHistory && recentHistory.length > 0) {
@@ -213,7 +213,7 @@ exports.create = async (req, res, next) => {
       }
       
       if (netValue <= 0) {
-        const realtimeCacheKey = `realtime_${fundCode}`;
+        const realtimeCacheKey = `realtime_${fundCode}_auto`; // 基金实时估值缓存，auto=自动选择数据源
         try {
           const realTime = await globalCache.getOrFetch(
             realtimeCacheKey,
