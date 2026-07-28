@@ -18,18 +18,38 @@ async function getTotalInvestment(userId) {
 exports.daily = async (req, res, next) => {
   try {
     const userId = req.user.id;
+    const { year, month } = req.query;
 
-    // 从 daily_profits 表查询真实数据
-    const [rows] = await pool.query(
-      `SELECT DATE(date) as date,
-              profit,
-              return_rate
-       FROM daily_profits
-       WHERE user_id = ?
-         AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-       ORDER BY date ASC`,
-      [userId]
-    );
+    let rows;
+    if (year && month) {
+      // 按指定年月查询
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      // 计算月末
+      const endOfMonth = new Date(Number(year), Number(month), 0);
+      const endDate = `${year}-${String(month).padStart(2, '0')}-${String(endOfMonth.getDate()).padStart(2, '0')}`;
+      [rows] = await pool.query(
+        `SELECT DATE(date) as date,
+                profit,
+                return_rate
+         FROM daily_profits
+         WHERE user_id = ?
+           AND date BETWEEN ? AND ?
+         ORDER BY date ASC`,
+        [userId, startDate, endDate]
+      );
+    } else {
+      // 保持现有最近 30 天逻辑
+      [rows] = await pool.query(
+        `SELECT DATE(date) as date,
+                profit,
+                return_rate
+         FROM daily_profits
+         WHERE user_id = ?
+           AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+         ORDER BY date ASC`,
+        [userId]
+      );
+    }
 
     if (rows && rows.length > 0) {
       const result = rows.map(row => ({
@@ -56,19 +76,44 @@ exports.daily = async (req, res, next) => {
 exports.monthly = async (req, res, next) => {
   try {
     const userId = req.user.id;
+    const { year } = req.query;
 
-    // 从 daily_profits 表聚合月度数据
-    const [rows] = await pool.query(
-      `SELECT DATE_FORMAT(date, '%Y-%m') as month,
-              SUM(profit) as profit,
-              AVG(return_rate) as avg_return_rate
-       FROM daily_profits
-       WHERE user_id = ?
-         AND date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-       GROUP BY DATE_FORMAT(date, '%Y-%m')
-       ORDER BY month ASC`,
-      [userId]
-    );
+    let rows;
+    if (year) {
+      // 按指定年份查询所有月度数据
+      [rows] = await pool.query(
+        `SELECT DATE_FORMAT(date, '%Y-%m') as month,
+                SUM(profit) as profit,
+                CASE 
+                  WHEN AVG(total_investment) > 0 
+                  THEN (SUM(profit) / AVG(total_investment)) * 100 
+                  ELSE 0 
+                END as monthly_return_rate
+         FROM daily_profits
+         WHERE user_id = ?
+           AND YEAR(date) = ?
+         GROUP BY DATE_FORMAT(date, '%Y-%m')
+         ORDER BY month ASC`,
+        [userId, Number(year)]
+      );
+    } else {
+      // 保持现有最近 12 个月逻辑
+      [rows] = await pool.query(
+        `SELECT DATE_FORMAT(date, '%Y-%m') as month,
+                SUM(profit) as profit,
+                CASE 
+                  WHEN AVG(total_investment) > 0 
+                  THEN (SUM(profit) / AVG(total_investment)) * 100 
+                  ELSE 0 
+                END as monthly_return_rate
+         FROM daily_profits
+         WHERE user_id = ?
+           AND date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+         GROUP BY DATE_FORMAT(date, '%Y-%m')
+         ORDER BY month ASC`,
+        [userId]
+      );
+    }
 
     if (rows && rows.length > 0) {
       let accumulatedProfit = 0;
@@ -78,7 +123,7 @@ exports.monthly = async (req, res, next) => {
         return {
           month: row.month,
           profit: Math.round(profit * 100) / 100,
-          return_rate: Math.round(parseFloat(row.avg_return_rate) * 10000) / 100,
+          return_rate: Math.round(parseFloat(row.monthly_return_rate) * 100) / 100,
           accumulated_profit: Math.round(accumulatedProfit * 100) / 100
         };
       });
@@ -104,7 +149,11 @@ exports.yearly = async (req, res, next) => {
     const [rows] = await pool.query(
       `SELECT YEAR(date) as year,
               SUM(profit) as profit,
-              AVG(return_rate) as avg_return_rate
+              CASE 
+                WHEN AVG(total_investment) > 0 
+                THEN (SUM(profit) / AVG(total_investment)) * 100 
+                ELSE 0 
+              END as yearly_return_rate
        FROM daily_profits
        WHERE user_id = ?
        GROUP BY YEAR(date)
@@ -120,7 +169,7 @@ exports.yearly = async (req, res, next) => {
         return {
           year: row.year.toString(),
           profit: Math.round(profit * 100) / 100,
-          return_rate: Math.round(parseFloat(row.avg_return_rate) * 10000) / 100,
+          return_rate: Math.round(parseFloat(row.yearly_return_rate) * 100) / 100,
           accumulated_profit: Math.round(accumulatedProfit * 100) / 100
         };
       });

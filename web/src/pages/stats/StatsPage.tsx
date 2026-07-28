@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Card, Segmented, Table, Skeleton, Empty } from 'antd';
+import { Card, Segmented, Table, Skeleton, Empty, Tooltip } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { statsService } from '@/services/statsService';
 import { useThemeStore } from '@/store/themeStore';
 import { useHideAmountStore } from '@/store/hideAmountStore';
 
 type Period = 'daily' | 'monthly' | 'yearly';
+type ViewMode = 'chart' | 'date_table';
 
 const MOCK_DAILY_DATA = [
   { date: '2026-05-11', profit: 128.56, return_rate: 0.85 },
@@ -43,11 +44,485 @@ const MOCK_YEARLY_DATA = [
   { year: '2024', profit: 3245.67, return_rate: 21.64, accumulated_profit: 3141.97 },
 ];
 
+// 日期表格视图粒度：日（日历网格）/ 月（12 月网格）/ 年（多年年度网格）
+type CalendarGranularity = 'day' | 'month' | 'year';
+
+// 日期表格视图 Props
+interface DateTableViewProps {
+  data: { date: string; profit: number; return_rate: number }[];
+  monthlyData: { month: string; profit: number; return_rate: number; accumulated_profit?: number }[];
+  yearlyData: { year: string; profit: number; return_rate: number; accumulated_profit?: number }[];
+  currentMonth: { year: number; month: number };
+  currentYear: number;
+  granularity: CalendarGranularity;
+  onMonthChange: (year: number, month: number) => void;
+  onYearChange: (year: number) => void;
+  onGranularityChange: (g: CalendarGranularity) => void;
+  hideAmount: boolean;
+  isLight: boolean;
+  isMobile: boolean;
+}
+
+// 日期表格视图组件（日历网格 / 年度月份网格 / 多年年度网格）
+function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYear, granularity, onMonthChange, onYearChange, onGranularityChange, hideAmount, isLight, isMobile }: DateTableViewProps) {
+  const { year, month } = currentMonth;
+
+  // 收益率显示切换：false=显示金额，true=显示收益率
+  const [showReturnRate, setShowReturnRate] = useState(false);
+
+  // 金额/收益率切换选项：桌面端显示文字，移动端显示图标
+  const amountRateOptions = isMobile
+    ? [{ value: 'amount', label: '¥' }, { value: 'rate', label: '%' }]
+    : [{ value: 'amount', label: '金额' }, { value: 'rate', label: '收益率' }];
+
+  // 根据数字位数动态返回字号
+  const getDynamicFontSize = (value: number, baseSize: number, isMobile: boolean): number => {
+    const abs = Math.abs(value);
+    if (abs < 100) return isMobile ? baseSize : baseSize + 2;       // 0-99: 最大
+    if (abs < 1000) return isMobile ? baseSize - 1 : baseSize + 1;  // 100-999
+    if (abs < 10000) return isMobile ? baseSize - 2 : baseSize;     // 1000-9999
+    if (abs < 100000) return isMobile ? baseSize - 3 : baseSize - 1; // 10000-99999
+    return isMobile ? baseSize - 4 : baseSize - 2;                   // >= 100000: 最小
+  };
+
+  // 今天
+  const today = new Date();
+  const isCurrentMonth = today.getFullYear() === year && today.getMonth() + 1 === month;
+  const isCurrentYear = today.getFullYear() === currentYear;
+  const todayDate = isCurrentMonth ? today.getDate() : -1;
+  const currentMonthNum = isCurrentYear ? today.getMonth() + 1 : -1;
+
+  // 年视图（12 月网格）：按月份建立映射
+  const monthlyMap = new Map<string, { profit: number; return_rate: number; accumulated_profit?: number }>();
+  monthlyData.forEach((m) => {
+    if (m && m.month) {
+      monthlyMap.set(m.month, { profit: m.profit ?? 0, return_rate: m.return_rate ?? 0, accumulated_profit: m.accumulated_profit });
+    }
+  });
+
+  // 多年视图：按年份建立映射
+  const yearlyMap = new Map<string, { profit: number; return_rate: number; accumulated_profit?: number }>();
+  yearlyData.forEach((y) => {
+    if (y && y.year) {
+      yearlyMap.set(y.year, { profit: y.profit ?? 0, return_rate: y.return_rate ?? 0, accumulated_profit: y.accumulated_profit });
+    }
+  });
+
+  // 多年视图：显示当前年份前后各 3 年，共 7 年
+  const yearStart = currentYear - 3;
+  const yearEnd = currentYear + 3;
+  const years = Array.from({ length: yearEnd - yearStart + 1 }, (_, i) => yearStart + i);
+
+  // 计算当月1号是星期几（周一=0）
+  const firstDayOfWeek = (new Date(year, month - 1, 1).getDay() + 6) % 7;
+  // 当月天数
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  // 按日期建立映射
+  const dataMap = new Map<string, { profit: number; return_rate: number }>();
+  data.forEach((d) => {
+    if (d && d.date) {
+      dataMap.set(d.date, { profit: d.profit ?? 0, return_rate: d.return_rate ?? 0 });
+    }
+  });
+
+  // 色块分档（按收益率绝对值）
+  const getTier = (returnRate: number): { tier: number; isGain: boolean } | null => {
+    if (!returnRate || returnRate === 0) return null;
+    const abs = Math.abs(returnRate);
+    const isGain = returnRate > 0;
+    let tier: number;
+    if (abs < 0.5) tier = 1;
+    else if (abs < 1) tier = 2;
+    else if (abs < 2) tier = 3;
+    else tier = 4;
+    return { tier, isGain };
+  };
+
+  // 获取色块背景色（用 rgba 直接写，不依赖 CSS 变量）
+  const getCellBg = (tier: number, isGain: boolean): string => {
+    const opacities = [0.18, 0.40, 0.65, 0.90];
+    const opacity = opacities[tier - 1];
+    if (isGain) {
+      return isLight
+        ? `rgba(229, 57, 53, ${opacity})`
+        : `rgba(239, 68, 68, ${opacity})`;
+    } else {
+      return isLight
+        ? `rgba(67, 160, 71, ${opacity})`
+        : `rgba(34, 197, 94, ${opacity})`;
+    }
+  };
+
+  // 格式化收益缩略（单元格内显示）
+  const formatProfitShort = (profit: number): string => {
+    if (hideAmount) return '****';
+    const rounded = Math.round(profit);
+    const sign = rounded >= 0 ? '+' : '-';
+    return `${sign}${Math.abs(rounded)}`;
+  };
+
+  // 格式化 Tooltip 收益金额
+  const formatTooltipProfit = (profit: number): string => {
+    if (hideAmount) return '****';
+    const sign = profit >= 0 ? '+' : '-';
+    return `${sign}¥${Math.abs(profit).toFixed(2)}`;
+  };
+
+  // 月份切换
+  const goPrevMonth = () => {
+    let m = month - 1;
+    let y = year;
+    if (m < 1) { m = 12; y -= 1; }
+    onMonthChange(y, m);
+  };
+
+  const goNextMonth = () => {
+    let m = month + 1;
+    let y = year;
+    if (m > 12) { m = 1; y += 1; }
+    onMonthChange(y, m);
+  };
+
+  const backToCurrentMonth = () => {
+    const now = new Date();
+    onMonthChange(now.getFullYear(), now.getMonth() + 1);
+  };
+
+  // 构建单元格数组
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < firstDayOfWeek; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const weekDays = ['一', '二', '三', '四', '五', '六', '日'];
+
+  // 图例色块
+  const legendLossColors = [1, 2, 3, 4].map((t) => getCellBg(t, false));
+  const legendGainColors = [1, 2, 3, 4].map((t) => getCellBg(t, true));
+
+  return (
+    <div className="date-table-view">
+      {/* 粒度切换（日/月/年）单独一行居中 */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+        <Segmented
+          size="small"
+          value={granularity}
+          onChange={(v) => onGranularityChange(v as CalendarGranularity)}
+          options={[
+            { value: 'day', label: '日' },
+            { value: 'month', label: '月' },
+            { value: 'year', label: '年' },
+          ]}
+        />
+      </div>
+
+      {granularity === 'day' ? (
+        <>
+          {/* 月份切换头部：左侧导航+标题，右侧金额/收益率切换 */}
+          <div className="date-table-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button className="date-table-nav-btn" onClick={goPrevMonth} aria-label="上一月">‹</button>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <span className="date-table-title">{year} 年 {month} 月</span>
+                {!isCurrentMonth && (
+                  <button className="date-table-back-btn" onClick={backToCurrentMonth}>返回本月</button>
+                )}
+              </div>
+              <button className="date-table-nav-btn" onClick={goNextMonth} aria-label="下一月">›</button>
+            </div>
+            <Segmented
+              size="small"
+              value={showReturnRate ? 'rate' : 'amount'}
+              onChange={(v) => setShowReturnRate(v === 'rate')}
+              options={amountRateOptions}
+            />
+          </div>
+
+          {/* 7 列网格 */}
+          <div className="date-table-grid">
+            {weekDays.map((d, i) => (
+              <div key={`wd-${i}`} className="date-table-weekday">{d}</div>
+            ))}
+            {cells.map((day, idx) => {
+              if (day === null) {
+                return <div key={`empty-${idx}`} className="date-table-cell empty" />;
+              }
+              const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+              const dayData = dataMap.get(dateStr);
+              const hasData = !!dayData && dayData.return_rate !== 0;
+              const tierInfo = hasData ? getTier(dayData!.return_rate) : null;
+              const isToday = day === todayDate;
+
+              const cellStyle: React.CSSProperties = {
+                background: tierInfo ? getCellBg(tierInfo.tier, tierInfo.isGain) : 'var(--bg-card)',
+                boxShadow: isToday ? 'inset 0 0 0 2px var(--accent-gold)' : 'none',
+              };
+
+              const textColor = tierInfo
+                ? (tierInfo.tier === 1 ? (tierInfo.isGain ? 'var(--gain)' : 'var(--loss)') : '#fff')
+                : 'var(--text-secondary)';
+
+              const tooltipContent = (
+                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 2 }}>{dateStr}</div>
+                  {dayData ? (
+                    <>
+                      <div>收益: {formatTooltipProfit(dayData.profit)}</div>
+                      <div>收益率: {dayData.return_rate >= 0 ? '+' : ''}{dayData.return_rate.toFixed(2)}%</div>
+                    </>
+                  ) : (
+                    <div style={{ color: 'var(--text-muted)' }}>无数据</div>
+                  )}
+                </div>
+              );
+
+              return (
+                <Tooltip key={dateStr} title={tooltipContent} placement="top">
+                  <div className="date-table-cell" style={cellStyle}>
+                    <span style={{ fontSize: 14, fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1 }}>
+                      {day}
+                    </span>
+                    {hasData && (
+                      <span style={{ fontSize: getDynamicFontSize(Math.abs(dayData!.profit), 11, isMobile), fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1, marginTop: 2 }}>
+                        {showReturnRate
+                          ? `${dayData!.return_rate >= 0 ? '+' : ''}${dayData!.return_rate.toFixed(1)}%`
+                          : formatProfitShort(dayData!.profit)}
+                      </span>
+                    )}
+                  </div>
+                </Tooltip>
+              );
+            })}
+          </div>
+        </>
+      ) : granularity === 'month' ? (
+        <>
+          {/* 月视图：12 个月网格。左侧导航+标题，右侧金额/收益率切换 */}
+          <div className="date-table-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button className="date-table-nav-btn" onClick={() => onYearChange(currentYear - 1)} aria-label="上一年">‹</button>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <span className="date-table-title">{currentYear} 年</span>
+                {!isCurrentYear && (
+                  <button className="date-table-back-btn" onClick={() => onYearChange(today.getFullYear())}>返回今年</button>
+                )}
+              </div>
+              <button className="date-table-nav-btn" onClick={() => onYearChange(currentYear + 1)} aria-label="下一年">›</button>
+            </div>
+            <Segmented
+              size="small"
+              value={showReturnRate ? 'rate' : 'amount'}
+              onChange={(v) => setShowReturnRate(v === 'rate')}
+              options={amountRateOptions}
+            />
+          </div>
+
+          {/* 12 个月网格 4x3 */}
+          <div className="year-grid-view">
+            {Array.from({ length: 12 }, (_, i) => {
+              const m = i + 1;
+              const monthKey = `${currentYear}-${String(m).padStart(2, '0')}`;
+              const mData = monthlyMap.get(monthKey);
+              const hasData = !!mData && mData.return_rate !== 0;
+              const tierInfo = hasData ? getTier(mData!.return_rate) : null;
+              const isThisMonth = m === currentMonthNum;
+
+              const cellStyle: React.CSSProperties = {
+                background: tierInfo ? getCellBg(tierInfo.tier, tierInfo.isGain) : 'var(--bg-card)',
+                boxShadow: isThisMonth ? 'inset 0 0 0 2px var(--accent-gold)' : 'none',
+              };
+
+              const textColor = tierInfo
+                ? (tierInfo.tier === 1 ? (tierInfo.isGain ? 'var(--gain)' : 'var(--loss)') : '#fff')
+                : 'var(--text-secondary)';
+
+              const tooltipContent = (
+                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 2 }}>{currentYear} 年 {m} 月</div>
+                  {mData ? (
+                    <>
+                      <div>收益: {formatTooltipProfit(mData.profit)}</div>
+                      <div>收益率: {mData.return_rate >= 0 ? '+' : ''}{mData.return_rate.toFixed(2)}%</div>
+                    </>
+                  ) : (
+                    <div style={{ color: 'var(--text-muted)' }}>无数据</div>
+                  )}
+                </div>
+              );
+
+              // 主数字与副数字根据 showReturnRate 切换
+              const mainText = !hasData
+                ? ''
+                : showReturnRate
+                  ? `${mData!.return_rate >= 0 ? '+' : ''}${mData!.return_rate.toFixed(1)}%`
+                  : formatProfitShort(mData!.profit);
+              const subText = !hasData
+                ? ''
+                : showReturnRate
+                  ? formatProfitShort(mData!.profit)
+                  : `${mData!.return_rate >= 0 ? '+' : ''}${mData!.return_rate.toFixed(1)}%`;
+
+              return (
+                <Tooltip key={monthKey} title={tooltipContent} placement="top">
+                  <div
+                    className="year-grid-cell"
+                    style={cellStyle}
+                    onClick={() => { onMonthChange(currentYear, m); onGranularityChange('day'); }}
+                  >
+                    <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>{m} 月</span>
+                    {hasData && (
+                      <span style={{ fontSize: getDynamicFontSize(Math.abs(mData!.profit), 13, isMobile), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
+                        {mainText}
+                      </span>
+                    )}
+                    {hasData && (
+                      <span style={{ fontSize: getDynamicFontSize(Math.abs(mData!.return_rate), 10, isMobile), fontFamily: 'var(--font-mono)', color: textColor, opacity: 0.85, marginTop: 2 }}>
+                        {subText}
+                      </span>
+                    )}
+                  </div>
+                </Tooltip>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <>
+          {/* 年视图：多年年度网格（当前年前后各 3 年，共 7 年）。左侧导航+标题，右侧金额/收益率切换 */}
+          <div className="date-table-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button className="date-table-nav-btn" onClick={() => onYearChange(currentYear - 7)} aria-label="上 7 年">‹</button>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <span className="date-table-title">{yearStart} - {yearEnd} 年</span>
+                {!isCurrentYear && (
+                  <button className="date-table-back-btn" onClick={() => onYearChange(today.getFullYear())}>返回今年</button>
+                )}
+              </div>
+              <button className="date-table-nav-btn" onClick={() => onYearChange(currentYear + 7)} aria-label="下 7 年">›</button>
+            </div>
+            <Segmented
+              size="small"
+              value={showReturnRate ? 'rate' : 'amount'}
+              onChange={(v) => setShowReturnRate(v === 'rate')}
+              options={amountRateOptions}
+            />
+          </div>
+
+          {/* 多年网格 3 列 */}
+          <div className="year-grid-view" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            {years.map((y) => {
+              const yKey = String(y);
+              const yData = yearlyMap.get(yKey);
+              const hasData = !!yData && yData.return_rate !== 0;
+              const tierInfo = hasData ? getTier(yData!.return_rate) : null;
+              const isThisYear = y === today.getFullYear();
+
+              const cellStyle: React.CSSProperties = {
+                background: tierInfo ? getCellBg(tierInfo.tier, tierInfo.isGain) : 'var(--bg-card)',
+                boxShadow: isThisYear ? 'inset 0 0 0 2px var(--accent-gold)' : 'none',
+              };
+
+              const textColor = tierInfo
+                ? (tierInfo.tier === 1 ? (tierInfo.isGain ? 'var(--gain)' : 'var(--loss)') : '#fff')
+                : 'var(--text-secondary)';
+
+              const tooltipContent = (
+                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 2 }}>{y} 年</div>
+                  {yData ? (
+                    <>
+                      <div>收益: {formatTooltipProfit(yData.profit)}</div>
+                      <div>收益率: {yData.return_rate >= 0 ? '+' : ''}{yData.return_rate.toFixed(2)}%</div>
+                    </>
+                  ) : (
+                    <div style={{ color: 'var(--text-muted)' }}>无数据</div>
+                  )}
+                </div>
+              );
+
+              // 主数字与副数字根据 showReturnRate 切换
+              const mainText = !hasData
+                ? ''
+                : showReturnRate
+                  ? `${yData!.return_rate >= 0 ? '+' : ''}${yData!.return_rate.toFixed(1)}%`
+                  : formatProfitShort(yData!.profit);
+              const subText = !hasData
+                ? ''
+                : showReturnRate
+                  ? formatProfitShort(yData!.profit)
+                  : `${yData!.return_rate >= 0 ? '+' : ''}${yData!.return_rate.toFixed(1)}%`;
+
+              return (
+                <Tooltip key={yKey} title={tooltipContent} placement="top">
+                  <div
+                    className="year-grid-cell"
+                    style={cellStyle}
+                    onClick={() => { onYearChange(y); onGranularityChange('month'); }}
+                  >
+                    <span style={{ fontSize: 14, fontWeight: 600, color: textColor }}>{y} 年</span>
+                    {hasData && (
+                      <span style={{ fontSize: getDynamicFontSize(Math.abs(yData!.profit), 14, isMobile), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
+                        {mainText}
+                      </span>
+                    )}
+                    {hasData && (
+                      <span style={{ fontSize: getDynamicFontSize(Math.abs(yData!.return_rate), 11, isMobile), fontFamily: 'var(--font-mono)', color: textColor, opacity: 0.85, marginTop: 2 }}>
+                        {subText}
+                      </span>
+                    )}
+                  </div>
+                </Tooltip>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* 图例 */}
+      <div className="date-table-legend">
+        <span>亏损</span>
+        <div className="date-table-legend-group">
+          {legendLossColors.map((c, i) => (
+            <div key={`l-${i}`} className="date-table-legend-block" style={{ background: c }} />
+          ))}
+        </div>
+        <span>无</span>
+        <div className="date-table-legend-block" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }} />
+        <span>盈利</span>
+        <div className="date-table-legend-group">
+          {legendGainColors.map((c, i) => (
+            <div key={`g-${i}`} className="date-table-legend-block" style={{ background: c }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function StatsPage() {
   const [period, setPeriod] = useState<Period>('daily');
   const [data, setData] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>({});
   const [loading, setLoading] = useState(true);
+
+  // 视图模式：chart（图表明细）/ date_table（日期表格）
+  const [viewMode, setViewMode] = useState<ViewMode>('chart');
+  // 日历粒度：day（日历网格）/ month（12 月网格）/ year（多年年度网格）
+  const [calendarGranularity, setCalendarGranularity] = useState<CalendarGranularity>('day');
+  // 日历当前月份
+  const [currentMonth, setCurrentMonth] = useState({ year: new Date().getFullYear(), month: new Date().getMonth() + 1 });
+  // 日历当前年份（月/年视图用）
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  // 日历数据（日维度，日视图用）
+  const [calendarData, setCalendarData] = useState<{ date: string; profit: number; return_rate: number }[]>([]);
+  // 日历数据（月维度，月视图用）
+  const [calendarMonthlyData, setCalendarMonthlyData] = useState<{ month: string; profit: number; return_rate: number; accumulated_profit?: number }[]>([]);
+  // 日历数据（年维度，年视图用）
+  const [calendarYearlyData, setCalendarYearlyData] = useState<{ year: string; profit: number; return_rate: number; accumulated_profit?: number }[]>([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  // 日历视图联动概览卡片的统计数据（date_table 模式专用）
+  const [calendarSummary, setCalendarSummary] = useState<any>({});
 
   const formatLargeNumber = (value: number): { text: string; fontSize: number } => {
     const absValue = Math.abs(value);
@@ -96,6 +571,79 @@ export default function StatsPage() {
     }).finally(() => setLoading(false));
   }, [period]);
 
+  // 日期表格数据加载：当 viewMode === 'date_table' 或切换月份/年份/粒度时触发
+  useEffect(() => {
+    if (viewMode !== 'date_table') return;
+    setCalendarLoading(true);
+    if (calendarGranularity === 'day') {
+      // 日视图：加载当月每日数据
+      statsService.getDailyStats({ year: currentMonth.year, month: currentMonth.month })
+        .then((res) => {
+          const list = res.data || res.stats || res || [];
+          const safeList = Array.isArray(list) ? list : [];
+          setCalendarData(safeList);
+          setCalendarSummary(calculateCalendarSummary(safeList, 'day'));
+        })
+        .catch((err) => {
+          console.error('[StatsPage] 加载日历数据失败:', err);
+          setCalendarData([]);
+          setCalendarSummary(calculateCalendarSummary([], 'day'));
+        })
+        .finally(() => setCalendarLoading(false));
+    } else if (calendarGranularity === 'month') {
+      // 月视图：加载当年月度数据
+      statsService.getMonthlyStats({ year: currentYear })
+        .then((res) => {
+          const list = res.data || res.stats || res || [];
+          const safeList = Array.isArray(list) ? list : [];
+          setCalendarMonthlyData(safeList);
+          setCalendarSummary(calculateCalendarSummary(safeList, 'month'));
+        })
+        .catch((err) => {
+          console.error('[StatsPage] 加载月度数据失败:', err);
+          setCalendarMonthlyData([]);
+          setCalendarSummary(calculateCalendarSummary([], 'month'));
+        })
+        .finally(() => setCalendarLoading(false));
+    } else {
+      // 年视图：加载全部年度数据
+      statsService.getYearlyStats()
+        .then((res) => {
+          const list = res.data || res.stats || res || [];
+          const safeList = Array.isArray(list) ? list : [];
+          setCalendarYearlyData(safeList);
+          setCalendarSummary(calculateCalendarSummary(safeList, 'year'));
+        })
+        .catch((err) => {
+          console.error('[StatsPage] 加载年度数据失败:', err);
+          setCalendarYearlyData([]);
+          setCalendarSummary(calculateCalendarSummary([], 'year'));
+        })
+        .finally(() => setCalendarLoading(false));
+    }
+  }, [viewMode, currentMonth, currentYear, calendarGranularity]);
+
+  // 月份切换回调
+  const handleMonthChange = (year: number, month: number) => {
+    setCurrentMonth({ year, month });
+    // 同步年份，保证年视图与月视图年份一致
+    if (year !== currentYear) setCurrentYear(year);
+  };
+
+  // 年份切换回调
+  const handleYearChange = (year: number) => {
+    setCurrentYear(year);
+  };
+
+  // 粒度切换回调
+  const handleGranularityChange = (g: CalendarGranularity) => {
+    setCalendarGranularity(g);
+    // 切到月视图时同步 currentYear 与 currentMonth.year
+    if (g === 'month') {
+      setCurrentYear(currentMonth.year);
+    }
+  };
+
   const useMockData = () => {
     if (period === 'daily') {
       setData(MOCK_DAILY_DATA);
@@ -141,6 +689,32 @@ export default function StatsPage() {
       win_rate: (profits.filter(p => p >= 0).length / profits.length * 100),
       data_count: list.length,
     });
+  };
+
+  // 根据日历视图数据和粒度计算概览卡片所需指标（date_table 模式专用）
+  const calculateCalendarSummary = (
+    data: any[],
+    granularity: CalendarGranularity
+  ) => {
+    if (!data || data.length === 0) {
+      return { total_profit: 0, avg_return: 0, max_profit: 0, min_profit: 0, win_rate: 0, data_count: 0 };
+    }
+    const profits = data.map(d => d.profit ?? 0);
+    const returns = data.map(d => d.return_rate ?? 0);
+    const totalProfit = profits.reduce((a, b) => a + b, 0);
+    const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
+    const positiveCount = profits.filter(p => p > 0).length;
+    const winRate = (positiveCount / profits.length) * 100;
+    const maxProfit = Math.max(...profits);
+    const minProfit = Math.min(...profits);
+    return {
+      total_profit: totalProfit,
+      avg_return: avgReturn,
+      max_profit: maxProfit,
+      min_profit: minProfit,
+      win_rate: winRate,
+      data_count: data.length,
+    };
   };
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
@@ -241,10 +815,10 @@ export default function StatsPage() {
         type: 'bar',
         data: data.map((d) => d.profit ?? 0),
         barWidth: isMobile
-          ? (period === 'yearly' ? 30 : period === 'monthly' ? 16 : 10)   // ✅ 柱子变窄
-          : (period === 'yearly' ? 50 : period === 'monthly' ? 24 : 15), // ✅ 柱子变窄
-        barGap: isMobile ? '10%' : '5%',    // ✅ 柱子之间增加间距
-        barCategoryGap: isMobile ? '20%' : '15%',  // ✅ 类别之间的间距
+          ? (period === 'yearly' ? 30 : period === 'monthly' ? 16 : 10)
+          : (period === 'yearly' ? 50 : period === 'monthly' ? 24 : 15),
+        barGap: isMobile ? '10%' : '5%',
+        barCategoryGap: isMobile ? '20%' : '15%',
         itemStyle: {
           borderRadius: [isMobile ? 2 : 3, isMobile ? 2 : 3, 0, 0],
           color: (params: any) => {
@@ -301,8 +875,8 @@ export default function StatsPage() {
     grid: {
       top: isMobile ? 25 : 35,
       bottom: isMobile ? (data.length > 20 ? 40 : 30) : 35,
-      left: isMobile ? 42 : 55,   // ✅ 左边距，显示左侧Y轴
-      right: isMobile ? 38 : 48,   // ✅ 增加右边距，显示右侧Y轴
+      left: isMobile ? 42 : 55,
+      right: isMobile ? 38 : 48,
     },
   };
 
@@ -386,44 +960,108 @@ export default function StatsPage() {
     }] : []),
   ];
 
+  // 概览卡片数据源：date_table 模式使用日历视图联动统计，chart 模式使用全局 summary
+  const activeSummary = viewMode === 'date_table' ? calendarSummary : summary;
+  const activePeriod: Period = viewMode === 'date_table'
+    ? (calendarGranularity === 'day' ? 'daily' : calendarGranularity === 'month' ? 'monthly' : 'yearly')
+    : period;
+  // 粒度对应的中文单位字符（日/月/年）
+  const periodUnitChar = activePeriod === 'daily' ? '日' : activePeriod === 'monthly' ? '月' : '年';
+
+  // 概览卡片指标项配置
+  const overviewItems = [
+    {
+      label: `总${periodUnitChar}收益`,
+      value: hideAmount ? '****' : formatLargeNumber(activeSummary.total_profit ?? 0).text,
+      fontSize: formatLargeNumber(activeSummary.total_profit ?? 0).fontSize,
+      color: (activeSummary.total_profit ?? 0) >= 0 ? 'gain' : 'loss',
+    },
+    {
+      label: '平均收益率',
+      value: `${(activeSummary.avg_return ?? 0) >= 0 ? '+' : ''}${(activeSummary.avg_return ?? 0).toFixed(2)}%`,
+      fontSize: 24,
+      color: 'gold',
+    },
+    {
+      label: '盈利概率',
+      value: `${(activeSummary.win_rate ?? 0).toFixed(1)}%`,
+      fontSize: 20,
+      color: (activeSummary.win_rate ?? 0) >= 50 ? 'gain' : 'loss',
+    },
+    {
+      label: `最大单${periodUnitChar}盈利`,
+      value: `${(activeSummary.max_profit ?? 0) > 0 ? '+' : ''}${hideAmount ? '****' : `¥${Math.abs(activeSummary.max_profit ?? 0).toFixed(2)}`}`,
+      fontSize: 20,
+      color: 'gain',
+    },
+    {
+      label: `最大单${periodUnitChar}亏损`,
+      value: `${(activeSummary.min_profit ?? 0) < 0 ? '-' : ''}${hideAmount ? '****' : `¥${Math.abs(activeSummary.min_profit ?? 0).toFixed(2)}`}`,
+      fontSize: 20,
+      color: 'loss',
+    },
+    {
+      label: '数据条数',
+      value: `${activeSummary.data_count ?? 0}`,
+      fontSize: 20,
+      color: 'neutral',
+      unit: activePeriod === 'daily' ? '天' : activePeriod === 'monthly' ? '月' : '年',
+    },
+  ];
+
+  const colorMap: Record<string, string> = {
+    gain: 'var(--gain)',
+    loss: 'var(--loss)',
+    gold: 'var(--accent-gold)',
+    neutral: 'var(--text-primary)',
+  };
+
   return (
     <div className="stats-page-container" style={{ padding: '20px 16px', paddingBottom: 100 }}>
       {/* 移动端响应式优化样式 */}
       <style>{`
         @media screen and (max-width: 768px) {
-          /* 页面标题优化 */
           .stats-page-title {
             font-size: clamp(18px, 5vw, 22px) !important;
             margin-bottom: 16px !important;
             padding: 0 4px !important;
           }
 
-          /* 统计概览卡片 - 网格布局优化 */
           .stats-summary-card > .ant-card-body {
-            padding: 16px 12px !important;
+            padding: 12px 10px !important;
           }
 
-          .stats-summary-grid {
-            grid-template-columns: repeat(2, 1fr) !important;
-            gap: 12px !important;
+          .stats-overview-grid {
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 6px !important;
           }
 
-          /* 统计数据项 - 字体和间距优化 */
-          .stats-item-label {
-            font-size: clamp(10px, 2.5vw, 12px) !important;
-            margin-bottom: 4px !important;
+          .stats-overview-item {
+            min-height: 58px !important;
+            padding: 8px 6px 6px !important;
+            border-radius: 8px !important;
           }
 
-          .stats-item-value {
-            font-size: clamp(16px, 4.5vw, 24px) !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-            white-space: nowrap !important;
+          .stats-overview-item .stats-item-label {
+            font-size: 9px !important;
+            margin-bottom: 2px !important;
+            letter-spacing: 0.02em !important;
           }
 
-          /* 时间周期选择器 */
+          .stats-overview-item .stats-item-value {
+            font-size: clamp(11px, 3vw, 14px) !important;
+            white-space: normal !important;
+            word-break: break-all !important;
+            line-height: 1.2 !important;
+          }
+
+          /* 单位字号在移动端缩小 */
+          .stats-overview-item .stats-item-value .stats-item-unit {
+            font-size: 9px !important;
+          }
+
           .stats-segmented-wrapper {
-            margin-bottom: 16px !important;
+            margin-bottom: 12px !important;
             padding: 0 4px !important;
           }
 
@@ -436,7 +1074,6 @@ export default function StatsPage() {
             padding: 0 8px !important;
           }
 
-          /* 图表卡片优化 */
           .stats-chart-card {
             margin-bottom: 16px !important;
           }
@@ -445,29 +1082,19 @@ export default function StatsPage() {
             padding: 16px 8px !important;
           }
 
-          /* 图表容器和 Canvas 优化 */
           .stats-chart-container {
             height: clamp(260px, 45vw, 320px) !important;
             width: 100% !important;
             overflow: hidden !important;
           }
 
-          /* Canvas 元素本身优化 */
           .stats-chart-container canvas,
           .stats-chart-container div[data-zr-dom-id] {
             max-width: 100% !important;
-            touch-action: pan-y !important; /* 允许垂直滚动，禁止水平手势 */
+            touch-action: pan-y !important;
             -webkit-tap-highlight-color: transparent !important;
           }
 
-          /* ECharts tooltip 移动端优化 */
-          .stats-chart-container .echarts-tooltip {
-            font-size: 11px !important;
-            padding: 6px 10px !important;
-            border-radius: var(--radius-sm) !important;
-          }
-
-          /* 数据表格卡片 */
           .stats-table-card {
             margin-bottom: 16px !important;
           }
@@ -480,7 +1107,6 @@ export default function StatsPage() {
             font-size: clamp(14px, 3.5vw, 16px) !important;
           }
 
-          /* 表格本身优化 */
           .stats-table-card .ant-table {
             font-size: clamp(11px, 2.8vw, 13px) !important;
           }
@@ -496,16 +1122,49 @@ export default function StatsPage() {
             font-size: clamp(11px, 2.8vw, 13px) !important;
           }
 
-          /* 表格数字字体优化 */
           .stats-table-card .number-tabular {
             font-size: clamp(10px, 2.5vw, 12px) !important;
             white-space: nowrap !important;
           }
 
-          /* 整体页面间距优化 */
           .stats-page-container {
             padding: 12px 8px !important;
             padding-bottom: 80px !important;
+          }
+
+          /* 日期表格移动端样式 */
+          .date-table-view {
+            padding: 0 4px;
+          }
+
+          .date-table-header {
+            flex-wrap: wrap;
+            gap: 8px;
+          }
+
+          .date-table-grid {
+            grid-template-columns: repeat(7, minmax(36px, 1fr));
+            overflow-x: auto;
+          }
+
+          .date-table-cell {
+            min-width: 36px;
+          }
+
+          .year-grid-view {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
+          }
+
+          .year-grid-cell {
+            min-height: 70px;
+            padding: 10px 6px;
+          }
+
+          .date-table-legend {
+            flex-wrap: wrap;
+            gap: 6px;
+            font-size: 10px;
           }
         }
       `}</style>
@@ -521,261 +1180,345 @@ export default function StatsPage() {
         收益统计
       </div>
 
-      {/* 统计概览卡片 */}
+      {/* 美化后的统计概览卡片 */}
       <Card
         className="stats-summary-card"
         style={{
           marginBottom: 20,
-          background: isLight ? 'linear-gradient(135deg, rgba(184, 134, 11, 0.04), rgba(255, 255, 255, 0.9))' : 'linear-gradient(135deg, rgba(212, 168, 75, 0.05), rgba(17, 24, 39, 0.8))',
-          borderColor: isLight ? 'rgba(184, 134, 11, 0.12)' : 'rgba(212, 168, 75, 0.15)',
+          background: isLight
+            ? 'linear-gradient(135deg, rgba(46, 139, 123, 0.04), rgba(255, 255, 255, 0.9))'
+            : 'linear-gradient(135deg, rgba(212, 168, 75, 0.05), rgba(17, 24, 39, 0.8))',
+          borderColor: isLight ? 'rgba(46, 139, 123, 0.12)' : 'rgba(212, 168, 75, 0.15)',
           boxShadow: 'var(--shadow-lg)',
         }}
-        styles={{ body: { padding: '24px' } }}
+        styles={{ body: { padding: '20px' } }}
       >
-        <div style={{
+        {viewMode === 'date_table' && calendarLoading ? (
+          <Skeleton active paragraph={{ rows: 4 }} />
+        ) : (
+        <div className="stats-overview-grid" style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-          gap: 20,
-        }} className="stats-summary-grid">
-          <div>
-            <div className="stats-item-label" style={{
-              fontSize: 12,
-              color: 'var(--text-muted)',
-              fontWeight: 500,
-              marginBottom: 8,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: 12,
+        }}>
+          {overviewItems.map((item, idx) => (
+            <div key={idx} className="stats-overview-item" style={{
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 10,
+              padding: '12px',
+              minHeight: 84,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              transition: 'transform 0.15s ease, box-shadow 0.15s ease',
             }}>
-              总{period === 'daily' ? '日' : period === 'monthly' ? '月' : '年'}收益
+              <div className="stats-item-label" style={{
+                fontSize: 11,
+                color: 'var(--text-muted)',
+                fontWeight: 500,
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+              }}>
+                {item.label}
+              </div>
+              <div className="stats-item-value number-tabular" style={{
+                fontSize: isMobile ? Math.min(item.fontSize, 16) : item.fontSize,
+                fontWeight: 800,
+                color: colorMap[item.color],
+                fontFamily: 'var(--font-mono)',
+                letterSpacing: '-0.02em',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {item.value}
+                {item.unit && (
+                  <span className="stats-item-unit" style={{ fontSize: 13, color: 'var(--text-muted)', marginLeft: 4 }}>
+                    {item.unit}
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="stats-item-value number-tabular" style={{
-              fontSize: formatLargeNumber(summary.total_profit ?? 0).fontSize,
-              fontWeight: 800,
-              color: (summary.total_profit ?? 0) >= 0 ? 'var(--gain)' : 'var(--loss)',
-              fontFamily: 'var(--font-mono)',
-              letterSpacing: '-0.02em',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}>
-              {hideAmount ? '****' : formatLargeNumber(summary.total_profit ?? 0).text}
-            </div>
-          </div>
-
-          <div>
-            <div className="stats-item-label" style={{
-              fontSize: 12,
-              color: 'var(--text-muted)',
-              fontWeight: 500,
-              marginBottom: 8,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}>
-              平均收益率
-            </div>
-            <div className="stats-item-value number-tabular" style={{
-              fontSize: 24,
-              fontWeight: 800,
-              color: 'var(--accent-gold)',
-              fontFamily: 'var(--font-mono)',
-              letterSpacing: '-0.02em',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}>
-              {(summary.avg_return ?? 0) >= 0 ? '+' : ''}{(summary.avg_return ?? 0).toFixed(2)}%
-            </div>
-          </div>
-
-          <div>
-            <div className="stats-item-label" style={{
-              fontSize: 12,
-              color: 'var(--text-muted)',
-              fontWeight: 500,
-              marginBottom: 8,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}>
-              最大单日盈利
-            </div>
-            <div className="stats-item-value number-tabular" style={{
-              fontSize: 20,
-              fontWeight: 700,
-              color: 'var(--gain)',
-              fontFamily: 'var(--font-mono)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}>
-              {(summary.max_profit ?? 0) > 0 ? '+' : ''}{hideAmount ? '****' : `¥${Math.abs(summary.max_profit ?? 0).toFixed(2)}`}
-            </div>
-          </div>
-
-          <div>
-            <div className="stats-item-label" style={{
-              fontSize: 12,
-              color: 'var(--text-muted)',
-              fontWeight: 500,
-              marginBottom: 8,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}>
-              最大单日亏损
-            </div>
-            <div className="stats-item-value number-tabular" style={{
-              fontSize: 20,
-              fontWeight: 700,
-              color: 'var(--loss)',
-              fontFamily: 'var(--font-mono)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}>
-              {(summary.min_profit ?? 0) < 0 ? '-' : ''}{hideAmount ? '****' : `¥${Math.abs(summary.min_profit ?? 0).toFixed(2)}`}
-            </div>
-          </div>
-
-          <div>
-            <div className="stats-item-label" style={{
-              fontSize: 12,
-              color: 'var(--text-muted)',
-              fontWeight: 500,
-              marginBottom: 8,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}>
-              盈利概率
-            </div>
-            <div className="stats-item-value number-tabular" style={{
-              fontSize: 20,
-              fontWeight: 700,
-              color: (summary.win_rate ?? 0) >= 50 ? 'var(--gain)' : 'var(--loss)',
-              fontFamily: 'var(--font-mono)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}>
-              {(summary.win_rate ?? 0).toFixed(1)}%
-            </div>
-          </div>
-
-          <div>
-            <div className="stats-item-label" style={{
-              fontSize: 12,
-              color: 'var(--text-muted)',
-              fontWeight: 500,
-              marginBottom: 8,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}>
-              数据条数
-            </div>
-            <div className="stats-item-value number-tabular" style={{
-              fontSize: 20,
-              fontWeight: 700,
-              color: 'var(--text-primary)',
-              fontFamily: 'var(--font-mono)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}>
-              {summary.data_count ?? 0}
-              <span style={{ fontSize: 13, color: 'var(--text-muted)', marginLeft: 4 }}>
-                {period === 'daily' ? '天' : period === 'monthly' ? '月' : '年'}
-              </span>
-            </div>
-          </div>
+          ))}
         </div>
+        )}
       </Card>
 
-      {/* 时间周期选择器 */}
-      <div className="stats-segmented-wrapper" style={{ marginBottom: 20 }}>
+      {/* 视图模式切换控件 */}
+      <div className="stats-segmented-wrapper" style={{ marginBottom: 16 }}>
         <Segmented
-          value={period}
-          onChange={(v) => setPeriod(v as Period)}
+          value={viewMode}
+          onChange={(v) => setViewMode(v as ViewMode)}
           size="large"
           block
           options={[
-            { value: 'daily', label: '📊 日收益' },
-            { value: 'monthly', label: '📈 月收益' },
-            { value: 'yearly', label: '📉 年收益' },
+            { value: 'chart', label: '📊 图表明细' },
+            { value: 'date_table', label: '📅 日期表格' },
           ]}
         />
       </div>
 
-      {/* 图表和表格区域 */}
-      {loading ? (
-        <Skeleton active paragraph={{ rows: 10 }} />
-      ) : data.length === 0 ? (
-        <Empty
-          description={
-            <span style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
-              暂无收益数据
-            </span>
-          }
-          style={{ marginTop: 80 }}
-        />
-      ) : (
+      {/* 内容区域：根据视图模式渲染 */}
+      {viewMode === 'chart' ? (
         <>
-          {/* 图表卡片 */}
-          <Card
-            className="stats-chart-card"
-            style={{
-              marginBottom: 20,
-              background: 'var(--bg-elevated)',
-              borderColor: 'var(--border-subtle)',
-            }}
-            styles={{
-              body: { padding: '20px 16px' },
-            }}
-          >
-            <ReactECharts option={chartOption} style={{ height: 'clamp(280px, 50vw, 380px)' }} className="stats-chart-container" opts={{ renderer: 'canvas' }} />
-          </Card>
-
-          {/* 数据表格 */}
-          <Card
-            className="stats-table-card"
-            title={
-              <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
-                明细数据
-              </span>
-            }
-            style={{
-              background: 'var(--bg-elevated)',
-              borderColor: 'var(--border-subtle)',
-            }}
-            styles={{
-              header: {
-                borderBottom: '1px solid var(--border-subtle)',
-                padding: '16px 20px',
-              },
-              body: { padding: '0' },
-            }}
-          >
-            <Table
-              dataSource={[...data].reverse()}
-              columns={columns}
-              rowKey={(record) => {
-                const keyValue = record.date || record.month || record.year;
-                if (keyValue) return String(keyValue);
-                const fallbackKey = `row-${Math.random().toString(36).substr(2, 9)}`;
-                Object.defineProperty(record, '_fallbackKey', { value: fallbackKey, enumerable: false });
-                return fallbackKey;
-              }}
-              pagination={false}
-              size="middle"
-              scroll={{ x: period === 'daily' ? 400 : 550 }}
-              locale={{
-                emptyText: (
-                  <div style={{ padding: 40, color: 'var(--text-muted)', fontSize: 13 }}>
-                    暂无数据
-                  </div>
-                ),
-              }}
+          {/* 周期选择器（仅 chart 模式显示） */}
+          <div className="stats-segmented-wrapper" style={{ marginBottom: 20 }}>
+            <Segmented
+              value={period}
+              onChange={(v) => setPeriod(v as Period)}
+              size="large"
+              block
+              options={[
+                { value: 'daily', label: '📊 日收益' },
+                { value: 'monthly', label: '📈 月收益' },
+                { value: 'yearly', label: '📉 年收益' },
+              ]}
             />
-          </Card>
+          </div>
+
+          {/* 图表和表格区域 */}
+          {loading ? (
+            <Skeleton active paragraph={{ rows: 10 }} />
+          ) : data.length === 0 ? (
+            <Empty
+              description={
+                <span style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
+                  暂无收益数据
+                </span>
+              }
+              style={{ marginTop: 80 }}
+            />
+          ) : (
+            <>
+              {/* 图表卡片 */}
+              <Card
+                className="stats-chart-card"
+                style={{
+                  marginBottom: 20,
+                  background: 'var(--bg-elevated)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+                styles={{
+                  body: { padding: '20px 16px' },
+                }}
+              >
+                <ReactECharts option={chartOption} style={{ height: 'clamp(280px, 50vw, 380px)' }} className="stats-chart-container" opts={{ renderer: 'canvas' }} />
+              </Card>
+
+              {/* 数据表格 */}
+              <Card
+                className="stats-table-card"
+                title={
+                  <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
+                    明细数据
+                  </span>
+                }
+                style={{
+                  background: 'var(--bg-elevated)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+                styles={{
+                  header: {
+                    borderBottom: '1px solid var(--border-subtle)',
+                    padding: '16px 20px',
+                  },
+                  body: { padding: '0' },
+                }}
+              >
+                <Table
+                  dataSource={[...data].reverse()}
+                  columns={columns}
+                  rowKey={(record) => {
+                    const keyValue = record.date || record.month || record.year;
+                    if (keyValue) return String(keyValue);
+                    const fallbackKey = `row-${Math.random().toString(36).substr(2, 9)}`;
+                    Object.defineProperty(record, '_fallbackKey', { value: fallbackKey, enumerable: false });
+                    return fallbackKey;
+                  }}
+                  pagination={false}
+                  size="middle"
+                  scroll={{ x: period === 'daily' ? 400 : 550 }}
+                  locale={{
+                    emptyText: (
+                      <div style={{ padding: 40, color: 'var(--text-muted)', fontSize: 13 }}>
+                        暂无数据
+                      </div>
+                    ),
+                  }}
+                />
+              </Card>
+            </>
+          )}
         </>
-      )}
+      ) : (
+          /* 日期表格模式 */
+          <Card
+            className="stats-date-table-card"
+            style={{
+              background: 'var(--bg-elevated)',
+              borderColor: 'var(--border-subtle)',
+            }}
+            styles={{ body: { padding: '20px' } }}
+          >
+            {calendarLoading ? (
+              <Skeleton active paragraph={{ rows: 8 }} />
+            ) : (
+              <DateTableView
+                data={calendarData}
+                monthlyData={calendarMonthlyData}
+                yearlyData={calendarYearlyData}
+                currentMonth={currentMonth}
+                currentYear={currentYear}
+                granularity={calendarGranularity}
+                onMonthChange={handleMonthChange}
+                onYearChange={handleYearChange}
+                onGranularityChange={handleGranularityChange}
+                hideAmount={hideAmount}
+                isLight={isLight}
+                isMobile={isMobile}
+              />
+            )}
+          </Card>
+        )}
+
+      {/* 日期表格组件样式 */}
+      <style>{`
+        .date-table-view {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+        }
+        .date-table-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 16px;
+        }
+        .date-table-nav-btn {
+          width: 32px;
+          height: 32px;
+          border-radius: 8px;
+          border: 1px solid var(--border-default);
+          background: var(--bg-card);
+          color: var(--text-secondary);
+          cursor: pointer;
+          font-size: 16px;
+          line-height: 1;
+          transition: all 0.15s ease;
+          font-family: inherit;
+        }
+        .date-table-nav-btn:hover {
+          background: var(--bg-input);
+          border-color: var(--accent-gold);
+          color: var(--accent-gold);
+        }
+        .date-table-title {
+          font-size: 16px;
+          font-weight: 600;
+          color: var(--text-primary);
+          letter-spacing: -0.01em;
+        }
+        .date-table-back-btn {
+          font-size: 11px;
+          color: var(--accent-gold);
+          padding: 4px 12px;
+          border-radius: 999px;
+          background: var(--accent-gold-dim);
+          border: 0;
+          cursor: pointer;
+          font-family: inherit;
+          font-weight: 500;
+          transition: all 0.15s ease;
+        }
+        .date-table-back-btn:hover {
+          background: var(--accent-gold);
+          color: #fff;
+        }
+        .date-table-grid {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 4px;
+        }
+        .date-table-weekday {
+          font-size: 12px;
+          color: var(--text-muted);
+          text-align: center;
+          padding: 6px 0 8px;
+          font-weight: 500;
+          letter-spacing: 0.04em;
+        }
+        .date-table-cell {
+          aspect-ratio: 1 / 1;
+          border-radius: 6px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 2px;
+          cursor: pointer;
+          transition: transform 0.12s ease, border-color 0.12s ease;
+          border: 1px solid transparent;
+          position: relative;
+        }
+        .date-table-cell:hover {
+          transform: scale(1.08);
+          border-color: var(--border-default);
+          z-index: 2;
+          box-shadow: var(--shadow-soft);
+        }
+        .date-table-cell.empty {
+          background: transparent;
+          cursor: default;
+        }
+        .date-table-cell.empty:hover {
+          transform: none;
+          border-color: transparent;
+          box-shadow: none;
+        }
+        /* 年视图 12 月网格 */
+        .year-grid-view {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 8px;
+        }
+        .year-grid-cell {
+          border-radius: 8px;
+          padding: 12px 8px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: transform 0.12s ease, border-color 0.12s ease;
+          border: 1px solid transparent;
+          min-height: 80px;
+        }
+        .year-grid-cell:hover {
+          transform: scale(1.04);
+          border-color: var(--border-default);
+          z-index: 2;
+          box-shadow: var(--shadow-soft);
+        }
+        .date-table-legend {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-top: 16px;
+          padding-top: 12px;
+          border-top: 1px dashed var(--border-subtle);
+          font-size: 11px;
+          color: var(--text-tertiary);
+        }
+        .date-table-legend-group {
+          display: inline-flex;
+          align-items: center;
+          gap: 3px;
+        }
+        .date-table-legend-block {
+          width: 14px;
+          height: 14px;
+          border-radius: 3px;
+        }
+      `}</style>
     </div>
   );
 }
