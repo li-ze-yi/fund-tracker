@@ -452,23 +452,70 @@ async function getBondBenchmarkChange() {
 async function getStocksRealtime(stockCodes) {
   if (!stockCodes || stockCodes.length === 0) return {};
 
-  // 股票实时行情缓存（腾讯 qt.gtimg.cn）
-  const sortedCodes = [...stockCodes].sort();
-  const cacheKey = `stock_quotes_${sortedCodes.join(',')}`; // 股票实时行情缓存键
+  // 缓存策略：单只股票独立缓存（key: stock_quote_{code}）
+  // 数据来源：腾讯股票实时行情接口 qt.gtimg.cn
+  const result = {};
+  const needFetch = [];
 
-  return await globalCache.getOrFetch(cacheKey, async () => {
-    // 原有逻辑不变
-    const BATCH_SIZE = 50;
-    if (stockCodes.length <= BATCH_SIZE) {
-      return getStocksRealtimeBatch(stockCodes);
+  // 1. 逐只检查缓存是否命中
+  const ttl = globalCache.getTTL('stock_quote');
+  for (const code of stockCodes) {
+    const cacheKey = `stock_quote_${code}`;
+    const cached = globalCache.cache.get(cacheKey);
+    if (cached) {
+      const age = Date.now() - cached.timestamp;
+      if (age < ttl) {
+        // 缓存命中，直接放入结果对象
+        result[code] = cached.data;
+        continue;
+      }
+      // 缓存过期，删除僵尸条目
+      globalCache.cache.delete(cacheKey);
     }
-    const batches = [];
-    for (let i = 0; i < stockCodes.length; i += BATCH_SIZE) {
-      batches.push(stockCodes.slice(i, i + BATCH_SIZE));
+    // 未命中，加入待请求列表
+    needFetch.push(code);
+  }
+
+  console.log(`[getStocksRealtime] 共${stockCodes.length}只: 缓存命中${stockCodes.length - needFetch.length}只, 需请求${needFetch.length}只`);
+
+  // 2. 全部命中则直接返回，不请求外部 API
+  if (needFetch.length === 0) {
+    console.log(`[getStocksRealtime] 全部命中缓存，跳过外部API请求`);
+    return result;
+  }
+
+  // 3. 对未命中的股票调用 getStocksRealtimeBatch 批量请求（保留原有分批逻辑，BATCH_SIZE=50）
+  const BATCH_SIZE = 50;
+  const batches = [];
+  if (needFetch.length <= BATCH_SIZE) {
+    batches.push(needFetch);
+  } else {
+    for (let i = 0; i < needFetch.length; i += BATCH_SIZE) {
+      batches.push(needFetch.slice(i, i + BATCH_SIZE));
     }
-    const results = await Promise.all(batches.map(b => getStocksRealtimeBatch(b).catch(() => ({}))));
-    return Object.assign({}, ...results);
-  }, { type: 'stock_quote' }); // 股票实时行情缓存（腾讯 qt.gtimg.cn）
+  }
+  console.log(`[getStocksRealtime] 请求腾讯qt.gtimg.cn: ${needFetch.join(',')} (分${batches.length}批)`);
+
+  const batchResults = await Promise.all(
+    batches.map(b => getStocksRealtimeBatch(b).catch(() => ({})))
+  );
+  const fetchedMap = Object.assign({}, ...batchResults);
+
+  // 4. 批量请求返回后，逐只写入缓存并合并到结果对象
+  let writeCount = 0;
+  for (const code of needFetch) {
+    const quote = fetchedMap[code];
+    if (quote) {
+      // 写入单只股票独立缓存（type: stock_quote）
+      globalCache.set(`stock_quote_${code}`, quote, 'stock_quote');
+      result[code] = quote;
+      writeCount++;
+    }
+  }
+
+  console.log(`[getStocksRealtime] 完成: 请求${needFetch.length}只, 成功获取${writeCount}只, 失败${needFetch.length - writeCount}只`);
+
+  return result;
 }
 
 async function getStocksRealtimeBatch(stockCodes) {

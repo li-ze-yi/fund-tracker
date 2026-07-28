@@ -308,14 +308,44 @@ class GlobalCache {
   }
 
   /**
-   * 清理最旧的N个条目（LRU近似）
+   * 两阶段淘汰策略（先过期后 LRU）
+   *
+   * 阶段1：遍历所有条目，删除已过期的条目（age > ttl，ttl 按 value.type 调用 getTTL(type) 获取）
+   *   - 按 timestamp 从旧到新排序后删除，最多删除 count 个
+   * 阶段2：若阶段1淘汰数量不足 count，再按 timestamp 从旧到新淘汰未过期条目
+   *
+   * 示例：缓存满 500 条，需淘汰 50 条
+   *   - 若 80 条已过期 → 删除 50 条最旧的过期条目，不淘汰未过期条目
+   *   - 若 30 条已过期 → 删除 30 条过期条目 + 20 条最旧的未过期条目
+   *   - 若 0 条已过期 → 删除 50 条最旧的未过期条目
    */
   evictOldest(count) {
-    const entries = Array.from(this.cache.entries())
-      .sort((a, b) => a[1].timestamp - b[1].timestamp);
+    const now = Date.now();
+    let removed = 0;
 
-    for (let i = 0; i < Math.min(count, entries.length); i++) {
-      this.cache.delete(entries[i][0]);
+    // 阶段1：收集过期条目并按写入时间从旧到新排序，删除最多 count 个
+    const expired = [];
+    for (const [key, value] of this.cache.entries()) {
+      const ttl = this.getTTL(value.type);
+      if (now - value.timestamp > ttl) {
+        expired.push([key, value]);
+      }
+    }
+    expired.sort((a, b) => a[1].timestamp - b[1].timestamp);
+    for (const [key] of expired) {
+      if (removed >= count) break;
+      this.cache.delete(key);
+      removed++;
+    }
+
+    // 阶段2：淘汰数量不足时，按写入时间从旧到新淘汰未过期条目
+    if (removed < count) {
+      const remaining = count - removed;
+      const entries = Array.from(this.cache.entries())
+        .sort((a, b) => a[1].timestamp - b[1].timestamp);
+      for (let i = 0; i < Math.min(remaining, entries.length); i++) {
+        this.cache.delete(entries[i][0]);
+      }
     }
   }
 

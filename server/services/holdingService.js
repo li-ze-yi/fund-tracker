@@ -259,6 +259,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
           realtimeDataMap[code] = cached.data;
           return false;
         }
+        // 缓存过期，删除僵尸条目
+        globalCache.cache.delete(cacheKey);
       }
       return true;
     });
@@ -291,6 +293,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
           historyDataMap[code] = cached.data;
           return false;
         }
+        // 缓存过期，删除僵尸条目
+        globalCache.cache.delete(cacheKey);
       }
       return true;
     });

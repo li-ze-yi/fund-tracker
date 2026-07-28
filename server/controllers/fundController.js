@@ -493,6 +493,9 @@ exports.getNavHistory = async (req, res, next) => {
           // 情况3：缓存最新 < 昨天 → 缓存落后（至少缺了昨天的确认净值），直接重新请求
           console.log(`[FundController] 走势图缓存落后: ${code} (latestDate=${latestDate} < 昨天=${yesterday}), 重新请求`);
         }
+      } else {
+        // 缓存过期，删除僵尸条目
+        globalCache.cache.delete(cacheKey);
       }
     }
 
