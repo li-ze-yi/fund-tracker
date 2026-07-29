@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card, Segmented, Table, Skeleton, Empty, Tooltip } from 'antd';
+import { BarChartOutlined, CalendarOutlined, DollarOutlined, PercentageOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { statsService } from '@/services/statsService';
 import { useThemeStore } from '@/store/themeStore';
@@ -61,19 +62,14 @@ interface DateTableViewProps {
   hideAmount: boolean;
   isLight: boolean;
   isMobile: boolean;
+  // 收益率显示切换：false=显示金额，true=显示收益率（由主组件控制）
+  showReturnRate: boolean;
+  onShowReturnRateChange: (v: boolean) => void;
 }
 
 // 日期表格视图组件（日历网格 / 年度月份网格 / 多年年度网格）
-function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYear, granularity, onMonthChange, onYearChange, onGranularityChange, hideAmount, isLight, isMobile }: DateTableViewProps) {
+function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYear, granularity, onMonthChange, onYearChange, onGranularityChange, hideAmount, isLight, isMobile, showReturnRate, onShowReturnRateChange }: DateTableViewProps) {
   const { year, month } = currentMonth;
-
-  // 收益率显示切换：false=显示金额，true=显示收益率
-  const [showReturnRate, setShowReturnRate] = useState(false);
-
-  // 金额/收益率切换选项：桌面端显示文字，移动端显示图标
-  const amountRateOptions = isMobile
-    ? [{ value: 'amount', label: '¥' }, { value: 'rate', label: '%' }]
-    : [{ value: 'amount', label: '金额' }, { value: 'rate', label: '收益率' }];
 
   // 根据数字位数动态返回字号
   const getDynamicFontSize = (value: number, baseSize: number, isMobile: boolean): number => {
@@ -201,44 +197,46 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
   const legendLossColors = [1, 2, 3, 4].map((t) => getCellBg(t, false));
   const legendGainColors = [1, 2, 3, 4].map((t) => getCellBg(t, true));
 
+  // 日期导航参数（根据粒度统一计算，供第二行导航行使用）
+  const goPrev = granularity === 'day'
+    ? goPrevMonth
+    : granularity === 'month'
+      ? () => onYearChange(currentYear - 1)
+      : () => onYearChange(currentYear - 7);
+  const goNext = granularity === 'day'
+    ? goNextMonth
+    : granularity === 'month'
+      ? () => onYearChange(currentYear + 1)
+      : () => onYearChange(currentYear + 7);
+  const navTitle = granularity === 'day'
+    ? `${year} 年 ${month} 月`
+    : granularity === 'month'
+      ? `${currentYear} 年`
+      : `${yearStart} - ${yearEnd} 年`;
+  const isCurrent = granularity === 'day'
+    ? isCurrentMonth
+    : granularity === 'month'
+      ? isCurrentYear
+      : (yearStart <= today.getFullYear() && today.getFullYear() <= yearEnd);
+  const backToCurrent = granularity === 'day'
+    ? backToCurrentMonth
+    : () => onYearChange(today.getFullYear());
+  const backLabel = granularity === 'day' ? '返回本月' : '返回今年';
+
   return (
     <div className="date-table-view">
-      {/* 粒度切换（日/月/年）单独一行居中 */}
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-        <Segmented
-          size="small"
-          value={granularity}
-          onChange={(v) => onGranularityChange(v as CalendarGranularity)}
-          options={[
-            { value: 'day', label: '日' },
-            { value: 'month', label: '月' },
-            { value: 'year', label: '年' },
-          ]}
-        />
+      {/* 第二行：日期导航（居中） */}
+      <div className="date-table-header" style={{ justifyContent: 'center', marginBottom: 12 }}>
+        <button className="date-table-nav-btn" onClick={goPrev} aria-label="上一个">‹</button>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+          <span className="date-table-title">{navTitle}</span>
+          {!isCurrent && <button className="date-table-back-btn" onClick={backToCurrent}>{backLabel}</button>}
+        </div>
+        <button className="date-table-nav-btn" onClick={goNext} aria-label="下一个">›</button>
       </div>
 
       {granularity === 'day' ? (
         <>
-          {/* 月份切换头部：左侧导航+标题，右侧金额/收益率切换 */}
-          <div className="date-table-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <button className="date-table-nav-btn" onClick={goPrevMonth} aria-label="上一月">‹</button>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                <span className="date-table-title">{year} 年 {month} 月</span>
-                {!isCurrentMonth && (
-                  <button className="date-table-back-btn" onClick={backToCurrentMonth}>返回本月</button>
-                )}
-              </div>
-              <button className="date-table-nav-btn" onClick={goNextMonth} aria-label="下一月">›</button>
-            </div>
-            <Segmented
-              size="small"
-              value={showReturnRate ? 'rate' : 'amount'}
-              onChange={(v) => setShowReturnRate(v === 'rate')}
-              options={amountRateOptions}
-            />
-          </div>
-
           {/* 7 列网格 */}
           <div className="date-table-grid">
             {weekDays.map((d, i) => (
@@ -298,26 +296,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
         </>
       ) : granularity === 'month' ? (
         <>
-          {/* 月视图：12 个月网格。左侧导航+标题，右侧金额/收益率切换 */}
-          <div className="date-table-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <button className="date-table-nav-btn" onClick={() => onYearChange(currentYear - 1)} aria-label="上一年">‹</button>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                <span className="date-table-title">{currentYear} 年</span>
-                {!isCurrentYear && (
-                  <button className="date-table-back-btn" onClick={() => onYearChange(today.getFullYear())}>返回今年</button>
-                )}
-              </div>
-              <button className="date-table-nav-btn" onClick={() => onYearChange(currentYear + 1)} aria-label="下一年">›</button>
-            </div>
-            <Segmented
-              size="small"
-              value={showReturnRate ? 'rate' : 'amount'}
-              onChange={(v) => setShowReturnRate(v === 'rate')}
-              options={amountRateOptions}
-            />
-          </div>
-
+          {/* 月视图：12 个月网格 */}
           {/* 12 个月网格 4x3 */}
           <div className="year-grid-view">
             {Array.from({ length: 12 }, (_, i) => {
@@ -351,17 +330,12 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                 </div>
               );
 
-              // 主数字与副数字根据 showReturnRate 切换
+              // 只显示金额或收益率（根据 showReturnRate 切换），不同时显示
               const mainText = !hasData
                 ? ''
                 : showReturnRate
                   ? `${mData!.return_rate >= 0 ? '+' : ''}${mData!.return_rate.toFixed(1)}%`
                   : formatProfitShort(mData!.profit);
-              const subText = !hasData
-                ? ''
-                : showReturnRate
-                  ? formatProfitShort(mData!.profit)
-                  : `${mData!.return_rate >= 0 ? '+' : ''}${mData!.return_rate.toFixed(1)}%`;
 
               return (
                 <Tooltip key={monthKey} title={tooltipContent} placement="top">
@@ -376,11 +350,6 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                         {mainText}
                       </span>
                     )}
-                    {hasData && (
-                      <span style={{ fontSize: getDynamicFontSize(Math.abs(mData!.return_rate), 10, isMobile), fontFamily: 'var(--font-mono)', color: textColor, opacity: 0.85, marginTop: 2 }}>
-                        {subText}
-                      </span>
-                    )}
                   </div>
                 </Tooltip>
               );
@@ -389,26 +358,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
         </>
       ) : (
         <>
-          {/* 年视图：多年年度网格（当前年前后各 3 年，共 7 年）。左侧导航+标题，右侧金额/收益率切换 */}
-          <div className="date-table-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <button className="date-table-nav-btn" onClick={() => onYearChange(currentYear - 7)} aria-label="上 7 年">‹</button>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                <span className="date-table-title">{yearStart} - {yearEnd} 年</span>
-                {!isCurrentYear && (
-                  <button className="date-table-back-btn" onClick={() => onYearChange(today.getFullYear())}>返回今年</button>
-                )}
-              </div>
-              <button className="date-table-nav-btn" onClick={() => onYearChange(currentYear + 7)} aria-label="下 7 年">›</button>
-            </div>
-            <Segmented
-              size="small"
-              value={showReturnRate ? 'rate' : 'amount'}
-              onChange={(v) => setShowReturnRate(v === 'rate')}
-              options={amountRateOptions}
-            />
-          </div>
-
+          {/* 年视图：多年年度网格（当前年前后各 3 年，共 7 年） */}
           {/* 多年网格 3 列 */}
           <div className="year-grid-view" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
             {years.map((y) => {
@@ -441,17 +391,12 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                 </div>
               );
 
-              // 主数字与副数字根据 showReturnRate 切换
+              // 只显示金额或收益率（根据 showReturnRate 切换），不同时显示
               const mainText = !hasData
                 ? ''
                 : showReturnRate
                   ? `${yData!.return_rate >= 0 ? '+' : ''}${yData!.return_rate.toFixed(1)}%`
                   : formatProfitShort(yData!.profit);
-              const subText = !hasData
-                ? ''
-                : showReturnRate
-                  ? formatProfitShort(yData!.profit)
-                  : `${yData!.return_rate >= 0 ? '+' : ''}${yData!.return_rate.toFixed(1)}%`;
 
               return (
                 <Tooltip key={yKey} title={tooltipContent} placement="top">
@@ -464,11 +409,6 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                     {hasData && (
                       <span style={{ fontSize: getDynamicFontSize(Math.abs(yData!.profit), 14, isMobile), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
                         {mainText}
-                      </span>
-                    )}
-                    {hasData && (
-                      <span style={{ fontSize: getDynamicFontSize(Math.abs(yData!.return_rate), 11, isMobile), fontFamily: 'var(--font-mono)', color: textColor, opacity: 0.85, marginTop: 2 }}>
-                        {subText}
                       </span>
                     )}
                   </div>
@@ -523,6 +463,8 @@ export default function StatsPage() {
   const [calendarLoading, setCalendarLoading] = useState(false);
   // 日历视图联动概览卡片的统计数据（date_table 模式专用）
   const [calendarSummary, setCalendarSummary] = useState<any>({});
+  // 收益率显示切换：false=显示金额，true=显示收益率（date_table 模式用，提升到主组件以便第一行控件统一控制）
+  const [showReturnRate, setShowReturnRate] = useState(false);
 
   const formatLargeNumber = (value: number): { text: string; fontSize: number } => {
     const absValue = Math.abs(value);
@@ -722,6 +664,36 @@ export default function StatsPage() {
   const isLight = themeMode === 'light';
   const hideAmount = useHideAmountStore((s) => s.hidden);
 
+  // 视图模式选项：移动端用图标，桌面端用图标+文字
+  const viewModeOptions = isMobile
+    ? [{ value: 'chart', label: <BarChartOutlined /> }, { value: 'date_table', label: <CalendarOutlined /> }]
+    : [{ value: 'chart', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><BarChartOutlined />图表</span> }, { value: 'date_table', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CalendarOutlined />表格</span> }];
+
+  // 统一粒度选项 value（使用 chart 模式的 daily/monthly/yearly）
+  const granularityOptions = isMobile
+    ? [{ value: 'daily', label: '日' }, { value: 'monthly', label: '月' }, { value: 'yearly', label: '年' }]
+    : [{ value: 'daily', label: '日' }, { value: 'monthly', label: '月' }, { value: 'yearly', label: '年' }];
+
+  // 金额/收益率切换选项：移动端用图标，桌面端用图标+文字
+  const amountRateOptions = isMobile
+    ? [{ value: 'amount', label: <DollarOutlined /> }, { value: 'rate', label: <PercentageOutlined /> }]
+    : [{ value: 'amount', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><DollarOutlined />金额</span> }, { value: 'rate', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><PercentageOutlined />收益率</span> }];
+
+  // 当前粒度值（统一为 daily/monthly/yearly）
+  const currentGranularity = viewMode === 'chart'
+    ? period
+    : (calendarGranularity === 'day' ? 'daily' : calendarGranularity === 'month' ? 'monthly' : 'yearly');
+
+  // 统一粒度切换处理：根据当前视图模式转换 value
+  const handleGranularityChangeUnified = (v: string) => {
+    if (viewMode === 'chart') {
+      setPeriod(v as Period);
+    } else {
+      const g = v === 'daily' ? 'day' : v === 'monthly' ? 'month' : 'year';
+      handleGranularityChange(g as CalendarGranularity);
+    }
+  };
+
   const chartOption = {
     backgroundColor: 'transparent',
     tooltip: {
@@ -736,6 +708,14 @@ export default function StatsPage() {
         const value = Number(p.value);
         const isPositive = value >= 0;
         const label = period === 'daily' ? '日期' : period === 'monthly' ? '月份' : '年份';
+        if (showReturnRate) {
+          return `
+            <div style="font-weight: 600; margin-bottom: ${isMobile ? '4px' : '6px'}; color: ${isLight ? '#64748B' : '#94A3B8'}; font-size: ${isMobile ? '12px' : '13px'};">${p.name}</div>
+            <div style="color: ${isPositive ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E')}; font-weight: 700; font-size: ${isMobile ? '13px' : '14px'};">
+              收益率: ${isPositive ? '+' : ''}${value.toFixed(2)}%
+            </div>
+          `;
+        }
         const unit = period === 'daily' || period === 'monthly' ? '元' : '万元';
         const displayValue = period === 'yearly' ? (value / 10000).toFixed(2) : value.toFixed(2);
         return `
@@ -748,6 +728,7 @@ export default function StatsPage() {
       },
     },
     legend: {
+      show: !showReturnRate,
       data: ['收益金额', '收益率'],
       top: 0,
       right: isMobile ? 10 : 20,
@@ -778,7 +759,21 @@ export default function StatsPage() {
       axisLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' } },
       axisTick: { show: false },
     },
-    yAxis: [
+    yAxis: showReturnRate ? [
+      {
+        type: 'value',
+        name: '%',
+        position: 'left',
+        axisLabel: {
+          fontSize: isMobile ? 10 : 11,
+          color: isLight ? '#64748B' : '#94A3B8',
+          formatter: '{value}%',
+        },
+        splitLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)', type: 'dashed' } },
+        axisLine: { show: false },
+        nameTextStyle: { color: '#64748B', fontSize: isMobile ? 9 : 10, padding: [0, 0, 0, -35] },
+      },
+    ] : [
       {
         type: 'value',
         name: '收益',
@@ -809,7 +804,41 @@ export default function StatsPage() {
         nameTextStyle: { color: '#64748B', fontSize: isMobile ? 9 : 10, padding: [0, -15, 0, 0] },
       },
     ],
-    series: [
+    series: showReturnRate ? [
+      {
+        name: '收益率',
+        type: 'bar',
+        data: data.map((d) => d.return_rate ?? 0),
+        barWidth: isMobile
+          ? (period === 'yearly' ? 30 : period === 'monthly' ? 16 : 10)
+          : (period === 'yearly' ? 50 : period === 'monthly' ? 24 : 15),
+        barGap: isMobile ? '10%' : '5%',
+        barCategoryGap: isMobile ? '20%' : '15%',
+        itemStyle: {
+          borderRadius: [isMobile ? 2 : 3, isMobile ? 2 : 3, 0, 0],
+          color: (params: any) => {
+            const value = params.value;
+            if (value > 0) return {
+              type: 'linear',
+              x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: isLight ? 'rgba(220, 38, 38, 0.85)' : 'rgba(239, 68, 68, 0.9)' },
+                { offset: 1, color: isLight ? 'rgba(220, 38, 38, 0.35)' : 'rgba(239, 68, 68, 0.4)' },
+              ],
+            };
+            if (value < 0) return {
+              type: 'linear',
+              x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: isLight ? 'rgba(22, 163, 74, 0.35)' : 'rgba(34, 197, 94, 0.4)' },
+                { offset: 1, color: isLight ? 'rgba(22, 163, 74, 0.85)' : 'rgba(34, 197, 94, 0.9)' },
+              ],
+            };
+            return 'rgba(148, 163, 184, 0.3)';
+          },
+        },
+      },
+    ] : [
       {
         name: '收益金额',
         type: 'bar',
@@ -890,7 +919,7 @@ export default function StatsPage() {
         <span className="number-tabular" style={{ fontWeight: 500, fontSize: 13 }}>{v}</span>
       ),
     },
-    {
+    ...(showReturnRate ? [] : [{
       title: '收益金额',
       dataIndex: 'profit',
       key: 'profit',
@@ -912,8 +941,8 @@ export default function StatsPage() {
           </span>
         );
       },
-    },
-    {
+    }]),
+    ...(showReturnRate ? [{
       title: '收益率',
       dataIndex: 'return_rate',
       key: 'return_rate',
@@ -935,8 +964,8 @@ export default function StatsPage() {
           </span>
         );
       },
-    },
-    ...(period !== 'daily' ? [{
+    }] : []),
+    ...(period !== 'daily' && !showReturnRate ? [{
       title: '累计收益',
       dataIndex: 'accumulated_profit',
       key: 'accumulated_profit',
@@ -1072,6 +1101,31 @@ export default function StatsPage() {
           .stats-segmented-wrapper .ant-segmented-item {
             font-size: clamp(11px, 2.8vw, 13px) !important;
             padding: 0 8px !important;
+          }
+
+          /* 第一行控件并排容器：移动端紧凑显示（缩宽不降高） */
+          .stats-controls-row .ant-segmented {
+            font-size: 12px;
+          }
+
+          .stats-controls-row .ant-segmented-item {
+            padding: 0 4px !important;
+            min-height: 28px !important;
+            line-height: 28px !important;
+            border-radius: 8px !important;
+            min-width: 32px !important;
+          }
+
+          .stats-controls-row .ant-segmented-item .anticon {
+            font-size: 14px !important;
+          }
+
+          .stats-controls-row .ant-segmented-item-selected {
+            font-weight: 500;
+          }
+
+          .stats-controls-row .ant-segmented-thumb {
+            border-radius: 8px !important;
           }
 
           .stats-chart-card {
@@ -1245,38 +1299,34 @@ export default function StatsPage() {
         )}
       </Card>
 
-      {/* 视图模式切换控件 */}
-      <div className="stats-segmented-wrapper" style={{ marginBottom: 16 }}>
+      {/* 第一行：控件并排（组合背景容器，左/中/右分布） */}
+      <div className="stats-controls-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: isMobile ? 6 : 24, flexWrap: 'nowrap', marginBottom: 16, padding: isMobile ? '5px 7px' : '10px 18px', background: isLight ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.1)', borderRadius: 16, maxWidth: '680px', margin: '0 auto 16px' }}>
+        {/* 柱状图/表格切换（两种模式都显示） */}
         <Segmented
           value={viewMode}
           onChange={(v) => setViewMode(v as ViewMode)}
-          size="large"
-          block
-          options={[
-            { value: 'chart', label: '📊 图表明细' },
-            { value: 'date_table', label: '📅 日期表格' },
-          ]}
+          size={isMobile ? 'small' : 'large'}
+          options={viewModeOptions}
+        />
+        {/* 粒度/周期选择器（两种模式都显示，value 统一为 daily/monthly/yearly） */}
+        <Segmented
+          value={currentGranularity}
+          onChange={(v) => handleGranularityChangeUnified(v as string)}
+          size={isMobile ? 'small' : 'large'}
+          options={granularityOptions}
+        />
+        {/* 金额/收益率切换（两种模式都显示） */}
+        <Segmented
+          value={showReturnRate ? 'rate' : 'amount'}
+          onChange={(v) => setShowReturnRate(v === 'rate')}
+          size={isMobile ? 'small' : 'large'}
+          options={amountRateOptions}
         />
       </div>
 
       {/* 内容区域：根据视图模式渲染 */}
       {viewMode === 'chart' ? (
         <>
-          {/* 周期选择器（仅 chart 模式显示） */}
-          <div className="stats-segmented-wrapper" style={{ marginBottom: 20 }}>
-            <Segmented
-              value={period}
-              onChange={(v) => setPeriod(v as Period)}
-              size="large"
-              block
-              options={[
-                { value: 'daily', label: '📊 日收益' },
-                { value: 'monthly', label: '📈 月收益' },
-                { value: 'yearly', label: '📉 年收益' },
-              ]}
-            />
-          </div>
-
           {/* 图表和表格区域 */}
           {loading ? (
             <Skeleton active paragraph={{ rows: 10 }} />
@@ -1358,6 +1408,8 @@ export default function StatsPage() {
             style={{
               background: 'var(--bg-elevated)',
               borderColor: 'var(--border-subtle)',
+              maxWidth: '720px',
+              margin: '0 auto',
             }}
             styles={{ body: { padding: '20px' } }}
           >
@@ -1377,6 +1429,8 @@ export default function StatsPage() {
                 hideAmount={hideAmount}
                 isLight={isLight}
                 isMobile={isMobile}
+                showReturnRate={showReturnRate}
+                onShowReturnRateChange={setShowReturnRate}
               />
             )}
           </Card>
@@ -1386,6 +1440,38 @@ export default function StatsPage() {
       <style>{`
         .date-table-view {
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+        }
+        /* 第一行控件现代简约样式：组合背景容器 */
+        .stats-controls-row {
+          box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+        }
+        .stats-controls-row .ant-segmented {
+          background: var(--bg-elevated);
+          border-radius: 12px;
+          padding: 2px;
+        }
+        .stats-controls-row .ant-segmented-item {
+          border-radius: 10px;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          display: inline-flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+        }
+        .stats-controls-row .ant-segmented-item-selected {
+          background: var(--accent-gold);
+          color: #fff;
+          box-shadow: 0 2px 6px rgba(212, 160, 23, 0.25);
+          font-weight: 500;
+        }
+        .stats-controls-row .ant-segmented-thumb {
+          border-radius: 10px;
+          background: var(--accent-gold);
+          box-shadow: 0 2px 6px rgba(212, 160, 23, 0.25);
+        }
+        .stats-controls-row .ant-segmented-item .anticon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
         }
         .date-table-header {
           display: flex;
