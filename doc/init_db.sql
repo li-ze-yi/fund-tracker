@@ -143,7 +143,7 @@ CREATE TABLE `user_settings` (
   `id` int NOT NULL AUTO_INCREMENT,
   `user_id` int NOT NULL,
   `refresh_frequency` int NOT NULL DEFAULT '30',
-  `valuation_method` varchar(20) DEFAULT 'tencent' COMMENT '盘中估算方式: tencent=腾讯基金, holdings=持仓穿透',
+  `valuation_method` varchar(20) DEFAULT 'holdings' COMMENT '盘中估算方式: auto=自动, sina=新浪财经, holdings=持仓穿透',
   `valuation_overrides` text DEFAULT NULL COMMENT '单基金覆盖设置，如 {"161725":"holdings"}',
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),

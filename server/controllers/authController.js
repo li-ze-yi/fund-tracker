@@ -24,7 +24,7 @@ exports.register = async (req, res, next) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const userId = await User.create(username, hashedPassword);
-    await UserSetting.upsert(userId, 30);
+    await UserSetting.upsert(userId, 30, 'holdings');
 
     const newUser = await User.findById(userId);
     const role = newUser.role || 'user';

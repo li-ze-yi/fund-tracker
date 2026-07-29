@@ -3,7 +3,7 @@ const UserSetting = require('../models/userSetting');
 exports.get = async (req, res, next) => {
   try {
     const settings = await UserSetting.findByUserId(req.user.id);
-    // 兼容旧数据：将 'tencent' 映射为 'sina'（腾讯接口已替换为新浪）
+    // 兼容旧数据：将 'tencent' 映射为 'holdings'（腾讯接口已废弃，统一回退到持仓穿透）
     let valuationMethod = settings?.valuation_method || 'holdings';
     if (valuationMethod === 'tencent') valuationMethod = 'holdings';
     res.json({

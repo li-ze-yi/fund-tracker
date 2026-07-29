@@ -20,7 +20,7 @@ const UserSetting = {
     await pool.query(
       `INSERT INTO user_settings (user_id, refresh_frequency, valuation_method, valuation_overrides) VALUES (?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE refresh_frequency = VALUES(refresh_frequency), valuation_method = VALUES(valuation_method), valuation_overrides = VALUES(valuation_overrides)`,
-      [userId, refreshFrequency || 30, valuationMethod || 'tencent', overridesJson]
+      [userId, refreshFrequency || 30, valuationMethod || 'holdings', overridesJson]
     );
   },
 
