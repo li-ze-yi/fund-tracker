@@ -251,16 +251,11 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     const needFetch = forceRefresh ? codes : codes.filter(code => {
       const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
       const cacheKey = `realtime_${code}_${effectiveMethod}`;
-      const cached = globalCache.cache.get(cacheKey);
-      if (cached) {
-        const ttl = globalCache.getTTL('realtime');
-        const age = Date.now() - cached.timestamp;
-        if (age < ttl) {
-          realtimeDataMap[code] = cached.data;
-          return false;
-        }
-        // 缓存过期，删除僵尸条目
-        globalCache.cache.delete(cacheKey);
+      // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
+      const result = globalCache.checkCache(cacheKey, 'realtime');
+      if (result.hit) {
+        realtimeDataMap[code] = result.data;
+        return false;
       }
       return true;
     });
@@ -285,16 +280,11 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const historyNeedFetch = codes.filter(code => {
       const cacheKey = `history_${code}_3d_${today}`;
-      const cached = globalCache.cache.get(cacheKey);
-      if (cached) {
-        const ttl = globalCache.getTTL('history_recent');
-        const age = Date.now() - cached.timestamp;
-        if (age < ttl) {
-          historyDataMap[code] = cached.data;
-          return false;
-        }
-        // 缓存过期，删除僵尸条目
-        globalCache.cache.delete(cacheKey);
+      // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
+      const result = globalCache.checkCache(cacheKey, 'history_recent');
+      if (result.hit) {
+        historyDataMap[code] = result.data;
+        return false;
       }
       return true;
     });
