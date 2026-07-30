@@ -37,7 +37,8 @@ class GlobalCache {
       hits: 0,           // 命中次数
       misses: 0,         // 未命中次数
       evictions: 0,      // 过期清理次数
-      totalRequests: 0   // 总请求数
+      totalRequests: 0,  // 总请求数
+      forcedRefreshes: 0 // 强制刷新次数（getOrFetch forceRefresh 路径）
     };
     
     // 最大缓存条目数（防止内存溢出）
@@ -126,6 +127,7 @@ class GlobalCache {
 
     // 1️⃣ 强制刷新模式
     if (forceRefresh) {
+      this.stats.forcedRefreshes++;
       console.log(`[GlobalCache] 强制刷新: ${key}`);
       const data = await fetchFn();
       this.set(key, data, type);
@@ -175,6 +177,43 @@ class GlobalCache {
       console.error(`[GlobalCache] 获取数据失败: ${key}`, error.message);
       throw error;
     }
+  }
+
+  /**
+   * 检查缓存命中状态（手动路径专用，统一统计口径）
+   *
+   * 与 getOrFetch 的区别：
+   * - getOrFetch：未命中时自动调用 fetchFn 拉取数据并写入缓存
+   * - checkCache：仅检查缓存，不拉取数据，由调用方决定后续操作
+   *
+   * 统计更新：
+   * - totalRequests++（每次调用）
+   * - hits++（命中且未过期）
+   * - misses++（未命中或已过期）
+   * - evictions++（命中但已过期，删除僵尸条目）
+   *
+   * @param {string} key - 缓存键
+   * @param {string} type - 缓存类型（用于计算 TTL）
+   * @returns {{ hit: boolean, data: any|null }} - hit=true 时 data 为缓存数据
+   */
+  checkCache(key, type = 'realtime') {
+    this.stats.totalRequests++;
+    const cached = this.cache.get(key);
+    if (cached) {
+      const ttl = this.getTTL(type);
+      const age = Date.now() - cached.timestamp;
+      if (age < ttl) {
+        // ✅ 命中且未过期
+        this.stats.hits++;
+        return { hit: true, data: cached.data };
+      }
+      // ⏰ 命中但已过期，删除僵尸条目
+      this.cache.delete(key);
+      this.stats.evictions++;
+    }
+    // ❌ 未命中（或已过期删除后）
+    this.stats.misses++;
+    return { hit: false, data: null };
   }
 
   /**
@@ -335,6 +374,7 @@ class GlobalCache {
     for (const [key] of expired) {
       if (removed >= count) break;
       this.cache.delete(key);
+      this.stats.evictions++;
       removed++;
     }
 
@@ -345,6 +385,7 @@ class GlobalCache {
         .sort((a, b) => a[1].timestamp - b[1].timestamp);
       for (let i = 0; i < Math.min(remaining, entries.length); i++) {
         this.cache.delete(entries[i][0]);
+        this.stats.evictions++;
       }
     }
   }
@@ -362,7 +403,7 @@ class GlobalCache {
    */
   getStats() {
     return {
-      ...this.stats,
+      ...this.stats,  // 包含 hits/misses/evictions/totalRequests/forcedRefreshes
       hitRate: `${this.getHitRate()}%`,
       size: this.cache.size,
       maxSize: this.maxSize,
@@ -380,7 +421,7 @@ class GlobalCache {
     console.log(`[GlobalCache] 缓存已清空: 移除${size}个条目`);
     
     // 重置统计
-    this.stats = { hits: 0, misses: 0, evictions: 0, totalRequests: 0 };
+    this.stats = { hits: 0, misses: 0, evictions: 0, totalRequests: 0, forcedRefreshes: 0 };
   }
 
   /**

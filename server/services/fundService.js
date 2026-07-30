@@ -457,20 +457,14 @@ async function getStocksRealtime(stockCodes) {
   const result = {};
   const needFetch = [];
 
-  // 1. 逐只检查缓存是否命中
-  const ttl = globalCache.getTTL('stock_quote');
+  // 1. 逐只检查缓存是否命中（改用 checkCache 统一统计口径）
   for (const code of stockCodes) {
     const cacheKey = `stock_quote_${code}`;
-    const cached = globalCache.cache.get(cacheKey);
-    if (cached) {
-      const age = Date.now() - cached.timestamp;
-      if (age < ttl) {
-        // 缓存命中，直接放入结果对象
-        result[code] = cached.data;
-        continue;
-      }
-      // 缓存过期，删除僵尸条目
-      globalCache.cache.delete(cacheKey);
+    const cacheResult = globalCache.checkCache(cacheKey, 'stock_quote');
+    if (cacheResult.hit) {
+      // 缓存命中，直接放入结果对象
+      result[code] = cacheResult.data;
+      continue;
     }
     // 未命中，加入待请求列表
     needFetch.push(code);
