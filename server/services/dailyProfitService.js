@@ -1,7 +1,6 @@
 const DailyProfit = require('../models/dailyProfit');
 const Holding = require('../models/holding');
 const pool = require('../config/database');
-const fundService = require('./fundService');
 const globalCache = require('./globalCache');
 const holdingService = require('./holdingService');
 
@@ -68,9 +67,20 @@ class DailyProfitService {
         return null;
       }
 
-      // ★ 第一步：逐只检查哪些基金今天已确认
-      const confirmationResult = await this.checkConfirmedFunds(holdingsWithRealTimeData, today);
-      const { confirmedFunds, unconfirmedFunds } = confirmationResult;
+      // ★ 第一步：直接复用 holdingService 已计算的确认状态（不重复请求1天历史数据）
+      const confirmedFunds = [];
+      const unconfirmedFunds = [];
+      for (const holding of holdingsWithRealTimeData) {
+        if (holding.is_confirmed === true) {
+          confirmedFunds.push(holding);
+        } else {
+          if (holding.is_confirmed !== false) {
+            // is_confirmed 为 undefined/null 时打印警告
+            console.warn(`[DailyProfit] ⚠️ 基金 ${holding.fund_code} 缺少 is_confirmed 字段，按未确认处理`);
+          }
+          unconfirmedFunds.push(holding);
+        }
+      }
 
       console.log(`[DailyProfit] 已确认: ${confirmedFunds.length}/${holdingsWithRealTimeData.length}`);
       if (confirmedFunds.length > 0) {
@@ -149,36 +159,6 @@ class DailyProfitService {
   }
 
   /**
-   * 检查哪些基金今天已确认（有历史净值记录）
-   */
-  async checkConfirmedFunds(holdings, today) {
-    const results = await Promise.all(
-      holdings.map(async (holding) => {
-        try {
-          const history = await globalCache.getOrFetch(
-            `history_${holding.fund_code}_1d_${today}`, // 日收益确认历史净值缓存（eastmoney/lsjz）
-            () => fundService.getHistoryNetValues(holding.fund_code, today, today),
-            { type: 'history_recent' } // 近期历史净值缓存
-          );
-          const isConfirmed = history && history.length > 0;
-          return {
-            ...holding,
-            confirmed: isConfirmed,
-            historyData: isConfirmed ? history[0] : null
-          };
-        } catch (error) {
-          return { ...holding, confirmed: false, error: error.message };
-        }
-      })
-    );
-
-    const confirmedFunds = results.filter(f => f.confirmed);
-    const unconfirmedFunds = results.filter(f => !f.confirmed);
-
-    return { confirmedFunds, unconfirmedFunds };
-  }
-
-  /**
    * ★ 核心计算：仅基于已确认基金的当日收益
    *
    * 直接使用 holdingService 计算的 daily_profit 值（与持仓界面一致）
@@ -213,7 +193,7 @@ class DailyProfitService {
         market_value: Math.round(marketValue * 100) / 100,
         cost_price: costPrice,
         total_cost: Math.round(totalCostForFund * 100) / 100,
-        daily_profit: Math.round(dailyProfit * 100) / 100, // ★ 直接使用holdingService的值
+        daily_profit: Math.round(dailyProfit * 100) / 100,
         gain_percent: fund.estimated_change || 0,
         data_source: 'actual',
         update_status: 'confirmed'

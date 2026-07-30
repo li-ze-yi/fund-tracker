@@ -462,7 +462,8 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
       update_status: 'market_closed',
       data_source: 'actual',
       fund_code: holding.fund_code,
-      day_of_week: marketStatus.dayOfWeek || dayNames[now.getDay()]
+      day_of_week: marketStatus.dayOfWeek || dayNames[now.getDay()],
+      is_confirmed: isConfirmed  // ★ 新增：暴露确认状态供 dailyProfitService 复用
     };
   }
 
@@ -513,7 +514,8 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     is_fresh: is_fresh,
     update_status: update_status,
     data_source: data_source,
-    fund_code: holding.fund_code
+    fund_code: holding.fund_code,
+    is_confirmed: isConfirmed  // ★ 新增：暴露确认状态供 dailyProfitService 复用
   };
 }
 
