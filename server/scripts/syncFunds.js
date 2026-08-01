@@ -7,10 +7,10 @@ async function sync() {
   try {
     const funds = await fundService.getAllFunds();
 
-    // 基金数据格式: ["000001","基金名称","",...]
+    // 基金数据格式(东方财富fundcode_search.js): ["000001","拼音缩写","基金名称","基金类型","拼音全称"]
     const values = funds
-      .filter(f => f[0] && f[1])
-      .map(f => [f[0], f[1], f[2] || '未知']);
+      .filter(f => f[0] && f[2])
+      .map(f => [f[0], f[2], f[3] || '未知']);
 
     const batchSize = 1000;
     let inserted = 0;
@@ -21,7 +21,7 @@ async function sync() {
       const flatValues = batch.flat();
 
       const [result] = await pool.query(
-        `INSERT IGNORE INTO funds (code, name, type) VALUES ${placeholders}`,
+        `INSERT INTO funds (code, name, type) VALUES ${placeholders} ON DUPLICATE KEY UPDATE name=VALUES(name), type=VALUES(type)`,
         flatValues
       );
       inserted += result.affectedRows;

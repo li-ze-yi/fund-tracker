@@ -164,8 +164,8 @@ exports.syncFunds = async (req, res, next) => {
   try {
     const funds = await fundService.getAllFunds();
     const values = funds
-      .filter(f => f[0] && f[1])
-      .map(f => [f[0], f[1], f[2] || '未知']);
+      .filter(f => f[0] && f[2])
+      .map(f => [f[0], f[2], f[3] || '未知']);
 
     const batchSize = 1000;
     let inserted = 0;
@@ -175,7 +175,7 @@ exports.syncFunds = async (req, res, next) => {
       const placeholders = batch.map(() => '(?, ?, ?)').join(', ');
       const flatValues = batch.flat();
       const [result] = await pool.query(
-        `INSERT IGNORE INTO funds (code, name, type) VALUES ${placeholders}`,
+        `INSERT INTO funds (code, name, type) VALUES ${placeholders} ON DUPLICATE KEY UPDATE name=VALUES(name), type=VALUES(type)`,
         flatValues
       );
       inserted += result.affectedRows;
