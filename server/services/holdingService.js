@@ -278,7 +278,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
     // 批量获取历史净值
     const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const historyNeedFetch = codes.filter(code => {
+    // ★ forceRefresh 时强制重新拉取历史净值（兜底任务依赖最新确认净值，旧缓存会导致 isConfirmed 误判）
+    const historyNeedFetch = forceRefresh ? codes : codes.filter(code => {
       const cacheKey = `history_${code}_3d_${today}`;
       // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
       const result = globalCache.checkCache(cacheKey, 'history_recent');
