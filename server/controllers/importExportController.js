@@ -68,7 +68,7 @@ exports.importData = [upload.single('file'), async (req, res, next) => {
           price: netValue,
           amount,
           fee: 0,
-          transactionDate: new Date().toISOString().slice(0, 10)
+          transactionDate: (realTime?.updateTime?.split(' ')[0]) || new Date().toISOString().slice(0, 10)
         });
 
         results.success++;

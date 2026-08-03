@@ -271,7 +271,7 @@ exports.create = async (req, res, next) => {
         price: netValue,
         amount,
         fee: 0,
-        transactionDate: new Date().toISOString().slice(0, 10),
+        transactionDate: confirmedNavDate || new Date().toISOString().slice(0, 10),
         metadata: JSON.stringify({ netValueSource })
       });
     }
