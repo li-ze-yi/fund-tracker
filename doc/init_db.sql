@@ -67,6 +67,7 @@ CREATE TABLE `holdings` (
   `confirmed_nav_date` date DEFAULT NULL COMMENT '确认净值日期',
   `total_cost` decimal(18,4) DEFAULT '0.0000' COMMENT '投入成本（市值-累计收益）',
   `total_return` decimal(18,4) DEFAULT '0.0000' COMMENT '累计收益',
+  `sold_date` date DEFAULT NULL COMMENT '全部卖出日期',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),

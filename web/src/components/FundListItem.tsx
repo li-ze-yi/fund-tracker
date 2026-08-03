@@ -20,7 +20,7 @@ interface FundListItemProps {
     last_updated?: string | null;
     update_time?: string | null;
     is_fresh?: boolean;
-    update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate';
+    update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate' | 'sold_out';
     data_source?: 'actual' | 'estimated';
     day_of_week?: string;  // 非交易日时显示星期几
   };
@@ -32,6 +32,7 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
   const isUp = (fund.estimated_change ?? 0) >= 0;
   const hideAmount = useHideAmountStore((s) => s.hidden);
   const isMarketClosed = fund.update_status === 'market_closed' || fund.update_status === 'pre_market';
+  const isSoldOut = fund.update_status === 'sold_out';
 
   // 渲染更新状态标记（5种状态：估算中/待确认/已确认/休市/待开市）
   const renderUpdateIndicator = () => {
@@ -191,6 +192,37 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
               }}
             />
             前一日
+          </span>
+        );
+
+      case 'sold_out':
+        // 已清仓（灰色）- 基金全部卖出，持仓记录保留
+        return (
+          <span
+            data-label="已清仓"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontSize: '10px',
+              fontWeight: 500,
+              color: '#6B7280',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              background: 'rgba(107, 114, 128, 0.1)',
+              letterSpacing: '0.02em',
+            }}
+          >
+            <span
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: '#6B7280',
+                display: 'inline-block',
+              }}
+            />
+            已清仓
           </span>
         );
 
@@ -444,8 +476,8 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
       </div>
 
       <div className="number-tabular" style={{ flex: 0.9, textAlign: 'right' }} data-col="estimated_change">
-        <span className="change-percent" style={{ fontSize: 15, fontWeight: 700, color: isMarketClosed ? 'var(--text-dim)' : (isUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
-          {isMarketClosed ? '--' : `${isUp ? '+' : ''}${(fund.estimated_change ?? 0).toFixed(2)}%`}
+        <span className="change-percent" style={{ fontSize: 15, fontWeight: 700, color: (isMarketClosed || isSoldOut) ? 'var(--text-dim)' : (isUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
+          {(isMarketClosed || isSoldOut) ? '--' : `${isUp ? '+' : ''}${(fund.estimated_change ?? 0).toFixed(2)}%`}
         </span>
         {fund.update_status === 'no_estimate' && (fund.update_time || fund.last_updated) && (
           <div style={{ fontSize: 10, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
@@ -460,7 +492,7 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
       </div>
 
       <div className="number-tabular" style={{ flex: 1, textAlign: 'right' }} data-col="daily_profit">
-        <div className="profit-amount" style={{ fontSize: 14, fontWeight: 600, color: isMarketClosed ? 'var(--text-dim)' : (isDailyUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
+        <div className="profit-amount" style={{ fontSize: 14, fontWeight: 600, color: (isMarketClosed || isSoldOut) ? 'var(--text-dim)' : (isDailyUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
           {isMarketClosed ? '--' : (hideAmount ? '****' : `${isDailyUp ? '+' : '-'}¥${Math.abs(fund.daily_profit ?? 0).toFixed(2)}`)}
         </div>
       </div>

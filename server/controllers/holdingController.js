@@ -98,7 +98,9 @@ async function settlePendingAsync(userId) {
             await Holding.update(holding.id, userId, {
               shares: currentShares,
               cost_price: currentCostPrice,
-              totalCost: currentTotalCost
+              totalCost: currentTotalCost,
+              soldDate: null,
+              totalReturn: 0
             });
           }
 
@@ -124,10 +126,24 @@ async function settlePendingAsync(userId) {
           const costPerShare = oldTotalCost / parseFloat(holding.shares);
           const newTotalCost = costPerShare * newShares;
 
+          // 本次实现盈亏
+          const realizedProfit = actualNetAmount - (costPerShare * sellShares);
+
           if (newShares <= 0) {
-            await Holding.delete(holding.id, userId);
+            // 全部卖出 → 保留持仓记录（shares=0），记录实现盈亏与清仓日期
+            await Holding.update(holding.id, userId, {
+              shares: 0,
+              totalCost: 0,
+              totalReturn: Math.round(realizedProfit * 100) / 100,
+              soldDate: new Date().toISOString().slice(0, 10)
+            });
           } else {
-            await Holding.update(holding.id, userId, { shares: newShares, totalCost: Math.round(newTotalCost * 100) / 100 });
+            // 部分卖出 → 累加 total_return
+            await Holding.update(holding.id, userId, {
+              shares: newShares,
+              totalCost: Math.round(newTotalCost * 100) / 100,
+              totalReturn: Math.round(((parseFloat(holding.total_return) || 0) + realizedProfit) * 100) / 100
+            });
           }
 
           await Transaction.updateToConfirmed(tx.id, userId, {
@@ -173,7 +189,7 @@ exports.create = async (req, res, next) => {
     }
 
     const existing = await Holding.findByUserAndFund(req.user.id, fundCode);
-    if (existing) {
+    if (existing && parseFloat(existing.shares) > 0) {
       console.warn(`[HoldingController] 基金已在持仓中: ${fundCode}`);
       return res.status(400).json({ message: '该基金已在持仓中' });
     }
@@ -247,6 +263,37 @@ exports.create = async (req, res, next) => {
     const costPrice = shares > 0 ? totalCost / shares : 0;
 
     console.log(`[HoldingController] 计算结果: shares=${shares.toFixed(2)}, costPrice=${costPrice.toFixed(4)}, totalCost=${totalCost}, netValue=${netValue}`);
+
+    if (existing) {
+      // 已清仓基金重新添加 → 更新现有持仓（避免违反 uk_user_fund 唯一约束）
+      await Holding.update(existing.id, req.user.id, {
+        shares,
+        costPrice,
+        totalCost,
+        confirmedNav: netValue,
+        confirmedNavDate: confirmedNavDate || null,
+        soldDate: null,
+        totalReturn: 0
+      });
+      console.log(`[HoldingController] 已清仓基金重新添加: id=${existing.id}, fund=${fundCode}`);
+
+      // 生成交易记录（与新建一致）
+      if (!totalReturn) {
+        await Transaction.create({
+          userId: req.user.id,
+          fundCode,
+          type: 'buy',
+          shares,
+          price: netValue,
+          amount,
+          fee: 0,
+          transactionDate: confirmedNavDate || new Date().toISOString().slice(0, 10),
+          metadata: JSON.stringify({ netValueSource })
+        });
+      }
+
+      return res.json({ id: existing.id, message: '添加成功' });
+    }
 
     const id = await Holding.create({
       userId: req.user.id,

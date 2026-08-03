@@ -79,7 +79,13 @@ exports.buy = async (req, res, next) => {
       const newCostPrice = totalShares ? (oldShares * oldCostPrice + amount) / totalShares : 0;
       const newTotalCost = oldTotalCost + amount;
 
-      await Holding.update(holding.id, req.user.id, { shares: totalShares, cost_price: newCostPrice, totalCost: newTotalCost });
+      await Holding.update(holding.id, req.user.id, {
+        shares: totalShares,
+        cost_price: newCostPrice,
+        totalCost: newTotalCost,
+        soldDate: null,
+        totalReturn: 0
+      });
 
       await Transaction.create({
         userId: req.user.id,
@@ -148,10 +154,24 @@ exports.sell = async (req, res, next) => {
       const costPerShare = oldTotalCost / parseFloat(holding.shares);
       const newTotalCost = costPerShare * newShares;
 
+      // 本次实现盈亏
+      const realizedProfit = actualAmount - (costPerShare * sellShares);
+
       if (newShares <= 0) {
-        await Holding.delete(holding.id, req.user.id);
+        // 全部卖出 → 保留持仓记录（shares=0），记录实现盈亏与清仓日期
+        await Holding.update(holding.id, req.user.id, {
+          shares: 0,
+          totalCost: 0,
+          totalReturn: Math.round(realizedProfit * 100) / 100,
+          soldDate: new Date().toISOString().slice(0, 10)
+        });
       } else {
-        await Holding.update(holding.id, req.user.id, { shares: newShares, totalCost: Math.round(newTotalCost * 100) / 100 });
+        // 部分卖出 → 累加 total_return
+        await Holding.update(holding.id, req.user.id, {
+          shares: newShares,
+          totalCost: Math.round(newTotalCost * 100) / 100,
+          totalReturn: Math.round(((parseFloat(holding.total_return) || 0) + realizedProfit) * 100) / 100
+        });
       }
 
       await Transaction.create({
@@ -276,7 +296,9 @@ exports.settlePending = async (req, res, next) => {
             await Holding.update(holding.id, userId, {
               shares: currentShares,
               cost_price: currentCostPrice,
-              totalCost: currentTotalCost
+              totalCost: currentTotalCost,
+              soldDate: null,
+              totalReturn: 0
             });
           }
 
@@ -304,10 +326,24 @@ exports.settlePending = async (req, res, next) => {
           const costPerShare = oldTotalCost / parseFloat(holding.shares);
           const newTotalCost = costPerShare * newShares;
 
+          // 本次实现盈亏
+          const realizedProfit = actualNetAmount - (costPerShare * sellShares);
+
           if (newShares <= 0) {
-            await Holding.delete(holding.id, userId);
+            // 全部卖出 → 保留持仓记录（shares=0），记录实现盈亏与清仓日期
+            await Holding.update(holding.id, userId, {
+              shares: 0,
+              totalCost: 0,
+              totalReturn: Math.round(realizedProfit * 100) / 100,
+              soldDate: new Date().toISOString().slice(0, 10)
+            });
           } else {
-            await Holding.update(holding.id, userId, { shares: newShares, totalCost: Math.round(newTotalCost * 100) / 100 });
+            // 部分卖出 → 累加 total_return
+            await Holding.update(holding.id, userId, {
+              shares: newShares,
+              totalCost: Math.round(newTotalCost * 100) / 100,
+              totalReturn: Math.round(((parseFloat(holding.total_return) || 0) + realizedProfit) * 100) / 100
+            });
           }
 
           await Transaction.updateToConfirmed(tx.id, userId, {

@@ -4,7 +4,8 @@ const Holding = {
   async findByUserId(userId) {
     const [rows] = await pool.query(
       `SELECT h.id, h.user_id, h.fund_code, h.group_id, h.shares, h.cost_price,
-              h.confirmed_nav, h.confirmed_nav_date, h.total_cost, h.created_at, h.updated_at,
+              h.confirmed_nav, h.confirmed_nav_date, h.total_cost, h.total_return, h.sold_date,
+              h.created_at, h.updated_at,
               f.name as fund_name, f.type as fund_type
        FROM holdings h
        JOIN funds f ON h.fund_code = f.code
@@ -47,7 +48,11 @@ const Holding = {
         confirmed_nav_date: 'confirmed_nav_date',
         confirmedNavDate: 'confirmed_nav_date',
         total_cost: 'total_cost',
-        totalCost: 'total_cost'
+        totalCost: 'total_cost',
+        total_return: 'total_return',
+        totalReturn: 'total_return',
+        sold_date: 'sold_date',
+        soldDate: 'sold_date'
       };
       const col = columnMap[key] || key;
       fields.push(`${col} = ?`);

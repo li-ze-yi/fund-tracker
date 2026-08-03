@@ -362,6 +362,38 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
 function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, confirmedNav = 0, marketStatus = { isMarketOpen: true }, yesterdayNav = 0, todayTxShares = { buy: 0, sell: 0 }) {
   const shares = parseFloat(holding.shares) || 0;
+
+  // 已清仓且非卖出当天（sold_date < today）→ 返回 sold_out 状态，accumulated_profit 显示实现盈亏
+  // 卖出当天（sold_date == today）→ 走正常逻辑，不显示"已清仓"徽章
+  if (shares === 0 && holding.sold_date) {
+    // 使用本地时间格式化日期，避免 mysql2 DATE→Date 对象的时区偏移
+    const fmtDate = (d) => {
+      const dt = d instanceof Date ? d : new Date(d);
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    };
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const soldDateStr = fmtDate(holding.sold_date);
+    if (soldDateStr < todayStr) {
+      return {
+        market_value: 0,
+        estimated_change: null,
+        daily_profit: 0,
+        accumulated_profit: Math.round((parseFloat(holding.total_return) || 0) * 100) / 100,
+        net_value: null,
+        cost_price: parseFloat(holding.cost_price) || 0,
+        shares: 0,
+        update_time: null,
+        last_updated: null,
+        is_fresh: false,
+        update_status: 'sold_out',
+        data_source: 'actual',
+        fund_code: holding.fund_code,
+        is_confirmed: false
+      };
+    }
+  }
+
   const costPrice = parseFloat(holding.cost_price) || 0;
   const totalCost = parseFloat(holding.total_cost) || shares * costPrice;
   // 昨日份额 = 当前份额 - 今日买入 + 今日卖出
