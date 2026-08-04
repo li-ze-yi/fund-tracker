@@ -465,29 +465,48 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     const todayBuyProfit = todayTxShares.buy * (displayNav - costPrice);
     cumulativeReturn -= todayBuyProfit;
   }
+  // ★ 已清仓卖出当天（shares==0 && sold_date存在且==today）→ 累计收益应为实现盈亏（total_return），而非 marketValue - totalCost（均为0）
+  // 注意：sold_date < today 的情况已在前面 return sold_out，此处仅处理 sold_date == today 的 fall-through 场景
+  if (shares === 0 && holding.sold_date) {
+    cumulativeReturn = parseFloat(holding.total_return) || 0;
+  }
 
   const updateTime = realTimeData ? realTimeData.updateTime : null;
   let update_status, data_source, is_fresh;
 
   if (!marketStatus.isMarketOpen) {
-    const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-    return {
-      market_value: Math.round(marketValue * 100) / 100,
-      estimated_change: null,
-      daily_profit: 0,
-      accumulated_profit: Math.round(cumulativeReturn * 100) / 100,
-      net_value: displayNav,
-      cost_price: Math.round(costPrice * 10000) / 10000,
-      shares: shares,
-      update_time: updateTime || null,
-      last_updated: updateTime || null,
-      is_fresh: false,
-      update_status: 'market_closed',
-      data_source: 'actual',
-      fund_code: holding.fund_code,
-      day_of_week: marketStatus.dayOfWeek || dayNames[now.getDay()],
-      is_confirmed: isConfirmed  // ★ 新增：暴露确认状态供 dailyProfitService 复用
-    };
+    // ★ 例外：已清仓卖出当天（shares==0 && sold_date==today && isConfirmed && confirmedNav>0）时跳过早返回
+    // 此时 yesterdayShares = todayTxShares.sell，dailyGain 已在前面基于 isConfirmed 分支计算
+    let isSoldOutTodayException = false;
+    if (shares === 0 && holding.sold_date && isConfirmed && confirmedNav > 0) {
+      const _now = new Date();
+      const _todayStr = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
+      const _soldDate = holding.sold_date instanceof Date ? holding.sold_date : new Date(holding.sold_date);
+      const _soldDateStr = `${_soldDate.getFullYear()}-${String(_soldDate.getMonth() + 1).padStart(2, '0')}-${String(_soldDate.getDate()).padStart(2, '0')}`;
+      isSoldOutTodayException = (_soldDateStr === _todayStr);
+    }
+
+    if (!isSoldOutTodayException) {
+      const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+      return {
+        market_value: Math.round(marketValue * 100) / 100,
+        estimated_change: null,
+        daily_profit: 0,
+        accumulated_profit: Math.round(cumulativeReturn * 100) / 100,
+        net_value: displayNav,
+        cost_price: Math.round(costPrice * 10000) / 10000,
+        shares: shares,
+        update_time: updateTime || null,
+        last_updated: updateTime || null,
+        is_fresh: false,
+        update_status: 'market_closed',
+        data_source: 'actual',
+        fund_code: holding.fund_code,
+        day_of_week: marketStatus.dayOfWeek || dayNames[now.getDay()],
+        is_confirmed: isConfirmed  // ★ 新增：暴露确认状态供 dailyProfitService 复用
+      };
+    }
+    // 已清仓卖出当天 → 跳过早返回，继续走后续已确认收益计算逻辑（line 493+）
   }
 
   if (hour < 9) {

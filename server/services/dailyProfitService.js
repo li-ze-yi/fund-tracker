@@ -1,8 +1,10 @@
 const DailyProfit = require('../models/dailyProfit');
 const Holding = require('../models/holding');
+const Transaction = require('../models/transaction');
 const pool = require('../config/database');
 const globalCache = require('./globalCache');
 const holdingService = require('./holdingService');
+const fundService = require('./fundService');
 
 /**
  * 日收益计算服务 v3.0
@@ -295,6 +297,10 @@ class DailyProfitService {
           // 清除该用户的更新缓存，允许重新计算
           this.lastUpdateCache.delete(`${userId}_${today}`);
 
+          // ★ 先结算该用户的 pending 订单，避免卖出订单未结算导致持仓份额仍 >0
+          // （盘中全部卖出但未重新打开 App 时，兜底任务必须先结算才能正确计算当日收益）
+          await this._settlePendingTransactions(userId);
+
           const holdings = await Holding.findByUserId(userId);
           if (!holdings || holdings.length === 0) continue;
 
@@ -322,6 +328,129 @@ class DailyProfitService {
       console.error('[DailyProfit] 兜底任务异常:', error);
       throw error;
     }
+  }
+
+  /**
+   * ★ 结算用户 pending 交易订单（inlined from holdingController.settlePendingAsync）
+   * 在 backfillDailyProfit 中先调用此方法，确保卖出订单已结算后再计算当日收益
+   * 每笔交易独立 try/catch，单笔失败不中断整体流程
+   */
+  async _settlePendingTransactions(userId) {
+    try {
+      const pendingTransactions = await Transaction.findPendingByUserId(userId);
+      if (!pendingTransactions.length) return;
+
+      console.log(`[DailyProfit] 发现 ${pendingTransactions.length} 笔待结算订单，开始自动结算 (用户 ${userId})...`);
+
+      for (const tx of pendingTransactions) {
+        try {
+          const navDate = this._normalizeDateStr(tx.transaction_date);
+          if (!navDate) continue;
+
+          const history = await fundService.getHistoryNetValues(tx.fund_code, navDate, navDate);
+          const confirmedNav = history.length ? history[0].nav : 0;
+          if (!confirmedNav) continue; // 净值未确认，保持 pending
+
+          const holding = await Holding.findByUserAndFund(userId, tx.fund_code);
+
+          if (tx.type === 'buy') {
+            // 买入结算：用确认净值计算实际份额
+            const actualShares = parseFloat(tx.amount) / confirmedNav;
+
+            if (!holding) {
+              await Holding.create({
+                userId,
+                fundCode: tx.fund_code,
+                shares: actualShares,
+                costPrice: confirmedNav,
+                totalCost: parseFloat(tx.amount)
+              });
+            } else {
+              const currentShares = parseFloat(holding.shares) + actualShares;
+              const currentTotalCost = parseFloat(holding.total_cost) + parseFloat(tx.amount);
+              const currentCostPrice = currentShares ? currentTotalCost / currentShares : 0;
+
+              await Holding.update(holding.id, userId, {
+                shares: currentShares,
+                cost_price: currentCostPrice,
+                totalCost: currentTotalCost,
+                soldDate: null,
+                totalReturn: 0
+              });
+            }
+
+            await Transaction.updateToConfirmed(tx.id, userId, {
+              shares: actualShares,
+              price: confirmedNav,
+              amount: parseFloat(tx.amount)
+            });
+
+            console.log(`[DailyProfit] 自动结算买入: #${tx.id}, actualShares=${actualShares.toFixed(2)}, nav=${confirmedNav}, holdingCreated=${!holding}`);
+          } else if (tx.type === 'sell') {
+            // 卖出结算：用确认净值计算实际金额，扣减持仓份额和成本
+            const sellShares = parseFloat(tx.shares);
+            const actualAmount = sellShares * confirmedNav;
+            const feeRate = parseFloat(tx.fee) || 0;
+            const feeAmount = feeRate ? actualAmount * feeRate : 0;
+            const actualNetAmount = actualAmount - feeAmount;
+
+            const newShares = parseFloat(holding.shares) - sellShares;
+            const oldTotalCost = parseFloat(holding.total_cost) || parseFloat(holding.shares) * parseFloat(holding.cost_price);
+            const costPerShare = oldTotalCost / parseFloat(holding.shares);
+            const newTotalCost = costPerShare * newShares;
+
+            const realizedProfit = actualNetAmount - (costPerShare * sellShares);
+
+            if (newShares <= 0) {
+              // 全部卖出 → 保留持仓记录（shares=0），记录实现盈亏与清仓日期
+              await Holding.update(holding.id, userId, {
+                shares: 0,
+                totalCost: 0,
+                totalReturn: Math.round(realizedProfit * 100) / 100,
+                soldDate: new Date().toISOString().slice(0, 10)
+              });
+            } else {
+              // 部分卖出 → 累加 total_return
+              await Holding.update(holding.id, userId, {
+                shares: newShares,
+                totalCost: Math.round(newTotalCost * 100) / 100,
+                totalReturn: Math.round(((parseFloat(holding.total_return) || 0) + realizedProfit) * 100) / 100
+              });
+            }
+
+            await Transaction.updateToConfirmed(tx.id, userId, {
+              shares: sellShares,
+              price: confirmedNav,
+              amount: actualNetAmount
+            });
+
+            console.log(`[DailyProfit] 自动结算卖出: #${tx.id}, nav=${confirmedNav}, amount=${actualNetAmount.toFixed(2)}`);
+          }
+        } catch (err) {
+          console.error(`[DailyProfit] 结算交易 #${tx.id} 失败:`, err.message);
+        }
+      }
+    } catch (err) {
+      console.error(`[DailyProfit] 用户 ${userId} 自动结算失败:`, err.message);
+    }
+  }
+
+  /**
+   * 规范化日期字符串：Date 对象用本地时间（getFullYear/getMonth/getDate）格式化为 YYYY-MM-DD；
+   * 字符串则取前 10 字符。mysql2 会把 DATE 列转成 UTC Date 对象，必须用本地时间提取。
+   */
+  _normalizeDateStr(dateVal) {
+    if (dateVal instanceof Date) {
+      const year = dateVal.getFullYear();
+      const month = String(dateVal.getMonth() + 1).padStart(2, '0');
+      const day = String(dateVal.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    if (typeof dateVal === 'string' && dateVal) {
+      const str = dateVal.split('T')[0].split(' ')[0];
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    }
+    return '';
   }
 
   clearCache() {
