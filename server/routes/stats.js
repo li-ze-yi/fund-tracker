@@ -6,5 +6,6 @@ router.use(authenticate);
 router.get('/daily', ctrl.daily);
 router.get('/monthly', ctrl.monthly);
 router.get('/yearly', ctrl.yearly);
+router.get('/fund-breakdown', ctrl.fundBreakdown);
 
 module.exports = router;

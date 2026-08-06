@@ -69,6 +69,16 @@ const DailyProfit = {
       [userId, startDate, endDate]
     );
     return rows;
+  },
+
+  async findDetailsByDateRange(userId, startDate, endDate) {
+    const [rows] = await pool.query(
+      `SELECT date, details FROM daily_profits
+       WHERE user_id = ? AND date BETWEEN ? AND ?
+       ORDER BY date ASC`,
+      [userId, startDate, endDate]
+    );
+    return rows;
   }
 };
 
