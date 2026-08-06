@@ -5,6 +5,7 @@ const compression = require('compression');
 const cron = require('node-cron');
 const { executeDuePlans } = require('./services/planService');
 const dailyProfitService = require('./services/dailyProfitService');
+const pendingSettleService = require('./services/pendingSettleService');
 
 const app = express();
 
@@ -74,6 +75,23 @@ app.listen(PORT, () => {
     }
   });
   console.log('[Cron] 🕐 日收益兜底调度器已启动 (23:55)');
+
+  // 独立 pending 订单结算兜底任务：每天 23:50 扫描所有用户的 pending 订单并尝试结算
+  // 与日收益兜底任务（23:55）解耦，略早 5 分钟触发，避免并发
+  // 流程：先结算所有 pending 订单（净值已发布的会被结算）→ 再清除超过 30 天的异常 pending 订单
+  // 解决场景：用户当天打开过 App（已记录日收益）但 pending 订单因净值未发布未结算时，
+  // 23:55 兜底任务会跳过该用户，独立结算任务可覆盖该场景
+  cron.schedule('50 23 * * *', async () => {
+    console.log(`[Cron] ⏰ pending 订单独立结算兜底任务触发 | 时间: ${new Date().toLocaleString('zh-CN')}`);
+    try {
+      const result = await pendingSettleService.cleanupStalePendingOrders(30);
+      const s = result.settle;
+      console.log(`[Cron] ✅ pending 订单结算兜底完成 | 扫描用户数=${s.scannedUsers} pending订单数=${s.totalPending} 成功结算=${s.settled} 跳过=${s.skipped} 清除数=${result.cleanedCount}`);
+    } catch (err) {
+      console.error(`[Cron] ❌ pending 订单独立结算兜底任务异常: ${err.message}`);
+    }
+  });
+  console.log('[Cron] 🕐 pending 订单独立结算兜底调度器已启动 (23:50)');
 
   // 启动时也检查一次（防止服务器重启期间遗漏）
   console.log('[Startup] 🔍 启动时检查一次到期定投计划...');
