@@ -6,6 +6,9 @@ const cron = require('node-cron');
 const { executeDuePlans } = require('./services/planService');
 const dailyProfitService = require('./services/dailyProfitService');
 const pendingSettleService = require('./services/pendingSettleService');
+const { createLogger } = require('./utils/logger');
+
+const logger = createLogger('App');
 
 const app = express();
 
@@ -32,13 +35,13 @@ app.use('/api/announcements', require('./routes/announcements'));
 
 // 全局错误处理
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  logger.error(`全局错误处理: ${err.message}`, err.stack);
   res.status(err.status || 500).json({ message: err.message || '服务器内部错误' });
 });
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log(`服务器运行在端口 ${PORT}`);
+  logger.info(`服务器运行在端口 ${PORT}`);
 
   // 定投计划定时调度
   // 净值确认时间说明：A股基金净值通常在收盘后18:00-20:00间由基金公司确认发布
@@ -50,31 +53,31 @@ app.listen(PORT, () => {
 
   for (const { time, label } of planCronTimes) {
     cron.schedule(time, async () => {
-      console.log(`[Cron] ⏰ 定投计划调度触发 (${label}) | 时间: ${new Date().toLocaleString('zh-CN')}`);
+      logger.info(`定投计划调度触发 (${label}) | 时间: ${new Date().toLocaleString('zh-CN')}`);
       try {
         const result = await executeDuePlans();
         if (result.pending > 0) {
-          console.log(`[Cron] ⏳ ${result.pending}个计划因净值未确认而跳过，将在下次调度时重试`);
+          logger.info(`${result.pending}个计划因净值未确认而跳过，将在下次调度时重试`);
         }
-        console.log(`[Cron] ✅ 定投调度完成 (${label}) | 成功=${result.success} 待确认=${result.pending}`);
+        logger.info(`定投调度完成 (${label}) | 成功=${result.success} 待确认=${result.pending}`);
       } catch (err) {
-        console.error(`[Cron] ❌ 定投计划调度异常: ${err.message}`);
+        logger.error(`定投计划调度异常: ${err.message}`, err.stack);
       }
     });
   }
-  console.log('[Cron] 🕐 定投计划调度器已启动 (10:00 上午执行, 20:00 晚间执行)');
+  logger.info('定投计划调度器已启动 (10:00 上午执行, 20:00 晚间执行)');
 
   // 日收益兜底任务：每天 23:55 为当天未打开 App 的用户补算日收益
   cron.schedule('55 23 * * *', async () => {
-    console.log(`[Cron] ⏰ 日收益兜底任务触发 | 时间: ${new Date().toLocaleString('zh-CN')}`);
+    logger.info(`日收益兜底任务触发 | 时间: ${new Date().toLocaleString('zh-CN')}`);
     try {
       const result = await dailyProfitService.backfillDailyProfit();
-      console.log(`[Cron] ✅ 日收益兜底完成 | 持仓用户=${result.total} 已记录=${result.skipped} 补算成功=${result.success} 失败=${result.failed}`);
+      logger.info(`日收益兜底完成 | 持仓用户=${result.total} 已记录=${result.skipped} 补算成功=${result.success} 失败=${result.failed}`);
     } catch (err) {
-      console.error(`[Cron] ❌ 日收益兜底任务异常: ${err.message}`);
+      logger.error(`日收益兜底任务异常: ${err.message}`, err.stack);
     }
   });
-  console.log('[Cron] 🕐 日收益兜底调度器已启动 (23:55)');
+  logger.info('日收益兜底调度器已启动 (23:55)');
 
   // 独立 pending 订单结算兜底任务：每天 23:50 扫描所有用户的 pending 订单并尝试结算
   // 与日收益兜底任务（23:55）解耦，略早 5 分钟触发，避免并发
@@ -82,20 +85,20 @@ app.listen(PORT, () => {
   // 解决场景：用户当天打开过 App（已记录日收益）但 pending 订单因净值未发布未结算时，
   // 23:55 兜底任务会跳过该用户，独立结算任务可覆盖该场景
   cron.schedule('50 23 * * *', async () => {
-    console.log(`[Cron] ⏰ pending 订单独立结算兜底任务触发 | 时间: ${new Date().toLocaleString('zh-CN')}`);
+    logger.info(`pending 订单独立结算兜底任务触发 | 时间: ${new Date().toLocaleString('zh-CN')}`);
     try {
       const result = await pendingSettleService.cleanupStalePendingOrders(30);
       const s = result.settle;
-      console.log(`[Cron] ✅ pending 订单结算兜底完成 | 扫描用户数=${s.scannedUsers} pending订单数=${s.totalPending} 成功结算=${s.settled} 跳过=${s.skipped} 清除数=${result.cleanedCount}`);
+      logger.info(`pending 订单结算兜底完成 | 扫描用户数=${s.scannedUsers} pending订单数=${s.totalPending} 成功结算=${s.settled} 跳过=${s.skipped} 清除数=${result.cleanedCount}`);
     } catch (err) {
-      console.error(`[Cron] ❌ pending 订单独立结算兜底任务异常: ${err.message}`);
+      logger.error(`pending 订单独立结算兜底任务异常: ${err.message}`, err.stack);
     }
   });
-  console.log('[Cron] 🕐 pending 订单独立结算兜底调度器已启动 (23:50)');
+  logger.info('pending 订单独立结算兜底调度器已启动 (23:50)');
 
   // 启动时也检查一次（防止服务器重启期间遗漏）
-  console.log('[Startup] 🔍 启动时检查一次到期定投计划...');
+  logger.info('启动时检查一次到期定投计划...');
   executeDuePlans()
-    .then(result => console.log(`[Startup] ✅ 启动时定投检查完成 | 成功=${result.success} 待确认=${result.pending}`))
-    .catch(err => console.error('[Startup] ❌ 启动时执行定投计划异常:', err.message));
+    .then(result => logger.info(`启动时定投检查完成 | 成功=${result.success} 待确认=${result.pending}`))
+    .catch(err => logger.error(`启动时执行定投计划异常: ${err.message}`, err.stack));
 });

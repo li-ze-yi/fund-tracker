@@ -6,6 +6,9 @@ const holdingService = require('../services/holdingService');
 const globalCache = require('../services/globalCache');
 const pool = require('../config/database');
 const UserSetting = require('../models/userSetting');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('FundController');
 
 // 获取用户对某个基金的估值方法
 async function getUserValuationMethod(userId, fundCode) {
@@ -98,11 +101,11 @@ exports.getByCode = async (req, res, next) => {
             if (history.length > 1) {
               yesterdayNav = parseFloat(history[1].nav) || 0;
             }
-            console.log(`[FundController] 基金 ${code} 今天已有确认净值: ${confirmedNav}, 昨日净值: ${yesterdayNav}`);
+            logger.info(`基金 ${code} 今天已有确认净值: ${confirmedNav}, 昨日净值: ${yesterdayNav}`);
           }
         }
       } catch (error) {
-        console.error(`[FundController] 查询 ${code} 确认净值失败:`, error.message);
+        logger.error(`查询 ${code} 确认净值失败: ${error.message}`);
       }
 
       result.last_updated = updateTime || null;
@@ -465,7 +468,7 @@ exports.getNavHistory = async (req, res, next) => {
 
       if (latestDate === today) {
         // 情况1：缓存最新 = 今天 → 今天净值已确认，数据完整，直接返回缓存
-        console.log(`[FundController] 走势图缓存命中: ${code} (latestDate=${latestDate}=今天)`);
+        logger.info(`走势图缓存命中: ${code} (latestDate=${latestDate}=今天)`);
         return res.json({ records: cacheResult.data });
       }
 
@@ -475,20 +478,20 @@ exports.getNavHistory = async (req, res, next) => {
           const todayCheck = await fundService.getHistoryNetValues(code, today, today); // 轻量查询（仅查1天，极小开销）
           if (todayCheck && todayCheck.length > 0) {
             // 今天净值已确认，缓存过期，重新请求完整日期范围
-            console.log(`[FundController] 走势图缓存过期: ${code} (latestDate=${latestDate}=昨天, 今天净值已确认)`);
+            logger.info(`走势图缓存过期: ${code} (latestDate=${latestDate}=昨天, 今天净值已确认)`);
           } else {
             // 今天净值未确认，返回缓存（昨天数据仍是当前最新）
-            console.log(`[FundController] 走势图缓存命中: ${code} (latestDate=${latestDate}=昨天, 今天净值未确认)`);
+            logger.info(`走势图缓存命中: ${code} (latestDate=${latestDate}=昨天, 今天净值未确认)`);
             return res.json({ records: cacheResult.data });
           }
         } catch (e) {
           // 轻量查询失败，降级返回缓存
-          console.warn(`[FundController] 走势图确认检查失败: ${code}, ${e.message}, 降级使用缓存`);
+          logger.warn(`走势图确认检查失败: ${code}, ${e.message}, 降级使用缓存`);
           return res.json({ records: cacheResult.data });
         }
       } else if (latestDate && latestDate < yesterday) {
         // 情况3：缓存最新 < 昨天 → 缓存落后（至少缺了昨天的确认净值），直接重新请求
-        console.log(`[FundController] 走势图缓存落后: ${code} (latestDate=${latestDate} < 昨天=${yesterday}), 重新请求`);
+        logger.info(`走势图缓存落后: ${code} (latestDate=${latestDate} < 昨天=${yesterday}), 重新请求`);
       }
     }
 

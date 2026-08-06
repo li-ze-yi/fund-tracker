@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const globalCache = require('../services/globalCache');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('Indices');
 
 var SINA = {
   '000001': 's_sh000001', '000016': 's_sh000016',
@@ -59,7 +62,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   } catch (e) {
     clearTimeout(timer);
     if (e.name === 'AbortError') {
-      console.error(`[Indices] 请求超时 (${timeoutMs}ms): ${url}`);
+      logger.error(`请求超时 (${timeoutMs}ms): ${url}`);
     }
     throw e;
   }
@@ -97,10 +100,10 @@ router.get('/', async (req, res) => {
               if (m && m[1]) { var d = pT(m[1]); if (d) r[c] = d; }
             });
           } else {
-            console.warn('[Indices] 腾讯返回空数据，可能被服务器IP限制');
+            logger.warn('腾讯返回空数据，可能被服务器IP限制');
           }
         } catch(e) {
-          console.error('[Indices] 腾讯实时指数请求失败:', e.message);
+          logger.error(`腾讯实时指数请求失败: ${e.message}`);
         }
       }
 
@@ -120,7 +123,7 @@ router.get('/', async (req, res) => {
             });
           }
         } catch(e) {
-          console.error('[Indices] 新浪实时指数请求失败(备用):', e.message);
+          logger.error(`新浪实时指数请求失败(备用): ${e.message}`);
         }
       }
 
@@ -130,14 +133,14 @@ router.get('/', async (req, res) => {
       });
 
       var hitCount = result.filter(function(item) { return item.point > 0; }).length;
-      console.log(`[Indices] 实时快照: ${hitCount}/${codes.length} 个指数获取成功`);
+      logger.info(`实时快照: ${hitCount}/${codes.length} 个指数获取成功`);
 
       return result;
     }, { type: 'realtime' });
 
     res.json({ indices: cachedData });
   } catch(e) {
-    console.error('[Indices] 获取指数数据异常:', e.message);
+    logger.error(`获取指数数据异常: ${e.message}`);
     res.json({ indices: codes.map(function(c) { return {code:c, point:0, change:0, changePercent:0}; }) });
   }
 });
@@ -158,9 +161,9 @@ router.get('/:code/intraday', async (req, res) => {
           const txMinRes = await fetchWithTimeout(txMinUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
           const txMinText = await txMinRes.text();
           result = parseTencentMinuteData(txMinText, code);
-          if (result) console.log(`[Indices] ✅ 腾讯分时 ${code}: ${result.times.length} 个数据点`);
+          if (result) logger.info(`腾讯分时 ${code}: ${result.times.length} 个数据点`);
         } catch(e) {
-          console.error('[Indices] 腾讯分时失败:', e.message);
+          logger.error(`腾讯分时失败: ${e.message}`);
         }
 
         if (!result) {
@@ -170,9 +173,9 @@ router.get('/:code/intraday', async (req, res) => {
             const txRes = await fetchWithTimeout(txKlineUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
             const txText = await txRes.text();
             result = parseTencentMinuteKline(txText, code);
-            if (result) console.log(`[Indices] ✅ 腾讯分钟K线 ${code}: ${result.times.length} 个数据点`);
+            if (result) logger.info(`腾讯分钟K线 ${code}: ${result.times.length} 个数据点`);
           } catch(e) {
-            console.error('[Indices] 腾讯分钟K线失败:', e.message);
+            logger.error(`腾讯分钟K线失败: ${e.message}`);
           }
         }
       }
@@ -185,10 +188,10 @@ router.get('/:code/intraday', async (req, res) => {
           const emResult = await emResponse.json();
           if (emResult.data && emResult.data.klines && emResult.data.klines.length > 0) {
             result = parseEastMoneyMinuteKline(emResult.data.klines);
-            if (result) console.log(`[Indices] ✅ 东方财富分时 ${code}: ${result.times.length} 个数据点`);
+            if (result) logger.info(`东方财富分时 ${code}: ${result.times.length} 个数据点`);
           }
         } catch(e) {
-          console.error('[Indices] 东方财富分时失败:', e.message);
+          logger.error(`东方财富分时失败: ${e.message}`);
         }
 
         if (!result) {
@@ -199,10 +202,10 @@ router.get('/:code/intraday', async (req, res) => {
             const klineMatch = sinaText.match(/var Data_MarketKLine=\[([\s\S]*?)\];/);
             if (klineMatch && klineMatch[1]) {
               result = parseSinaKlineData(klineMatch[1], code);
-              if (result) console.log(`[Indices] ✅ 新浪K线 ${code}: ${result.times.length} 个数据点`);
+              if (result) logger.info(`新浪K线 ${code}: ${result.times.length} 个数据点`);
             }
           } catch(e) {
-            console.error('[Indices] 新浪K线失败:', e.message);
+            logger.error(`新浪K线失败: ${e.message}`);
           }
         }
 
@@ -213,10 +216,10 @@ router.get('/:code/intraday', async (req, res) => {
             const tushareJson = await tushareRes.json();
             if (Array.isArray(tushareJson) && tushareJson.length > 0) {
               result = parseSinaMinuteData(tushareJson);
-              if (result) console.log(`[Indices] ✅ 新浪分钟API ${code}: ${result.times.length} 个数据点`);
+              if (result) logger.info(`新浪分钟API ${code}: ${result.times.length} 个数据点`);
             }
           } catch(e) {
-            console.error('[Indices] 新浪分钟API失败:', e.message);
+            logger.error(`新浪分钟API失败: ${e.message}`);
           }
         }
       }
@@ -228,9 +231,9 @@ router.get('/:code/intraday', async (req, res) => {
           const txRes = await fetchWithTimeout(txKlineUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
           const txText = await txRes.text();
           result = parseTencentKlineHistory(txText, code);
-          if (result) console.log(`[Indices] ✅ 腾讯历史 ${code}: ${result.times.length} 个数据点`);
+          if (result) logger.info(`腾讯历史 ${code}: ${result.times.length} 个数据点`);
         } catch(e) {
-          console.error('[Indices] 腾讯历史失败:', e.message);
+          logger.error(`腾讯历史失败: ${e.message}`);
         }
 
         if (!result) {
@@ -239,22 +242,22 @@ router.get('/:code/intraday', async (req, res) => {
             const txRealRes = await fetchWithTimeout(txRealtimeUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
             const txRealText = await txRealRes.text();
             result = parseTencentRealtimeSnapshot(txRealText, code);
-            if (result) console.log(`[Indices] ✅ 腾讯快照 ${code}: ${result.times.length} 个数据点`);
+            if (result) logger.info(`腾讯快照 ${code}: ${result.times.length} 个数据点`);
           } catch(e) {
-            console.error('[Indices] 腾讯快照失败:', e.message);
+            logger.error(`腾讯快照失败: ${e.message}`);
           }
         }
       }
 
       if (!result) {
-        console.warn(`[Indices] ⚠️ ${code} 所有数据源失败，使用降级方案`);
+        logger.warn(`${code} 所有数据源失败，使用降级方案`);
         try {
           result = await generateFallbackIntraday(code);
           if (result) {
-            console.log(`[Indices] ✅ 降级方案 ${code}: ${result.times.length} 个数据点`);
+            logger.info(`降级方案 ${code}: ${result.times.length} 个数据点`);
           }
         } catch(e) {
-          console.error('[Indices] 降级方案失败:', e.message);
+          logger.error(`降级方案失败: ${e.message}`);
         }
       }
 
@@ -273,7 +276,7 @@ router.get('/:code/intraday', async (req, res) => {
       pointCount: data.times?.length || 0
     });
   } catch(e) {
-    console.error('[Indices] 分时数据异常:', e.message);
+    logger.error(`分时数据异常: ${e.message}`);
     res.status(500).json({ error: 'Failed to generate intraday data', code });
   }
 });
@@ -373,7 +376,7 @@ async function generateFallbackIntraday(code) {
         }
       }
     } catch(e) {
-      console.error('[Indices] 降级-腾讯获取失败:', e.message);
+      logger.error(`降级-腾讯获取失败: ${e.message}`);
     }
   }
 
@@ -396,7 +399,7 @@ async function generateFallbackIntraday(code) {
         }
       }
     } catch(e) {
-      console.error('[Indices] 降级-新浪获取失败:', e.message);
+      logger.error(`降级-新浪获取失败: ${e.message}`);
     }
   }
 

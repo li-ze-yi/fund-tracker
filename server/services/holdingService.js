@@ -2,6 +2,9 @@ const fundService = require('./fundService');
 const globalCache = require('./globalCache');
 const Holding = require('../models/holding');
 const pool = require('../config/database');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('HoldingService');
 
 function isWeekend(date) {
   const day = date.getDay();
@@ -185,7 +188,7 @@ async function checkMarketStatus(holdings) {
     });
 
   } catch (error) {
-    console.error('[holdingService] 检查市场状态失败:', error.message);
+    logger.error(`检查市场状态失败: ${error.message}`);
     return { isMarketOpen: true, reason: 'check_failed' };
   }
 }
@@ -197,7 +200,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
   const startTime = Date.now();
   const fundCodes = holdings.map(h => h.fund_code);
-  console.log(`[holdingService] 开始批量处理 ${holdings.length} 只基金... (强制刷新: ${forceRefresh}, 全局方法: ${valuationMethod})`);
+  logger.info(`开始批量处理 ${holdings.length} 只基金... (强制刷新: ${forceRefresh}, 全局方法: ${valuationMethod})`);
 
   const marketStatus = await checkMarketStatus(holdings);
 
@@ -217,7 +220,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
       todayTxSharesMap[r.fund_code][r.type] = parseFloat(r.total_shares) || 0;
     });
   } catch (e) {
-    console.error('[holdingService] 查询今日交易份额失败:', e.message);
+    logger.error(`查询今日交易份额失败: ${e.message}`);
   }
 
   // ═══════════════════════════════════════════
@@ -331,7 +334,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
       Holding.update(holding.id, holding.user_id, {
         confirmedNav: latestHistoryNav,
         confirmedNavDate: latestHistoryDate
-      }).catch(err => console.error(`[holdingService] 更新confirmed_nav失败:`, err.message));
+      }).catch(err => logger.error(`更新confirmed_nav失败: ${err.message}`));
     }
 
     const fundMarketStatus = getFundMarketStatus(realTimeData, marketStatus);
@@ -354,8 +357,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
   const endTime = Date.now();
   const duration = endTime - startTime;
   const stats = globalCache.getStats();
-  console.log(`[holdingService] 批量处理完成: ${holdings.length}只基金, 耗时${duration}ms`);
-  console.log(`[GlobalCache] 统计: 命中率=${stats.hitRate}, 缓存数=${stats.size}/${stats.maxSize}`);
+  logger.info(`批量处理完成: ${holdings.length}只基金, 耗时${duration}ms`);
+  logger.info(`GlobalCache 统计: 命中率=${stats.hitRate}, 缓存数=${stats.size}/${stats.maxSize}`);
 
   return result;
 }
@@ -564,7 +567,7 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
 // ✨ 新增：清理所有缓存的工具函数（可选，用于测试或管理接口）
 function clearAllCache() {
   globalCache.clear();
-  console.log('[holdingService] 所有缓存已清空');
+  logger.info('所有缓存已清空');
 }
 
 module.exports = {

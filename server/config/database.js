@@ -1,4 +1,7 @@
 const mysql = require('mysql2/promise');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('Database');
 
 const CONNECTION_LIMIT = 10;
 
@@ -24,14 +27,14 @@ let connectionCount = 0;
 pool.on('connection', () => {
   connectionCount++;
   if (connectionCount <= 3) {
-    console.log(`MySQL connection established (${connectionCount}/${CONNECTION_LIMIT})`);
+    logger.info(`MySQL 连接建立 (${connectionCount}/${CONNECTION_LIMIT})`);
   }
 });
 
 pool.on('error', (err) => {
-  console.error('MySQL pool error:', err);
+  logger.error(`MySQL 连接池错误: ${err.message}`, err.stack);
   if (err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ECONNRESET') {
-    console.log('Connection lost, will reconnect...');
+    logger.warn('MySQL 连接丢失，将自动重连...');
   }
 });
 
@@ -41,7 +44,7 @@ const originalQuery = pool.query.bind(pool);
 pool.query = async function (...args) {
   let retries = 3;
   let lastError;
-  
+
   while (retries > 0) {
     try {
       return await originalQuery(...args);
@@ -53,13 +56,13 @@ pool.query = async function (...args) {
         throw error;
       }
       retries--;
-      console.warn(`MySQL query failed (${3 - retries}/3), retrying...`, error.message);
+      logger.warn(`MySQL 查询失败，准备重试 (${3 - retries}/3): ${error.message}`);
       if (retries > 0) {
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
   }
-  
+
   throw lastError;
 };
 

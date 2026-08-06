@@ -3,6 +3,9 @@ const { createWorker } = require('tesseract.js');
 const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('OcrService');
 
 // ==================== 百度 OCR 配置 ====================
 const BAIDU_APP_ID = process.env.BAIDU_OCR_APP_ID || '';
@@ -15,7 +18,7 @@ function getBaiduOcrClient() {
   if (baiduOcrClient) return baiduOcrClient;
   if (BAIDU_APP_ID && BAIDU_API_KEY && BAIDU_SECRET_KEY) {
     baiduOcrClient = new AipOcrClient(BAIDU_APP_ID, BAIDU_API_KEY, BAIDU_SECRET_KEY);
-    console.log('[OcrService] 百度OCR客户端已初始化');
+    logger.info('百度OCR客户端已初始化');
     return baiduOcrClient;
   }
   return null;
@@ -29,31 +32,31 @@ async function recognizeWithBaidu(imagePath) {
     const image = fs.readFileSync(imagePath);
     const base64Img = Buffer.from(image).toString('base64');
 
-    console.log('[OcrService] 使用百度OCR识别...');
+    logger.info('使用百度OCR识别...');
     const startTime = Date.now();
 
     const result = await client.generalBasic(base64Img);
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`[OcrService] 百度OCR识别完成，耗时 ${elapsed}s`);
+    logger.info(`百度OCR识别完成，耗时 ${elapsed}s`);
 
     if (result.error_code) {
-      console.error(`[OcrService] 百度OCR错误: ${result.error_code} - ${result.error_msg}`);
+      logger.error(`百度OCR错误: ${result.error_code} - ${result.error_msg}`);
       return null;
     }
 
     if (!result.words_result || result.words_result.length === 0) {
-      console.log('[OcrService] 百度OCR未识别到文字');
+      logger.info('百度OCR未识别到文字');
       return null;
     }
 
     const text = result.words_result.map(item => item.words).join('\n');
-    console.log(`[OcrService] 百度OCR识别到 ${result.words_result.length} 行文字`);
-    console.log(`[OcrService] 百度OCR原始文本:\n${text}`);
+    logger.info(`百度OCR识别到 ${result.words_result.length} 行文字`);
+    logger.debug(`百度OCR原始文本:\n${text}`);
 
     return text;
   } catch (err) {
-    console.error('[OcrService] 百度OCR异常:', err.message);
+    logger.error(`百度OCR异常: ${err.message}`);
     return null;
   }
 }
@@ -67,27 +70,27 @@ async function getTesseractWorker() {
   if (workerInitializing) return workerInitializing;
 
   workerInitializing = (async () => {
-    console.log('[OcrService] 初始化 Tesseract worker (chi_sim+eng)...');
+    logger.info('初始化 Tesseract worker (chi_sim+eng)...');
     try {
       const worker = await createWorker('chi_sim+eng', 1, {
         cachePath: path.join(__dirname, '../tesseract_cache'),
         logger: m => {
           if (m.status === 'recognizing text') {
-            console.log(`[OcrService] Tesseract 进度: ${(m.progress * 100).toFixed(1)}%`);
+            logger.debug(`Tesseract 进度: ${(m.progress * 100).toFixed(1)}%`);
           }
         }
       });
-      console.log('[OcrService] Tesseract worker 初始化完成');
+      logger.info('Tesseract worker 初始化完成');
       workerInstance = worker;
       workerInitializing = null;
       return worker;
     } catch (err) {
-      console.error('[OcrService] Tesseract 初始化失败:', err.message);
+      logger.error(`Tesseract 初始化失败: ${err.message}`);
       try {
         const worker = await createWorker('eng', 1, {
           cachePath: path.join(__dirname, '../tesseract_cache'),
         });
-        console.log('[OcrService] Tesseract worker (eng-only) 初始化完成');
+        logger.info('Tesseract worker (eng-only) 初始化完成');
         workerInstance = worker;
         workerInitializing = null;
         return worker;
@@ -107,31 +110,31 @@ async function recognizeWithTesseract(imagePath) {
     try {
       processedPath = await preprocessImage(imagePath);
     } catch (err) {
-      console.warn('[OcrService] 图片预处理失败，使用原图:', err.message);
+      logger.warn(`图片预处理失败，使用原图: ${err.message}`);
       processedPath = imagePath;
     }
 
     const worker = await getTesseractWorker();
-    console.log('[OcrService] 使用 Tesseract.js 识别...');
+    logger.info('使用 Tesseract.js 识别...');
     const startTime = Date.now();
 
     const { data: { text } } = await worker.recognize(processedPath);
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`[OcrService] Tesseract 识别完成，耗时 ${elapsed}s，文本长度: ${text.length}`);
+    logger.info(`Tesseract 识别完成，耗时 ${elapsed}s，文本长度: ${text.length}`);
 
     if (processedPath !== imagePath && fs.existsSync(processedPath)) {
       try { fs.unlinkSync(processedPath); } catch (e) { /* ignore */ }
     }
 
     if (text && text.trim().length > 0) {
-      console.log(`[OcrService] Tesseract 原始文本:\n${text}`);
+      logger.debug(`Tesseract 原始文本:\n${text}`);
       return text;
     }
 
     return null;
   } catch (err) {
-    console.error('[OcrService] Tesseract 识别异常:', err.message);
+    logger.error(`Tesseract 识别异常: ${err.message}`);
     return null;
   }
 }
@@ -345,7 +348,7 @@ function parseAlipayByNamePattern(text) {
     }
 
     results.push({ fundCode: '', fundName, amount, totalReturn });
-    console.log(`[OcrService] 解析: "${fundName}" 金额=${amount} 累计收益=${totalReturn} (pre=${preValues} post=${postValues})`);
+    logger.debug(`解析: "${fundName}" 金额=${amount} 累计收益=${totalReturn} (pre=${preValues} post=${postValues})`);
   }
 
   return results;
@@ -459,7 +462,7 @@ function parseHoldingsFromText(text) {
   if (!text || text.trim().length === 0) return [];
 
   const format = detectFormat(text);
-  console.log(`[OcrService] 检测到截图格式: ${format}`);
+  logger.info(`检测到截图格式: ${format}`);
 
   // 先尝试基于基金代码的解析
   const codeResults = parseByFundCodes(text);
@@ -471,7 +474,7 @@ function parseHoldingsFromText(text) {
 
   // 宽松回退：如果还是没有结果，尝试从所有6位数字中提取
   if (results.length === 0) {
-    console.log('[OcrService] 标准解析无结果，尝试宽松解析...');
+    logger.info('标准解析无结果，尝试宽松解析...');
     const allCodes = text.match(/\d{6}/g);
     if (allCodes) {
       for (const code of [...new Set(allCodes)]) {
@@ -491,7 +494,7 @@ function parseHoldingsFromText(text) {
     }
   }
 
-  console.log(`[OcrService] 解析到 ${results.length} 条持仓记录`);
+  logger.info(`解析到 ${results.length} 条持仓记录`);
   return results;
 }
 
@@ -509,11 +512,11 @@ async function recognizeHoldingsFromImage(imagePath) {
     text = await recognizeWithBaidu(imagePath);
     if (text) engine = 'baidu';
   } else {
-    console.log('[OcrService] 百度OCR未配置，跳过（需配置 BAIDU_OCR_APP_ID/API_KEY/SECRET_KEY）');
+    logger.info('百度OCR未配置，跳过（需配置 BAIDU_OCR_APP_ID/API_KEY/SECRET_KEY）');
   }
 
   if (!text) {
-    console.log('[OcrService] 回退到 Tesseract.js...');
+    logger.info('回退到 Tesseract.js...');
     text = await recognizeWithTesseract(imagePath);
     if (text) engine = 'tesseract';
   }
