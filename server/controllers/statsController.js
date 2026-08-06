@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const DailyProfit = require('../models/dailyProfit');
 
 /**
  * 获取用户总投入成本
@@ -178,6 +179,109 @@ exports.yearly = async (req, res, next) => {
 
     // 无数据时返回空数组
     return res.json([]);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * 基金收益明细
+ * 从 daily_profits.details JSON 聚合每只基金在指定周期的收益
+ * 返回格式: [{ fund_code, fund_name, profit, return_rate, market_value, total_cost }]
+ */
+exports.fundBreakdown = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { date, year, month } = req.query;
+
+    let startDate, endDate;
+
+    if (date) {
+      // 按单日查询
+      startDate = date;
+      endDate = date;
+    } else if (year && month) {
+      // 按月查询
+      startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const endOfMonth = new Date(Number(year), Number(month), 0);
+      endDate = `${year}-${String(month).padStart(2, '0')}-${String(endOfMonth.getDate()).padStart(2, '0')}`;
+    } else if (year) {
+      // 按年查询
+      startDate = `${year}-01-01`;
+      endDate = `${year}-12-31`;
+    } else {
+      return res.status(400).json({ error: '需要提供 date、year+month 或 year 参数' });
+    }
+
+    const rows = await DailyProfit.findDetailsByDateRange(userId, startDate, endDate);
+
+    if (!rows || rows.length === 0) {
+      return res.json([]);
+    }
+
+    // 按基金代码聚合
+    const fundMap = new Map();
+
+    for (const row of rows) {
+      let details = row.details;
+      // details 可能是字符串或已解析对象
+      if (typeof details === 'string') {
+        try {
+          details = JSON.parse(details);
+        } catch {
+          continue; // JSON 解析失败，跳过
+        }
+      }
+      if (!details || !details.funds || !Array.isArray(details.funds)) {
+        continue; // 无 funds 数据，跳过
+      }
+
+      for (const fund of details.funds) {
+        const code = fund.fund_code;
+        if (!code) continue;
+
+        const dailyProfit = parseFloat(fund.daily_profit) || 0;
+
+        if (!fundMap.has(code)) {
+          fundMap.set(code, {
+            fund_code: code,
+            fund_name: fund.fund_name || '',
+            profit: 0,
+            market_value: parseFloat(fund.market_value) || 0,
+            total_cost: parseFloat(fund.total_cost) || 0,
+          });
+        }
+
+        const entry = fundMap.get(code);
+        entry.profit += dailyProfit;
+        // 取最后一条记录的值
+        entry.fund_name = fund.fund_name || entry.fund_name;
+        entry.market_value = parseFloat(fund.market_value) || entry.market_value;
+        entry.total_cost = parseFloat(fund.total_cost) || entry.total_cost;
+      }
+    }
+
+    // 计算收益率并格式化
+    const result = Array.from(fundMap.values()).map(entry => {
+      const profit = Math.round(entry.profit * 100) / 100;
+      const totalCost = entry.total_cost;
+      const returnRate = totalCost > 0
+        ? Math.round((profit / totalCost) * 10000) / 100
+        : 0;
+      return {
+        fund_code: entry.fund_code,
+        fund_name: entry.fund_name,
+        profit,
+        return_rate: returnRate,
+        market_value: Math.round(entry.market_value * 100) / 100,
+        total_cost: Math.round(totalCost * 100) / 100,
+      };
+    });
+
+    // 按 profit 降序排列
+    result.sort((a, b) => b.profit - a.profit);
+
+    return res.json(result);
   } catch (err) {
     next(err);
   }

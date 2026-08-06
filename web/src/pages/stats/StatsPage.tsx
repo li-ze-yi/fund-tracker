@@ -65,10 +65,18 @@ interface DateTableViewProps {
   // 收益率显示切换：false=显示金额，true=显示收益率（由主组件控制）
   showReturnRate: boolean;
   onShowReturnRateChange: (v: boolean) => void;
+  selectedDay: string | null;
+  selectedMonth: number | null;
+  selectedYear: number | null;
+  fundBreakdown: { fund_code: string; fund_name: string; profit: number; return_rate: number; market_value: number; total_cost: number }[];
+  fundBreakdownLoading: boolean;
+  onSelectDay: (date: string) => void;
+  onSelectMonth: (month: number) => void;
+  onSelectYear: (year: number) => void;
 }
 
 // 日期表格视图组件（日历网格 / 年度月份网格 / 多年年度网格）
-function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYear, granularity, onMonthChange, onYearChange, onGranularityChange, hideAmount, isLight, isMobile, showReturnRate, onShowReturnRateChange }: DateTableViewProps) {
+function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYear, granularity, onMonthChange, onYearChange, onGranularityChange, hideAmount, isLight, isMobile, showReturnRate, onShowReturnRateChange, selectedDay, selectedMonth, selectedYear, fundBreakdown, fundBreakdownLoading, onSelectDay, onSelectMonth, onSelectYear }: DateTableViewProps) {
   const { year, month } = currentMonth;
 
   // 根据数字位数动态返回字号
@@ -109,8 +117,8 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
   const yearEnd = currentYear + 3;
   const years = Array.from({ length: yearEnd - yearStart + 1 }, (_, i) => yearStart + i);
 
-  // 计算当月1号是星期几（周一=0）
-  const firstDayOfWeek = (new Date(year, month - 1, 1).getDay() + 6) % 7;
+  // 计算当月1号是星期几（周日=0）
+  const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
   // 当月天数
   const daysInMonth = new Date(year, month, 0).getDate();
 
@@ -148,6 +156,12 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
         ? `rgba(67, 160, 71, ${opacity})`
         : `rgba(34, 197, 94, ${opacity})`;
     }
+  };
+
+  const getZeroCellBg = (): string => {
+    return isLight
+      ? 'rgba(148, 163, 184, 0.25)'
+      : 'rgba(148, 163, 184, 0.18)';
   };
 
   // 格式化收益缩略（单元格内显示）
@@ -191,7 +205,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const weekDays = ['一', '二', '三', '四', '五', '六', '日'];
+  const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
 
   // 图例色块
   const legendLossColors = [1, 2, 3, 4].map((t) => getCellBg(t, false));
@@ -248,12 +262,14 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
               }
               const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
               const dayData = dataMap.get(dateStr);
-              const hasData = !!dayData && dayData.return_rate !== 0;
+              const hasRecord = !!dayData;
+              const hasData = hasRecord && dayData!.return_rate !== 0;
+              const isZero = hasRecord && dayData!.return_rate === 0;
               const tierInfo = hasData ? getTier(dayData!.return_rate) : null;
               const isToday = day === todayDate;
 
               const cellStyle: React.CSSProperties = {
-                background: tierInfo ? getCellBg(tierInfo.tier, tierInfo.isGain) : 'var(--bg-card)',
+                background: tierInfo ? getCellBg(tierInfo.tier, tierInfo.isGain) : (isZero ? getZeroCellBg() : 'var(--bg-card)'),
                 boxShadow: isToday ? 'inset 0 0 0 2px var(--accent-gold)' : 'none',
               };
 
@@ -277,7 +293,16 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
 
               return (
                 <Tooltip key={dateStr} title={tooltipContent} placement="top">
-                  <div className="date-table-cell" style={cellStyle}>
+                  <div
+                    className="date-table-cell"
+                    style={{
+                      ...cellStyle,
+                      outline: selectedDay === dateStr ? '2px solid var(--accent-gold)' : 'none',
+                      outlineOffset: selectedDay === dateStr ? 1 : 0,
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => onSelectDay(dateStr)}
+                  >
                     <span style={{ fontSize: 14, fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1 }}>
                       {day}
                     </span>
@@ -303,13 +328,17 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
               const m = i + 1;
               const monthKey = `${currentYear}-${String(m).padStart(2, '0')}`;
               const mData = monthlyMap.get(monthKey);
-              const hasData = !!mData && mData.return_rate !== 0;
+              const hasRecord = !!mData;
+              const hasData = hasRecord && mData!.return_rate !== 0;
+              const isZero = hasRecord && mData!.return_rate === 0;
               const tierInfo = hasData ? getTier(mData!.return_rate) : null;
               const isThisMonth = m === currentMonthNum;
 
               const cellStyle: React.CSSProperties = {
-                background: tierInfo ? getCellBg(tierInfo.tier, tierInfo.isGain) : 'var(--bg-card)',
+                background: tierInfo ? getCellBg(tierInfo.tier, tierInfo.isGain) : (isZero ? getZeroCellBg() : 'var(--bg-card)'),
                 boxShadow: isThisMonth ? 'inset 0 0 0 2px var(--accent-gold)' : 'none',
+                outline: selectedMonth === m ? '2px solid var(--accent-gold)' : 'none',
+                outlineOffset: selectedMonth === m ? 1 : 0,
               };
 
               const textColor = tierInfo
@@ -342,7 +371,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                   <div
                     className="year-grid-cell"
                     style={cellStyle}
-                    onClick={() => { onMonthChange(currentYear, m); onGranularityChange('day'); }}
+                    onClick={() => onSelectMonth(m)}
                   >
                     <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>{m} 月</span>
                     {hasData && (
@@ -364,13 +393,17 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
             {years.map((y) => {
               const yKey = String(y);
               const yData = yearlyMap.get(yKey);
-              const hasData = !!yData && yData.return_rate !== 0;
+              const hasRecord = !!yData;
+              const hasData = hasRecord && yData!.return_rate !== 0;
+              const isZero = hasRecord && yData!.return_rate === 0;
               const tierInfo = hasData ? getTier(yData!.return_rate) : null;
               const isThisYear = y === today.getFullYear();
 
               const cellStyle: React.CSSProperties = {
-                background: tierInfo ? getCellBg(tierInfo.tier, tierInfo.isGain) : 'var(--bg-card)',
+                background: tierInfo ? getCellBg(tierInfo.tier, tierInfo.isGain) : (isZero ? getZeroCellBg() : 'var(--bg-card)'),
                 boxShadow: isThisYear ? 'inset 0 0 0 2px var(--accent-gold)' : 'none',
+                outline: selectedYear === y ? '2px solid var(--accent-gold)' : 'none',
+                outlineOffset: selectedYear === y ? 1 : 0,
               };
 
               const textColor = tierInfo
@@ -403,7 +436,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                   <div
                     className="year-grid-cell"
                     style={cellStyle}
-                    onClick={() => { onYearChange(y); onGranularityChange('month'); }}
+                    onClick={() => onSelectYear(y)}
                   >
                     <span style={{ fontSize: 14, fontWeight: 600, color: textColor }}>{y} 年</span>
                     {hasData && (
@@ -427,6 +460,8 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
             <div key={`l-${i}`} className="date-table-legend-block" style={{ background: c }} />
           ))}
         </div>
+        <span>无收益</span>
+        <div className="date-table-legend-block" style={{ background: getZeroCellBg() }} />
         <span>无</span>
         <div className="date-table-legend-block" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }} />
         <span>盈利</span>
@@ -435,6 +470,77 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
             <div key={`g-${i}`} className="date-table-legend-block" style={{ background: c }} />
           ))}
         </div>
+      </div>
+
+      {/* 基金收益明细 */}
+      <div className="fund-breakdown-section" style={{ marginTop: 16, paddingTop: 16, borderTop: '1px dashed var(--border-subtle)' }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>
+          基金收益明细
+          <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8 }}>
+            {granularity === 'day'
+              ? selectedDay || ''
+              : granularity === 'month'
+                ? `${currentYear} 年 ${selectedMonth || ''} 月`
+                : `${selectedYear || ''} 年`}
+          </span>
+        </div>
+        {fundBreakdownLoading ? (
+          <Skeleton active paragraph={{ rows: 4 }} />
+        ) : fundBreakdown.length === 0 ? (
+          <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+            该周期暂无基金明细数据
+          </div>
+        ) : (
+          <div className="fund-breakdown-list" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[...fundBreakdown]
+              .sort((a, b) => showReturnRate ? b.return_rate - a.return_rate : b.profit - a.profit)
+              .map((fund) => {
+                const isUp = showReturnRate ? fund.return_rate >= 0 : fund.profit >= 0;
+                const displayValue = showReturnRate
+                  ? `${isUp ? '+' : ''}${fund.return_rate.toFixed(2)}%`
+                  : hideAmount
+                    ? '****'
+                    : `${isUp ? '+' : ''}¥${Math.abs(fund.profit).toFixed(2)}`;
+                return (
+                  <div
+                    key={fund.fund_code}
+                    className="fund-breakdown-item"
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '8px 12px',
+                      background: 'var(--bg-card)',
+                      borderRadius: 8,
+                      border: '1px solid var(--border-subtle)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {fund.fund_name || fund.fund_code}
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        {fund.fund_code}
+                      </span>
+                    </div>
+                    <span
+                      className="number-tabular"
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        fontFamily: 'var(--font-mono)',
+                        color: isUp ? 'var(--gain)' : 'var(--loss)',
+                        whiteSpace: 'nowrap',
+                        marginLeft: 12,
+                      }}
+                    >
+                      {displayValue}
+                    </span>
+                  </div>
+                );
+              })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -447,7 +553,7 @@ export default function StatsPage() {
   const [loading, setLoading] = useState(true);
 
   // 视图模式：chart（图表明细）/ date_table（日期表格）
-  const [viewMode, setViewMode] = useState<ViewMode>('chart');
+  const [viewMode, setViewMode] = useState<ViewMode>('date_table');
   // 日历粒度：day（日历网格）/ month（12 月网格）/ year（多年年度网格）
   const [calendarGranularity, setCalendarGranularity] = useState<CalendarGranularity>('day');
   // 日历当前月份
@@ -465,6 +571,13 @@ export default function StatsPage() {
   const [calendarSummary, setCalendarSummary] = useState<any>({});
   // 收益率显示切换：false=显示金额，true=显示收益率（date_table 模式用，提升到主组件以便第一行控件统一控制）
   const [showReturnRate, setShowReturnRate] = useState(false);
+  // 日历单元格选中状态
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  // 基金明细数据
+  const [fundBreakdown, setFundBreakdown] = useState<any[]>([]);
+  const [fundBreakdownLoading, setFundBreakdownLoading] = useState(false);
 
   const formatLargeNumber = (value: number): { text: string; fontSize: number } => {
     const absValue = Math.abs(value);
@@ -565,6 +678,48 @@ export default function StatsPage() {
     }
   }, [viewMode, currentMonth, currentYear, calendarGranularity]);
 
+  // 进入 date_table 模式时初始化选中默认值
+  useEffect(() => {
+    if (viewMode !== 'date_table') return;
+    const now = new Date();
+    if (calendarGranularity === 'day' && !selectedDay) {
+      setSelectedDay(now.toISOString().slice(0, 10));
+    } else if (calendarGranularity === 'month' && !selectedMonth) {
+      setSelectedMonth(now.getMonth() + 1);
+    } else if (calendarGranularity === 'year' && !selectedYear) {
+      setSelectedYear(now.getFullYear());
+    }
+  }, [viewMode, calendarGranularity]);
+
+  // 加载基金明细数据
+  useEffect(() => {
+    if (viewMode !== 'date_table') return;
+
+    let params: { date?: string; year?: number; month?: number } | null = null;
+
+    if (calendarGranularity === 'day') {
+      if (!selectedDay) return;
+      params = { date: selectedDay };
+    } else if (calendarGranularity === 'month') {
+      if (!selectedMonth) return;
+      params = { year: currentYear, month: selectedMonth };
+    } else {
+      if (!selectedYear) return;
+      params = { year: selectedYear };
+    }
+
+    setFundBreakdownLoading(true);
+    statsService.getFundBreakdown(params)
+      .then((data) => {
+        setFundBreakdown(Array.isArray(data) ? data : []);
+      })
+      .catch((err) => {
+        console.error('[StatsPage] 加载基金明细失败:', err);
+        setFundBreakdown([]);
+      })
+      .finally(() => setFundBreakdownLoading(false));
+  }, [viewMode, calendarGranularity, selectedDay, selectedMonth, selectedYear, currentYear]);
+
   // 月份切换回调
   const handleMonthChange = (year: number, month: number) => {
     setCurrentMonth({ year, month });
@@ -584,7 +739,20 @@ export default function StatsPage() {
     if (g === 'month') {
       setCurrentYear(currentMonth.year);
     }
+    // 重置选中状态为默认值
+    const now = new Date();
+    if (g === 'day') {
+      setSelectedDay(now.toISOString().slice(0, 10));
+    } else if (g === 'month') {
+      setSelectedMonth(now.getMonth() + 1);
+    } else if (g === 'year') {
+      setSelectedYear(now.getFullYear());
+    }
   };
+
+  const handleSelectDay = (date: string) => setSelectedDay(date);
+  const handleSelectMonth = (month: number) => setSelectedMonth(month);
+  const handleSelectYear = (year: number) => setSelectedYear(year);
 
   const useMockData = () => {
     if (period === 'daily') {
@@ -1220,6 +1388,14 @@ export default function StatsPage() {
             gap: 6px;
             font-size: 10px;
           }
+
+          .fund-breakdown-item {
+            padding: 6px 8px !important;
+          }
+
+          .fund-breakdown-item span:first-child {
+            font-size: 12px !important;
+          }
         }
       `}</style>
 
@@ -1431,6 +1607,14 @@ export default function StatsPage() {
                 isMobile={isMobile}
                 showReturnRate={showReturnRate}
                 onShowReturnRateChange={setShowReturnRate}
+                selectedDay={selectedDay}
+                selectedMonth={selectedMonth}
+                selectedYear={selectedYear}
+                fundBreakdown={fundBreakdown}
+                fundBreakdownLoading={fundBreakdownLoading}
+                onSelectDay={handleSelectDay}
+                onSelectMonth={handleSelectMonth}
+                onSelectYear={handleSelectYear}
               />
             )}
           </Card>
