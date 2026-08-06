@@ -1,6 +1,9 @@
 const Transaction = require('../models/transaction');
 const Holding = require('../models/holding');
 const fundService = require('./fundService');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('PendingSettle');
 
 /**
  * 挂起（pending）订单独立结算服务
@@ -29,32 +32,42 @@ class PendingSettleService {
 
     try {
       const pendingTransactions = await Transaction.findPendingByUserId(userId);
-      if (!pendingTransactions.length) return stat;
+      if (!pendingTransactions.length) {
+        logger.info(`用户 ${userId} 无 pending 订单，跳过结算`);
+        return stat;
+      }
 
       stat.total = pendingTransactions.length;
-      console.log(`[PendingSettle] 用户 ${userId} 发现 ${pendingTransactions.length} 笔待结算订单，开始结算...`);
+      logger.info(`用户 ${userId} 发现 ${pendingTransactions.length} 笔待结算订单，开始结算...`);
 
       for (const tx of pendingTransactions) {
         try {
           const navDate = this._normalizeDateStr(tx.transaction_date);
           if (!navDate) {
             stat.skipped++;
+            logger.warn(`订单 #${tx.id} 日期无效，跳过: rawDate=${tx.transaction_date}`);
             continue;
           }
+
+          logger.info(`处理订单 #${tx.id}: type=${tx.type}, fund=${tx.fund_code}, navDate=${navDate}, amount=${tx.amount}, shares=${tx.shares}`);
 
           const history = await fundService.getHistoryNetValues(tx.fund_code, navDate, navDate);
           const confirmedNav = history.length ? history[0].nav : 0;
           if (!confirmedNav) {
             // 净值未发布，保持 pending，等待下次结算任务或用户查看持仓时再次尝试
             stat.skipped++;
+            logger.info(`订单 #${tx.id} 净值未发布 (navDate=${navDate})，保持 pending 等待下次结算`);
             continue;
           }
+
+          logger.info(`订单 #${tx.id} 确认净值已发布: nav=${confirmedNav}, navDate=${navDate}`);
 
           const holding = await Holding.findByUserAndFund(userId, tx.fund_code);
 
           if (tx.type === 'buy') {
             // 买入结算：用确认净值计算实际份额
             const actualShares = parseFloat(tx.amount) / confirmedNav;
+            logger.info(`订单 #${tx.id} 买入结算计算: amount=${tx.amount}, nav=${confirmedNav}, actualShares=${actualShares.toFixed(4)}`);
 
             // ★ 先尝试更新交易状态（乐观锁），防止并发重复结算
             // updateToConfirmed 带 status='pending' 条件，返回 false 说明已被其他任务结算
@@ -66,12 +79,13 @@ class PendingSettleService {
             if (!acquired) {
               // 已被其他任务结算，跳过持仓更新
               stat.skipped++;
-              console.log(`[PendingSettle] 买入订单 #${tx.id} 已被其他任务结算，跳过`);
+              logger.warn(`订单 #${tx.id} 买入已被其他任务结算（乐观锁未获取），跳过持仓更新`);
               continue;
             }
 
             if (!holding) {
               // 无持仓（定投首笔等场景）→ 新建持仓
+              logger.info(`订单 #${tx.id} 无持仓记录，新建持仓: fund=${tx.fund_code}, shares=${actualShares.toFixed(4)}, costPrice=${confirmedNav}, totalCost=${tx.amount}`);
               await Holding.create({
                 userId,
                 fundCode: tx.fund_code,
@@ -85,6 +99,8 @@ class PendingSettleService {
               const currentTotalCost = parseFloat(holding.total_cost) + parseFloat(tx.amount);
               const currentCostPrice = currentShares ? currentTotalCost / currentShares : 0;
 
+              logger.info(`订单 #${tx.id} 加仓: oldShares=${parseFloat(holding.shares).toFixed(4)}, newShares=${currentShares.toFixed(4)}, oldCost=${parseFloat(holding.cost_price).toFixed(4)}, newCost=${currentCostPrice.toFixed(4)}`);
+
               await Holding.update(holding.id, userId, {
                 shares: currentShares,
                 cost_price: currentCostPrice,
@@ -95,7 +111,7 @@ class PendingSettleService {
             }
 
             stat.settled++;
-            console.log(`[PendingSettle] 自动结算买入: #${tx.id}, user=${userId}, actualShares=${actualShares.toFixed(2)}, nav=${confirmedNav}, holdingCreated=${!holding}`);
+            logger.info(`订单 #${tx.id} 买入结算完成: user=${userId}, actualShares=${actualShares.toFixed(4)}, nav=${confirmedNav}, holdingCreated=${!holding}`);
           } else if (tx.type === 'sell') {
             // 卖出结算：用确认净值计算实际金额，扣减持仓份额和成本
             const sellShares = parseFloat(tx.shares);
@@ -103,6 +119,8 @@ class PendingSettleService {
             const feeRate = parseFloat(tx.fee) || 0;
             const feeAmount = feeRate ? actualAmount * feeRate : 0;
             const actualNetAmount = actualAmount - feeAmount;
+
+            logger.info(`订单 #${tx.id} 卖出结算计算: sellShares=${sellShares.toFixed(4)}, nav=${confirmedNav}, grossAmount=${actualAmount.toFixed(2)}, feeRate=${feeRate}, fee=${feeAmount.toFixed(2)}, netAmount=${actualNetAmount.toFixed(2)}`);
 
             // ★ 先尝试更新交易状态（乐观锁），防止并发重复结算
             const acquired = await Transaction.updateToConfirmed(tx.id, userId, {
@@ -113,7 +131,7 @@ class PendingSettleService {
             if (!acquired) {
               // 已被其他任务结算，跳过持仓更新
               stat.skipped++;
-              console.log(`[PendingSettle] 卖出订单 #${tx.id} 已被其他任务结算，跳过`);
+              logger.warn(`订单 #${tx.id} 卖出已被其他任务结算（乐观锁未获取），跳过持仓更新`);
               continue;
             }
 
@@ -126,6 +144,7 @@ class PendingSettleService {
 
             if (newShares <= 0) {
               // 全部卖出 → 保留持仓记录（shares=0），记录实现盈亏与清仓日期
+              logger.info(`订单 #${tx.id} 全部卖出: oldShares=${parseFloat(holding.shares).toFixed(4)}, remaining=${newShares.toFixed(4)}, realizedProfit=${realizedProfit.toFixed(2)}, 清仓`);
               await Holding.update(holding.id, userId, {
                 shares: 0,
                 totalCost: 0,
@@ -134,6 +153,7 @@ class PendingSettleService {
               });
             } else {
               // 部分卖出 → 累加 total_return
+              logger.info(`订单 #${tx.id} 部分卖出: oldShares=${parseFloat(holding.shares).toFixed(4)}, remaining=${newShares.toFixed(4)}, realizedProfit=${realizedProfit.toFixed(2)}`);
               await Holding.update(holding.id, userId, {
                 shares: newShares,
                 totalCost: Math.round(newTotalCost * 100) / 100,
@@ -142,18 +162,21 @@ class PendingSettleService {
             }
 
             stat.settled++;
-            console.log(`[PendingSettle] 自动结算卖出: #${tx.id}, user=${userId}, nav=${confirmedNav}, amount=${actualNetAmount.toFixed(2)}`);
+            logger.info(`订单 #${tx.id} 卖出结算完成: user=${userId}, nav=${confirmedNav}, netAmount=${actualNetAmount.toFixed(2)}`);
           } else {
             // 未知交易类型，跳过
             stat.skipped++;
+            logger.warn(`订单 #${tx.id} 未知交易类型: type=${tx.type}, 跳过`);
           }
         } catch (err) {
           stat.failed++;
-          console.error(`[PendingSettle] 结算交易 #${tx.id} 失败 (用户 ${userId}):`, err.message);
+          logger.error(`结算交易 #${tx.id} 失败 (用户 ${userId}): ${err.message}`, err.stack);
         }
       }
+
+      logger.info(`用户 ${userId} 结算完成: total=${stat.total}, settled=${stat.settled}, skipped=${stat.skipped}, failed=${stat.failed}`);
     } catch (err) {
-      console.error(`[PendingSettle] 用户 ${userId} 结算流程异常:`, err.message);
+      logger.error(`用户 ${userId} 结算流程异常: ${err.message}`, err.stack);
     }
 
     return stat;
@@ -169,12 +192,12 @@ class PendingSettleService {
 
     const userIds = await Transaction.findAllPendingUsers();
     if (!userIds.length) {
-      console.log('[PendingSettle] 当前无 pending 订单，跳过结算');
+      logger.info('当前无 pending 订单，跳过结算');
       return result;
     }
 
     result.scannedUsers = userIds.length;
-    console.log(`[PendingSettle] ===== 全量 pending 结算任务启动 | 待扫描用户数: ${userIds.length} =====`);
+    logger.info(`===== 全量 pending 结算任务启动 | 待扫描用户数: ${userIds.length} =====`);
 
     // 串行处理用户，避免并发请求外部 API 过多
     for (const userId of userIds) {
@@ -185,12 +208,12 @@ class PendingSettleService {
         result.skipped += stat.skipped;
         result.failed += stat.failed;
       } catch (err) {
-        console.error(`[PendingSettle] 用户 ${userId} 结算异常:`, err.message);
+        logger.error(`用户 ${userId} 结算异常: ${err.message}`, err.stack);
       }
     }
 
-    console.log(`[PendingSettle] ===== 全量 pending 结算完成 =====`);
-    console.log(`   扫描用户数=${result.scannedUsers}, pending 订单数=${result.totalPending}, 成功结算=${result.settled}, 跳过=${result.skipped}, 失败=${result.failed}`);
+    logger.info(`===== 全量 pending 结算完成 =====`);
+    logger.info(`汇总: 扫描用户数=${result.scannedUsers}, pending 订单数=${result.totalPending}, 成功结算=${result.settled}, 跳过=${result.skipped}, 失败=${result.failed}`);
 
     return result;
   }
@@ -203,43 +226,44 @@ class PendingSettleService {
    */
   async cleanupStalePendingOrders(days = 30) {
     const triggerTime = new Date().toLocaleString('zh-CN');
-    console.log(`\n[PendingSettle] ===== pending 订单兜底清理任务触发 | 时间: ${triggerTime} | 阈值: ${days}天 =====`);
+    logger.info(`===== pending 订单兜底清理任务触发 | 时间: ${triggerTime} | 阈值: ${days}天 =====`);
 
     // 第一步：先尝试结算所有 pending 订单（净值已发布的会被结算）
     let settle;
     try {
       settle = await this.settleAllPendingOrders();
     } catch (err) {
-      console.error('[PendingSettle] 全量结算阶段异常，继续执行清除阶段:', err.message);
+      logger.error(`全量结算阶段异常，继续执行清除阶段: ${err.message}`, err.stack);
       settle = { scannedUsers: 0, totalPending: 0, settled: 0, skipped: 0, failed: 0 };
     }
 
     // 第二步：清除剩余超过阈值的异常 pending 订单（净值仍未发布的长期堆积订单）
     let cleanedOrders = [];
     try {
+      logger.info(`开始清除超过 ${days} 天未结算的 pending 订单...`);
       cleanedOrders = await Transaction.deleteStalePending(days);
     } catch (err) {
-      console.error('[PendingSettle] 清除异常 pending 订单阶段异常:', err.message);
+      logger.error(`清除异常 pending 订单阶段异常: ${err.message}`, err.stack);
       cleanedOrders = [];
     }
 
     // 第三步：记录被清除订单的详细日志
     if (cleanedOrders.length > 0) {
-      console.log(`[PendingSettle] 清除超过 ${days} 天未结算的 pending 订单 ${cleanedOrders.length} 笔:`);
+      logger.warn(`清除超过 ${days} 天未结算的 pending 订单 ${cleanedOrders.length} 笔:`);
       const deleteTime = new Date().toLocaleString('zh-CN');
       for (const order of cleanedOrders) {
-        console.log(
-          `[PendingSettle]   - 订单ID=${order.id}, 用户ID=${order.user_id}, 基金代码=${order.fund_code}, ` +
+        logger.warn(
+          `清除订单: 订单ID=${order.id}, 用户ID=${order.user_id}, 基金代码=${order.fund_code}, ` +
           `金额=${order.amount}, 份额=${order.shares}, navDate=${this._normalizeDateStr(order.transaction_date)}, ` +
           `创建时间=${this._formatDateTime(order.created_at)}, 删除时间=${deleteTime}`
         );
       }
     } else {
-      console.log(`[PendingSettle] 无超过 ${days} 天的异常 pending 订单需清除`);
+      logger.info(`无超过 ${days} 天的异常 pending 订单需清除`);
     }
 
-    console.log(`[PendingSettle] ===== 兜底清理任务完成 =====`);
-    console.log(`   扫描用户数=${settle.scannedUsers}, pending 订单数=${settle.totalPending}, 成功结算=${settle.settled}, 跳过=${settle.skipped}, 清除数=${cleanedOrders.length}\n`);
+    logger.info(`===== 兜底清理任务完成 =====`);
+    logger.info(`汇总: 扫描用户数=${settle.scannedUsers}, pending 订单数=${settle.totalPending}, 成功结算=${settle.settled}, 跳过=${settle.skipped}, 清除数=${cleanedOrders.length}`);
 
     return {
       settle,

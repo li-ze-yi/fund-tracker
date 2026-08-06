@@ -6,6 +6,9 @@ const fundService = require('../services/fundService');
 const dailyProfitService = require('../services/dailyProfitService');
 const globalCache = require('../services/globalCache');
 const UserSetting = require('../models/userSetting');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('HoldingController');
 
 exports.list = async (req, res, next) => {
   try {
@@ -41,11 +44,11 @@ exports.list = async (req, res, next) => {
     dailyProfitService.calculateAndSaveDailyProfit(userId, enrichedWithStatus)
       .then(result => {
         if (result) {
-          console.log(`[HoldingController] 用户 ${userId} 日收益已自动更新:`, result.date);
+          logger.info(`用户 ${userId} 日收益已自动更新: ${result.date}`);
         }
       })
       .catch(err => {
-        console.error('[HoldingController] 日收益自动计算失败:', err.message);
+        logger.error(`日收益自动计算失败: ${err.message}`);
       });
 
     res.json(enrichedWithStatus);
@@ -63,7 +66,7 @@ async function settlePendingAsync(userId) {
     const pendingTransactions = await Transaction.findPendingByUserId(userId);
     if (!pendingTransactions.length) return;
 
-    console.log(`[HoldingController] 发现 ${pendingTransactions.length} 笔待结算订单，开始自动结算...`);
+    logger.info(`发现 ${pendingTransactions.length} 笔待结算订单，开始自动结算...`);
 
     for (const tx of pendingTransactions) {
       try {
@@ -110,7 +113,7 @@ async function settlePendingAsync(userId) {
             amount: parseFloat(tx.amount)
           });
 
-          console.log(`[HoldingController] 自动结算买入: #${tx.id}, actualShares=${actualShares.toFixed(2)}, nav=${confirmedNav}, holdingCreated=${!holding}`);
+          logger.info(`自动结算买入: #${tx.id}, actualShares=${actualShares.toFixed(2)}, nav=${confirmedNav}, holdingCreated=${!holding}`);
         } else if (tx.type === 'sell') {
           // 卖出结算：用确认净值计算实际金额，此时才扣减持仓份额和成本
           const sellShares = parseFloat(tx.shares);
@@ -152,14 +155,14 @@ async function settlePendingAsync(userId) {
             amount: actualNetAmount
           });
 
-          console.log(`[HoldingController] 自动结算卖出: #${tx.id}, nav=${confirmedNav}, amount=${actualNetAmount.toFixed(2)}`);
+          logger.info(`自动结算卖出: #${tx.id}, nav=${confirmedNav}, amount=${actualNetAmount.toFixed(2)}`);
         }
       } catch (err) {
-        console.error(`[HoldingController] 结算交易 #${tx.id} 失败:`, err.message);
+        logger.error(`结算交易 #${tx.id} 失败: ${err.message}`);
       }
     }
   } catch (err) {
-    console.error('[HoldingController] 自动结算失败:', err.message);
+    logger.error('自动结算失败:', err.message);
   }
 }
 
@@ -180,17 +183,17 @@ function normalizeDateStr(dateVal) {
 exports.create = async (req, res, next) => {
   try {
     const { fundCode, amount, totalReturn, groupId } = req.body;
-    console.log(`[HoldingController] 开始添加持仓: fund=${fundCode}, amount=${amount}, totalReturn=${totalReturn}`);
+    logger.info(`开始添加持仓: fund=${fundCode}, amount=${amount}, totalReturn=${totalReturn}`);
     
     const fund = await Fund.findByCode(fundCode);
     if (!fund) {
-      console.warn(`[HoldingController] 基金不存在: ${fundCode}`);
+      logger.warn(`基金不存在: ${fundCode}`);
       return res.status(400).json({ message: '基金代码不存在' });
     }
 
     const existing = await Holding.findByUserAndFund(req.user.id, fundCode);
     if (existing && parseFloat(existing.shares) > 0) {
-      console.warn(`[HoldingController] 基金已在持仓中: ${fundCode}`);
+      logger.warn(`基金已在持仓中: ${fundCode}`);
       return res.status(400).json({ message: '该基金已在持仓中' });
     }
 
@@ -221,11 +224,11 @@ exports.create = async (req, res, next) => {
           if (netValue > 0) {
             netValueSource = `confirmed(${latestConfirmed.date})`;
             confirmedNavDate = latestConfirmed.date;
-            console.log(`[HoldingController] 使用确认净值: ${netValue} (${latestConfirmed.date})`);
+            logger.info(`使用确认净值: ${netValue} (${latestConfirmed.date})`);
           }
         }
       } catch (e) {
-        console.warn(`[HoldingController] 获取历史净值失败: ${e.message}`);
+        logger.warn(`获取历史净值失败: ${e.message}`);
       }
       
       if (netValue <= 0) {
@@ -239,18 +242,18 @@ exports.create = async (req, res, next) => {
           if (realTime && realTime.netValue > 0) {
             netValue = realTime.netValue;
             netValueSource = 'realtime';
-            console.log(`[HoldingController] 无确认净值，使用实时估值: ${netValue}`);
+            logger.info(`无确认净值，使用实时估值: ${netValue}`);
           }
         } catch (e) {
-          console.warn(`[HoldingController] 获取实时估值也失败: ${e.message}`);
+          logger.warn(`获取实时估值也失败: ${e.message}`);
         }
       }
     } catch (error) {
-      console.error(`[HoldingController] 获取净值失败:`, error.message);
+      logger.error(`获取净值失败: ${error.message}`);
     }
 
     if (netValue <= 0) {
-      console.error(`[HoldingController] 无法获取有效净值: source=${netValueSource}, value=${netValue}`);
+      logger.error(`无法获取有效净值: source=${netValueSource}, value=${netValue}`);
       return res.status(400).json({ 
         message: '无法获取有效的基金净值，请稍后重试',
         details: `净值来源: ${netValueSource}, 净值: ${netValue}`
@@ -262,7 +265,7 @@ exports.create = async (req, res, next) => {
     const totalCost = amount - (totalReturn || 0);
     const costPrice = shares > 0 ? totalCost / shares : 0;
 
-    console.log(`[HoldingController] 计算结果: shares=${shares.toFixed(2)}, costPrice=${costPrice.toFixed(4)}, totalCost=${totalCost}, netValue=${netValue}`);
+    logger.info(`计算结果: shares=${shares.toFixed(2)}, costPrice=${costPrice.toFixed(4)}, totalCost=${totalCost}, netValue=${netValue}`);
 
     if (existing) {
       // 已清仓基金重新添加 → 更新现有持仓（避免违反 uk_user_fund 唯一约束）
@@ -275,7 +278,7 @@ exports.create = async (req, res, next) => {
         soldDate: null,
         totalReturn: 0
       });
-      console.log(`[HoldingController] 已清仓基金重新添加: id=${existing.id}, fund=${fundCode}`);
+      logger.info(`已清仓基金重新添加: id=${existing.id}, fund=${fundCode}`);
 
       // 生成交易记录（与新建一致）
       if (!totalReturn) {
@@ -306,7 +309,7 @@ exports.create = async (req, res, next) => {
       totalCost
     });
 
-    console.log(`[HoldingController] 持仓创建成功: id=${id}, fund=${fundCode}`);
+    logger.info(`持仓创建成功: id=${id}, fund=${fundCode}`);
 
     // 累计收益为0时，视为新买入，生成交易记录
     if (!totalReturn) {
@@ -325,7 +328,7 @@ exports.create = async (req, res, next) => {
 
     res.json({ id, message: '添加成功' });
   } catch (err) {
-    console.error(`[HoldingController] 创建持仓异常:`, err);
+    logger.error(`创建持仓异常: ${err.message}`);
     next(err);
   }
 };

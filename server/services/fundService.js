@@ -1,5 +1,8 @@
 const axios = require('axios');
 const globalCache = require('./globalCache');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('FundService');
 
 const TIMEOUT = 3000; // 3秒超时（原8秒太长，失败时串行等待浪费大量时间）
 
@@ -30,13 +33,13 @@ async function checkSinaAvailability() {
     sinaAvailable = status === 200;
     sinaCheckTime = now;
     if (!sinaAvailable) {
-      console.log(`[fundService] 新浪接口不可用(HTTP ${status})，已跳过所有新浪请求`);
+      logger.warn(`新浪接口不可用(HTTP ${status})，已跳过所有新浪请求`);
     }
     return sinaAvailable;
   } catch (e) {
     sinaAvailable = false;
     sinaCheckTime = now;
-    console.log(`[fundService] 新浪接口不可用(${e.message})，已跳过所有新浪请求`);
+    logger.warn(`新浪接口不可用(${e.message})，已跳过所有新浪请求`);
     return false;
   }
 }
@@ -354,11 +357,11 @@ async function getFundHoldings(fundCode) {
   const now = Date.now();
   const cached = holdingsCache.get(fundCode);
   if (cached && (now - cached.ts) < 4 * 60 * 60 * 1000) {
-    console.log(`[${getTimestamp()}] [holdings] ${fundCode} 持仓命中缓存`);
+    logger.debug(`${fundCode} 持仓命中缓存`);
     return cached.data;
   }
 
-  console.log(`[${getTimestamp()}] [holdings] ${fundCode} 获取持仓数据`);
+  logger.info(`${fundCode} 获取持仓数据`);
 
   // 数据源：fundmobapi JSON 接口（FundMNInverstPosition）
   // 注：fundf10 HTML 接口（FundArchivesDatas.aspx?type=jjcc）已不再返回持仓数据，
@@ -395,10 +398,10 @@ async function getFundHoldings(fundCode) {
       etfCode,
     };
     holdingsCache.set(fundCode, { data: result, ts: now });
-    console.log(`[${getTimestamp()}] [holdings] ${fundCode} 持仓数据: ${holdings.length}只, etfCode=${etfCode || 'null'}`);
+    logger.info(`${fundCode} 持仓数据: ${holdings.length}只, etfCode=${etfCode || 'null'}`);
     return result;
   } catch (e) {
-    console.warn(`[${getTimestamp()}] [holdings][warn] ${fundCode} fundmobapi 持仓接口失败: ${e.message}`);
+    logger.warn(`${fundCode} fundmobapi 持仓接口失败: ${e.message}`);
     return { holdings: [], totalStockRatio: 0, reportDate: null, etfCode: null };
   }
 }
@@ -470,11 +473,11 @@ async function getStocksRealtime(stockCodes) {
     needFetch.push(code);
   }
 
-  console.log(`[getStocksRealtime] 共${stockCodes.length}只: 缓存命中${stockCodes.length - needFetch.length}只, 需请求${needFetch.length}只`);
+  logger.debug(`共${stockCodes.length}只: 缓存命中${stockCodes.length - needFetch.length}只, 需请求${needFetch.length}只`);
 
   // 2. 全部命中则直接返回，不请求外部 API
   if (needFetch.length === 0) {
-    console.log(`[getStocksRealtime] 全部命中缓存，跳过外部API请求`);
+    logger.debug(`全部命中缓存，跳过外部API请求`);
     return result;
   }
 
@@ -488,7 +491,7 @@ async function getStocksRealtime(stockCodes) {
       batches.push(needFetch.slice(i, i + BATCH_SIZE));
     }
   }
-  console.log(`[getStocksRealtime] 请求腾讯qt.gtimg.cn: ${needFetch.join(',')} (分${batches.length}批)`);
+  logger.info(`请求腾讯qt.gtimg.cn: ${needFetch.join(',')} (分${batches.length}批)`);
 
   const batchResults = await Promise.all(
     batches.map(b => getStocksRealtimeBatch(b).catch(() => ({})))
@@ -507,7 +510,7 @@ async function getStocksRealtime(stockCodes) {
     }
   }
 
-  console.log(`[getStocksRealtime] 完成: 请求${needFetch.length}只, 成功获取${writeCount}只, 失败${needFetch.length - writeCount}只`);
+  logger.info(`完成: 请求${needFetch.length}只, 成功获取${writeCount}只, 失败${needFetch.length - writeCount}只`);
 
   return result;
 }
@@ -667,7 +670,7 @@ async function getFundgzEstimatedValue(fundCode) {
 // 注意：新浪接口对阿里云等服务器IP可能返回403
 // ═══════════════════════════════════════════
 async function getSinaEstimatedValue(fundCode) {
-  console.log(`[${getTimestamp()}] [sina] ${fundCode} 新浪接口估值`);
+  logger.info(`${fundCode} 新浪接口估值`);
   // 先检测新浪接口是否可用（服务器IP可能被403封禁）
   if (!(await checkSinaAvailability())) return null;
   try {
@@ -697,7 +700,7 @@ async function getSinaEstimatedValue(fundCode) {
     const estimatedChange = parseFloat(fields[6]);
 
     if (!isNaN(estimatedNav) && estimatedNav > 0) {
-      console.log(`[${getTimestamp()}] [sina] ${fundCode} 估值成功: change=${estimatedChange}%`);
+      logger.info(`${fundCode} 新浪估值成功: change=${estimatedChange}%`);
       return {
         estimatedValue: estimatedNav,
         estimatedChange: !isNaN(estimatedChange) ? estimatedChange : null,
@@ -720,7 +723,7 @@ async function getETFRealtimeQuote(fundCode) {
     // 东方财富push2接口（主要数据源）
   try {
     const market = fundCode.startsWith('15') || fundCode.startsWith('16') ? '0' : '1';
-    console.log(`[${getTimestamp()}] [etf] ${fundCode} push2尝试...`);
+    logger.info(`${fundCode} ETF push2尝试...`);
     const { data } = await axios.get(
       `https://push2.eastmoney.com/api/qt/stock/get?secid=${market}.${fundCode}&fields=f43,f44,f170`,
       { timeout: TIMEOUT, headers: defaultHeaders('https://quote.eastmoney.com/') }
@@ -729,7 +732,7 @@ async function getETFRealtimeQuote(fundCode) {
       const price = data.data.f43 / 1000;
       const changePercent = data.data.f170 / 100;
       if (!isNaN(price) && price > 0) {
-        console.log(`[${getTimestamp()}] [etf] ${fundCode} push2成功: price=${price}, change=${changePercent}%`);
+        logger.info(`${fundCode} ETF push2成功: price=${price}, change=${changePercent}%`);
         return {
           estimatedValue: price,
           estimatedChange: changePercent,
@@ -737,13 +740,13 @@ async function getETFRealtimeQuote(fundCode) {
           updateTime: '',
         };
       } else {
-        console.log(`[${getTimestamp()}] [etf][warn] ${fundCode} push2失败: 价格无效(${price}), 回退腾讯`);
+        logger.warn(`${fundCode} ETF push2失败: 价格无效(${price}), 回退腾讯`);
       }
     } else {
-      console.log(`[${getTimestamp()}] [etf][warn] ${fundCode} push2失败: 无data字段, 回退腾讯`);
+      logger.warn(`${fundCode} ETF push2失败: 无data字段, 回退腾讯`);
     }
   } catch (e) {
-    console.log(`[${getTimestamp()}] [etf][warn] ${fundCode} push2失败: ${e.message}, 回退腾讯`);
+    logger.warn(`${fundCode} ETF push2失败: ${e.message}, 回退腾讯`);
     /* fall through */
   }
 
@@ -817,7 +820,7 @@ async function getUnderlyingETFCode(fundCode) {
   const now = Date.now();
   const cached = etfLinkageCache.get(fundCode);
   if (cached && (now - cached.ts) < 24 * 60 * 60 * 1000) {
-    console.log(`[${getTimestamp()}] [holdings] ${fundCode} 母ETF代码命中缓存: ${cached.code}`);
+    logger.debug(`${fundCode} 母ETF代码命中缓存: ${cached.code}`);
     return cached.code;
   }
 
@@ -826,12 +829,12 @@ async function getUnderlyingETFCode(fundCode) {
     const holdingsResult = await getFundHoldings(fundCode);
     if (holdingsResult?.etfCode) {
       etfLinkageCache.set(fundCode, { code: holdingsResult.etfCode, ts: now });
-      console.log(`[${getTimestamp()}] [holdings] ${fundCode} 母ETF代码: ${holdingsResult.etfCode}`);
+      logger.info(`${fundCode} 母ETF代码: ${holdingsResult.etfCode}`);
       return holdingsResult.etfCode;
     }
   } catch (e) { /* fall through */ }
 
-  console.warn(`[${getTimestamp()}] [holdings][warn] ${fundCode} 未找到母ETF代码`);
+  logger.warn(`${fundCode} 未找到母ETF代码`);
   return null;
 }
 
@@ -842,17 +845,17 @@ async function getUnderlyingETFCode(fundCode) {
  * 3. 用母ETF涨跌幅 + 昨日确认净值 计算估算净值
  */
 async function getETFBasedEstimatedValue(fundCode) {
-  console.log(`[${getTimestamp()}] [holdings] ${fundCode} ETF联接估值`);
+  logger.info(`${fundCode} ETF联接估值`);
   const etfCode = await getUnderlyingETFCode(fundCode);
   if (!etfCode) {
-    console.warn(`[${getTimestamp()}] [holdings][warn] ${fundCode} ETF联接估值失败: 无母ETF代码`);
+    logger.warn(`${fundCode} ETF联接估值失败: 无母ETF代码`);
     return null;
   }
 
   // 获取母ETF实时行情（复用getETFRealtimeQuote）
   const etfQuote = await getETFRealtimeQuote(etfCode).catch(() => null);
   if (!etfQuote || etfQuote.estimatedChange == null) {
-    console.warn(`[${getTimestamp()}] [holdings][warn] ${fundCode} ETF联接估值失败: 母ETF行情不可用`);
+    logger.warn(`${fundCode} ETF联接估值失败: 母ETF行情不可用`);
     return null;
   }
 
@@ -875,7 +878,7 @@ async function getETFBasedEstimatedValue(fundCode) {
     }
   } catch (e) { /* fall through */ }
 
-  console.log(`[${getTimestamp()}] [holdings] ${fundCode} ETF联接估值完成: change=${changePercent}%${estimatedValue ? `, estimatedNav=${estimatedValue}` : ''}`);
+  logger.info(`${fundCode} ETF联接估值完成: change=${changePercent}%${estimatedValue ? `, estimatedNav=${estimatedValue}` : ''}`);
   return {
     estimatedValue,
     estimatedChange: changePercent,
@@ -896,7 +899,7 @@ async function getFundAssetAllocation(fundCode) {
   const now = Date.now();
   const cached = assetAllocCache.get(fundCode);
   if (cached && (now - cached.ts) < 24 * 60 * 60 * 1000) {
-    console.log(`[${getTimestamp()}] [holdings] ${fundCode} 资产配置命中缓存`);
+    logger.debug(`${fundCode} 资产配置命中缓存`);
     return cached.data;
   }
 
@@ -908,7 +911,7 @@ async function getFundAssetAllocation(fundCode) {
 
     const match = data.match(/var\s+Data_assetAllocation\s*=\s*([^;]+);/);
     if (!match) {
-      console.warn(`[${getTimestamp()}] [holdings][warn] ${fundCode} pingzhongdata 无 Data_assetAllocation`);
+      logger.warn(`${fundCode} pingzhongdata 无 Data_assetAllocation`);
       return null;
     }
 
@@ -928,10 +931,10 @@ async function getFundAssetAllocation(fundCode) {
 
     const result = { stockRatio, bondRatio, cashRatio, reportDate: latestDate };
     assetAllocCache.set(fundCode, { data: result, ts: now });
-    console.log(`[${getTimestamp()}] [holdings] ${fundCode} 资产配置: 股票=${stockRatio}% 债券=${bondRatio}% 现金=${cashRatio}% 报告期=${latestDate}`);
+    logger.info(`${fundCode} 资产配置: 股票=${stockRatio}% 债券=${bondRatio}% 现金=${cashRatio}% 报告期=${latestDate}`);
     return result;
   } catch (e) {
-    console.warn(`[${getTimestamp()}] [holdings][warn] ${fundCode} pingzhongdata 资产配置获取失败: ${e.message}`);
+    logger.warn(`${fundCode} pingzhongdata 资产配置获取失败: ${e.message}`);
     return null;
   }
 }
@@ -943,15 +946,15 @@ async function getFundAssetAllocation(fundCode) {
 
 
 async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
-  console.log(`[${getTimestamp()}] [holdings] ${fundCode} 进入持仓穿透估值`);
-  
+  logger.info(`${fundCode} 进入持仓穿透估值`);
+
   // 1. 获取全部持仓 + 总股票仓位比例 + 报告期
   const { holdings, totalStockRatio, reportDate, etfCode } = await getFundHoldings(fundCode);
-  console.log(`[${getTimestamp()}] [holdings] ${fundCode} 持仓: ${holdings.length}只, 覆盖率=${totalStockRatio}%, 报告期=${reportDate}, etfCode=${etfCode || 'null'}`);
+  logger.info(`${fundCode} 持仓: ${holdings.length}只, 覆盖率=${totalStockRatio}%, 报告期=${reportDate}, etfCode=${etfCode || 'null'}`);
 
   // 2. 无持仓且非ETF联接基金 → 无法估值
   if (!holdings.length && !etfCode) {
-    console.warn(`[${getTimestamp()}] [holdings][warn] ${fundCode} 估算失败: 持仓为空 (非ETF联接基金)`);
+    logger.warn(`${fundCode} 估算失败: 持仓为空 (非ETF联接基金)`);
     return null;
   }
 
@@ -965,7 +968,7 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
     const q = stockQuotes[h.code];
     if (q && q.changePercent != null) successCount++;
   }
-  console.log(`[${getTimestamp()}] [holdings] ${fundCode} 行情: ${successCount}/${holdings.length}只成功`);
+  logger.info(`${fundCode} 行情: ${successCount}/${holdings.length}只成功`);
 
   // 4. 计算已覆盖贡献 & 缺失股票权重
   let coveredContribution = 0;
@@ -984,7 +987,7 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
   let benchmarkReturn = 0;
   if (missingStockWeight > 0) {
     benchmarkReturn = await getBenchmarkChange();
-    console.log(`[${getTimestamp()}] [holdings] ${fundCode} 缺失股票权重=${missingStockWeight.toFixed(2)}%, 沪深300=${benchmarkReturn}%`);
+    logger.info(`${fundCode} 缺失股票权重=${missingStockWeight.toFixed(2)}%, 沪深300=${benchmarkReturn}%`);
   }
   const bondBenchmarkChange = await getBondBenchmarkChange();
 
@@ -1010,17 +1013,17 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
       const etfQuote = await getETFRealtimeQuote(etfCode).catch(() => null);
       if (etfQuote && etfQuote.estimatedChange != null) {
         etfContribution = etfWeight * etfQuote.estimatedChange;
-        console.log(`[${getTimestamp()}] [holdings] ${fundCode} 母ETF=${etfCode} 涨跌幅=${etfQuote.estimatedChange}% 占比=${etfWeight.toFixed(2)}%`);
+        logger.info(`${fundCode} 母ETF=${etfCode} 涨跌幅=${etfQuote.estimatedChange}% 占比=${etfWeight.toFixed(2)}%`);
       } else {
-        console.warn(`[${getTimestamp()}] [holdings][warn] ${fundCode} 母ETF行情获取失败: etfCode=${etfCode}`);
+        logger.warn(`${fundCode} 母ETF行情获取失败: etfCode=${etfCode}`);
       }
     }
   } else if (etfCode && !assetAlloc) {
     // 资产配置获取失败，近似处理：母ETF涨跌幅 × 100%
-    console.warn(`[${getTimestamp()}] [holdings][warn] ${fundCode} 资产配置获取失败，回退母ETF近似估值`);
+    logger.warn(`${fundCode} 资产配置获取失败，回退母ETF近似估值`);
     const etfQuote = await getETFRealtimeQuote(etfCode).catch(() => null);
     if (etfQuote && etfQuote.estimatedChange != null) {
-      console.log(`[${getTimestamp()}] [holdings] ${fundCode} ETF联接近似估值完成: change=${etfQuote.estimatedChange}%`);
+      logger.info(`${fundCode} ETF联接近似估值完成: change=${etfQuote.estimatedChange}%`);
       return {
         estimatedValue: null,
         estimatedChange: parseFloat(etfQuote.estimatedChange.toFixed(2)),
@@ -1038,7 +1041,7 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
     bondContribution = bondWeight * bondBenchmarkChange;
   }
 
-  console.log(`[${getTimestamp()}] [holdings] ${fundCode} 贡献: 股票已覆盖=${coveredContribution.toFixed(2)} 缺失股票=${missingContribution.toFixed(2)} 债券=${bondContribution.toFixed(2)}${etfCode ? ` 母ETF=${etfContribution.toFixed(2)}` : ''}`);
+  logger.info(`${fundCode} 贡献: 股票已覆盖=${coveredContribution.toFixed(2)} 缺失股票=${missingContribution.toFixed(2)} 债券=${bondContribution.toFixed(2)}${etfCode ? ` 母ETF=${etfContribution.toFixed(2)}` : ''}`);
   
   // 7. 新公式：精确计算各组成部分贡献
   const estimatedChange = (coveredContribution + missingContribution + bondContribution + etfContribution) / 100;
@@ -1046,7 +1049,7 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
   // 8. 计算估算价格
   //    若调用方提供了 confirmedNav（正数），直接使用，跳过 lsjz 调用（避免冗余请求）
   if (typeof confirmedNav === 'number' && confirmedNav > 0) {
-    console.log(`[${getTimestamp()}] [holdings] ${fundCode} 估值成功: method=holdings, change=${estimatedChange.toFixed(2)}%, coverage=${totalStockRatio}%`);
+    logger.info(`${fundCode} 估值成功: method=holdings, change=${estimatedChange.toFixed(2)}%, coverage=${totalStockRatio}%`);
     return {
       estimatedValue: parseFloat((confirmedNav * (1 + estimatedChange / 100)).toFixed(4)),
       estimatedChange: parseFloat(estimatedChange.toFixed(2)),
@@ -1068,7 +1071,7 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
     if (data?.Data?.LSJZList?.length) {
       const yesterdayNav = parseFloat(data.Data.LSJZList[0].DWJZ);
       if (!isNaN(yesterdayNav) && yesterdayNav > 0) {
-        console.log(`[${getTimestamp()}] [holdings] ${fundCode} 估值成功: method=holdings, change=${estimatedChange.toFixed(2)}%, coverage=${totalStockRatio}%`);
+        logger.info(`${fundCode} 估值成功: method=holdings, change=${estimatedChange.toFixed(2)}%, coverage=${totalStockRatio}%`);
         return {
           estimatedValue: parseFloat((yesterdayNav * (1 + estimatedChange / 100)).toFixed(4)),
           estimatedChange: parseFloat(estimatedChange.toFixed(2)),
@@ -1080,11 +1083,11 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
       }
     }
   } catch (e) {
-    console.warn(`[${getTimestamp()}] [holdings][warn] ${fundCode} lsjz调用失败: ${e.message}`);
+    logger.warn(`${fundCode} lsjz调用失败: ${e.message}`);
   }
 
   // 10. lsjz 失败或返回空，但 estimatedChange 已成功计算 → 返回部分结果（不丢弃 estimatedChange）
-  console.warn(`[${getTimestamp()}] [holdings][warn] ${fundCode} 估算失败: 无法获取昨日净值，返回部分结果(estimatedChange only)`);
+  logger.warn(`${fundCode} 估算失败: 无法获取昨日净值，返回部分结果(estimatedChange only)`);
   return {
     estimatedValue: null,
     estimatedChange: parseFloat(estimatedChange.toFixed(2)),
@@ -1100,11 +1103,11 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
 // method: 'sina' | 'holdings'（控制盘中估算方式，两个数据源互不回退）
 // ═══════════════════════════════════════════
 async function getRealTimeValueWithMethod(fundCode, method = 'sina') {
-  console.log(`[${getTimestamp()}] [estimate] ${fundCode} 估值入口 method=${method}`);
+  logger.info(`${fundCode} 估值入口 method=${method}`);
 
   // 获取东方财富确认净值作为基准
   const confirmed = await getRealTimeValue(fundCode).catch(() => null);
-  console.log(`[${getTimestamp()}] [estimate] ${fundCode} 确认净值=${confirmed?.netValue ?? 'null'}`);
+  logger.info(`${fundCode} 确认净值=${confirmed?.netValue ?? 'null'}`);
 
   // 根据用户选择的数据源获取盘中估算
   let estimated = null;
@@ -1115,7 +1118,7 @@ async function getRealTimeValueWithMethod(fundCode, method = 'sina') {
     // 自动模式：先尝试新浪，失败回退持仓穿透
     estimated = await getSinaEstimatedValue(fundCode).catch(() => null);
     if (!estimated) {
-      console.log(`[${getTimestamp()}] [estimate] ${fundCode} 新浪失败，回退持仓穿透`);
+      logger.info(`${fundCode} 新浪失败，回退持仓穿透`);
       estimated = await getHoldingsEstimatedOverlay(fundCode, confirmed?.netValue).catch(() => null);
     }
   } else {
@@ -1123,7 +1126,7 @@ async function getRealTimeValueWithMethod(fundCode, method = 'sina') {
     estimated = await getSinaEstimatedValue(fundCode).catch(() => null);
   }
 
-  console.log(`[${getTimestamp()}] [estimate] ${fundCode} 结果: method=${estimated?.estimationMethod ?? method}, change=${estimated?.estimatedChange ?? 'null'}`);
+  logger.info(`${fundCode} 结果: method=${estimated?.estimationMethod ?? method}, change=${estimated?.estimatedChange ?? 'null'}`);
 
   // 合并：确认净值 + 估算值
   const result = {
@@ -1183,7 +1186,7 @@ async function batchGetFundmobapiInfo(fundCodes) {
       }
     }
   } catch (e) {
-    console.error(`[fundService] fundmobapi批量获取失败(${fundCodes.length}只):`, e.message);
+    logger.error(`fundmobapi批量获取失败(${fundCodes.length}只): ${e.message}`);
   }
 
   // 补 null
@@ -1307,7 +1310,7 @@ async function batchGetSinaEstimatedValues(fundCodes) {
       }
     }
   } catch (e) {
-    console.error(`[fundService] 批量新浪估值失败(${fundCodes.length}只):`, e.message);
+    logger.error(`批量新浪估值失败(${fundCodes.length}只): ${e.message}`);
   }
 
   // 对未获取到数据的基金补 null
@@ -1394,7 +1397,7 @@ async function batchGetHistoryNetValues(fundCodes, startDate, endDate) {
  * 返回 { fundCode: { netValue, gainPercent, estimatedValue, estimatedChange, ... } }
  */
 async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina') {
-  console.log(`[${getTimestamp()}] [batch] 批量估值入口 count=${fundCodes.length} method=${method}`);
+  logger.info(`批量估值入口 count=${fundCodes.length} method=${method}`);
   const result = {};
   if (!fundCodes || !fundCodes.length) return result;
 
@@ -1420,7 +1423,7 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina') {
     estimatedMap = await batchGetSinaEstimatedValues(fundCodes);
     const fallbackCodes = fundCodes.filter(code => !estimatedMap[code]);
     if (fallbackCodes.length) {
-      console.log(`[${getTimestamp()}] [batch] ${fallbackCodes.length}只基金回退持仓穿透`);
+      logger.info(`${fallbackCodes.length}只基金回退持仓穿透`);
       const fallbackPromises = fallbackCodes.map(async (code) => {
         try { return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue) }; }
         catch { return { code, data: null }; }
@@ -1467,7 +1470,7 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina') {
 
   const duration = Date.now() - startTime;
   const hasEstimate = Object.values(result).filter(r => r.estimatedValue).length;
-  console.log(`[${getTimestamp()}] [batch] 批量获取${fundCodes.length}只基金数据完成, 耗时${duration}ms (估值:${hasEstimate}/${fundCodes.length})`);
+  logger.info(`批量获取${fundCodes.length}只基金数据完成, 耗时${duration}ms (估值:${hasEstimate}/${fundCodes.length})`);
 
   return result;
 }

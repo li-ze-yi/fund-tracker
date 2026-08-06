@@ -7,6 +7,9 @@ const Transaction = require('../models/transaction');
 const fundService = require('../services/fundService');
 const globalCache = require('../services/globalCache');
 const ocrService = require('../services/ocrService');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('ImageImportController');
 
 /**
  * 智能匹配基金：优先匹配C/A后缀，然后按名称相似度排序
@@ -52,7 +55,7 @@ function findBestMatch(ocrName, candidates) {
   // 按分数降序排序
   scored.sort((a, b) => b.score - a.score);
 
-  console.log(`[ImageImport] 匹配评分: ${scored.map(s => `${s.fund.name}(${s.score})`).join(', ')}`);
+  logger.info(`匹配评分: ${scored.map(s => `${s.fund.name}(${s.score})`).join(', ')}`);
 
   return scored[0].fund;
 }
@@ -97,13 +100,13 @@ exports.recognize = [upload.single('image'), async (req, res, next) => {
     }
 
     const imagePath = req.file.path;
-    console.log(`[ImageImport] 收到图片识别请求: ${imagePath}`);
+    logger.info(`收到图片识别请求: ${imagePath}`);
 
     let ocrResult;
     try {
       ocrResult = await ocrService.recognizeHoldingsFromImage(imagePath);
     } catch (ocrErr) {
-      console.error('[ImageImport] OCR 识别失败:', ocrErr.message);
+      logger.error(`OCR 识别失败: ${ocrErr.message}`);
       return res.status(422).json({
         message: '图片识别失败: ' + ocrErr.message,
         items: [],
@@ -154,7 +157,7 @@ exports.recognize = [upload.single('image'), async (req, res, next) => {
             const bestMatch = findBestMatch(item.fundName, searchResults);
             item.fundCode = bestMatch.code;
             item.fundName = bestMatch.name;
-            console.log(`[ImageImport] 名称反查: "${holding.fundName}" -> ${bestMatch.code} ${bestMatch.name}`);
+            logger.info(`名称反查: "${holding.fundName}" -> ${bestMatch.code} ${bestMatch.name}`);
           } else {
             // 尝试缩短名称再搜索（去掉可能的OCR噪声）
             const shortName = item.fundName.replace(/[选智领]/g, '').substring(0, 4);
@@ -164,7 +167,7 @@ exports.recognize = [upload.single('image'), async (req, res, next) => {
                 const bestMatch = findBestMatch(item.fundName, retryResults);
                 item.fundCode = bestMatch.code;
                 item.fundName = bestMatch.name;
-                console.log(`[ImageImport] 名称反查(缩短): "${holding.fundName}" -> "${shortName}" -> ${bestMatch.code} ${bestMatch.name}`);
+                logger.info(`名称反查(缩短): "${holding.fundName}" -> "${shortName}" -> ${bestMatch.code} ${bestMatch.name}`);
               } else {
                 item.valid = false;
                 item.error = '未找到匹配的基金，请手动输入基金代码';
@@ -186,7 +189,7 @@ exports.recognize = [upload.single('image'), async (req, res, next) => {
       return item;
     }));
 
-    console.log(`[ImageImport] 识别完成: ${items.length} 条记录, 有效 ${items.filter(i => i.valid).length} 条`);
+    logger.info(`识别完成: ${items.length} 条记录, 有效 ${items.filter(i => i.valid).length} 条`);
 
     res.json({ items, rawText, engine });
   } catch (err) {
@@ -197,7 +200,7 @@ exports.recognize = [upload.single('image'), async (req, res, next) => {
       try {
         fs.unlinkSync(req.file.path);
       } catch (e) {
-        console.warn('[ImageImport] 清理临时文件失败:', e.message);
+        logger.warn(`清理临时文件失败: ${e.message}`);
       }
     }
   }
@@ -275,7 +278,7 @@ exports.confirmImport = async (req, res, next) => {
               }
             }
           } catch (e) {
-            console.warn(`[ImageImport] 获取历史净值失败: ${e.message}`);
+            logger.warn(`获取历史净值失败: ${e.message}`);
           }
 
           if (netValue <= 0) {
@@ -291,11 +294,11 @@ exports.confirmImport = async (req, res, next) => {
                 netValueSource = 'realtime';
               }
             } catch (e) {
-              console.warn(`[ImageImport] 获取实时估值失败: ${e.message}`);
+              logger.warn(`获取实时估值失败: ${e.message}`);
             }
           }
         } catch (error) {
-          console.error(`[ImageImport] 获取净值失败:`, error.message);
+          logger.error(`获取净值失败: ${error.message}`);
         }
 
         if (netValue <= 0) {
@@ -310,7 +313,7 @@ exports.confirmImport = async (req, res, next) => {
         const totalCost = amount - (totalReturn || 0);
         const costPrice = shares > 0 ? totalCost / shares : 0;
 
-        console.log(`[ImageImport] 创建持仓: fund=${fundCode}, shares=${shares.toFixed(2)}, costPrice=${costPrice.toFixed(4)}, netValue=${netValue}`);
+        logger.info(`创建持仓: fund=${fundCode}, shares=${shares.toFixed(2)}, costPrice=${costPrice.toFixed(4)}, netValue=${netValue}`);
 
         // 创建持仓记录
         const id = await Holding.create({
@@ -337,10 +340,10 @@ exports.confirmImport = async (req, res, next) => {
           metadata: JSON.stringify({ netValueSource, source: 'image_import' })
         });
 
-        console.log(`[ImageImport] 持仓创建成功: id=${id}, fund=${fundCode}`);
+        logger.info(`持仓创建成功: id=${id}, fund=${fundCode}`);
         results.success++;
       } catch (err) {
-        console.error(`[ImageImport] 导入单条持仓失败:`, err);
+        logger.error(`导入单条持仓失败: ${err.message}`);
         results.failed++;
         results.errors.push({ fundCode: item.fundCode || '未知', error: err.message });
       }

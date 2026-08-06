@@ -5,6 +5,9 @@ const pool = require('../config/database');
 const globalCache = require('./globalCache');
 const holdingService = require('./holdingService');
 const fundService = require('./fundService');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('DailyProfit');
 
 /**
  * 日收益计算服务 v3.0
@@ -32,7 +35,7 @@ class DailyProfitService {
       const marketStatus = await holdingService.checkMarketStatus(holdings);
       return marketStatus.isMarketOpen;
     } catch (error) {
-      console.error('[DailyProfit] checkMarketStatus 失败，降级为周末检查:', error.message);
+      logger.error(`checkMarketStatus 失败，降级为周末检查: ${error.message}`);
       const dayOfWeek = new Date().getDay();
       return !(dayOfWeek === 0 || dayOfWeek === 6);
     }
@@ -44,7 +47,7 @@ class DailyProfitService {
   async calculateAndSaveDailyProfit(userId, holdingsWithRealTimeData) {
     try {
       if (!holdingsWithRealTimeData || holdingsWithRealTimeData.length === 0) {
-        console.log(`[DailyProfit] 用户 ${userId} 无持仓，跳过`);
+        logger.info(`用户 ${userId} 无持仓，跳过`);
         return null;
       }
 
@@ -60,12 +63,12 @@ class DailyProfitService {
         }
       }
 
-      console.log(`\n[DailyProfit] ===== 开始处理用户 ${userId} (${today}) =====`);
+      logger.info(`===== 开始处理用户 ${userId} (${today}) =====`);
 
       // ★ 第零步：检查是否为交易日（统一使用checkMarketStatus）
       if (!await this.isTradingDay(holdingsWithRealTimeData)) {
         const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-        console.log(`[DailyProfit] ⏸️ 今天是${dayNames[now.getDay()]}或节假日，非交易日，跳过计算`);
+        logger.info(`今天是${dayNames[now.getDay()]}或节假日，非交易日，跳过计算`);
         return null;
       }
 
@@ -78,24 +81,24 @@ class DailyProfitService {
         } else {
           if (holding.is_confirmed !== false) {
             // is_confirmed 为 undefined/null 时打印警告
-            console.warn(`[DailyProfit] ⚠️ 基金 ${holding.fund_code} 缺少 is_confirmed 字段，按未确认处理`);
+            logger.warn(`基金 ${holding.fund_code} 缺少 is_confirmed 字段，按未确认处理`);
           }
           unconfirmedFunds.push(holding);
         }
       }
 
-      console.log(`[DailyProfit] 已确认: ${confirmedFunds.length}/${holdingsWithRealTimeData.length}`);
+      logger.info(`已确认: ${confirmedFunds.length}/${holdingsWithRealTimeData.length}`);
       if (confirmedFunds.length > 0) {
-        console.log(`[DailyProfit] 确认列表: ${confirmedFunds.map(f => f.fund_code).join(', ')}`);
+        logger.info(`确认列表: ${confirmedFunds.map(f => f.fund_code).join(', ')}`);
       }
       if (unconfirmedFunds.length > 0) {
         const pendingCodes = unconfirmedFunds.map(f => f.fund_code).join(', ');
-        console.log(`[DailyProfit] 待确认: ${pendingCodes} (不参与计算)`);
+        logger.info(`待确认: ${pendingCodes} (不参与计算)`);
       }
 
       // ★ 第二步：如果没有任何基金确认，直接返回
       if (confirmedFunds.length === 0) {
-        console.log('[DailyProfit] ⏳ 今天暂无任何基金确认，跳过计算');
+        logger.info(`今天暂无任何基金确认，跳过计算`);
         return null;
       }
 
@@ -105,7 +108,7 @@ class DailyProfitService {
         .filter(p => p !== undefined && p !== null && !isNaN(p));
 
       if (validProfits.length === 0 || validProfits.every(p => p === 0)) {
-        console.log('[DailyProfit] ⏸️ 所有确认基金的收益为0或无效，可能为非交易日，跳过');
+        logger.info(`所有确认基金的收益为0或无效，可能为非交易日，跳过`);
         return null;
       }
 
@@ -148,14 +151,14 @@ class DailyProfitService {
         details
       };
 
-      console.log(`[DailyProfit] ✅ 日收益已更新 (仅基于${confirmedFunds.length}只确认基金):`);
-      console.log(`   收益: ¥${calculationResult.totalDailyProfit.toFixed(2)} (${returnRate.toFixed(2)}%)`);
-      console.log(`   待确认: ${unconfirmedFunds.length}只 (确认后将自动加入)\n`);
+      logger.info(`✅ 日收益已更新 (仅基于${confirmedFunds.length}只确认基金):`);
+      logger.info(`收益: ¥${calculationResult.totalDailyProfit.toFixed(2)} (${returnRate.toFixed(2)}%)`);
+      logger.info(`待确认: ${unconfirmedFunds.length}只 (确认后将自动加入)`);
 
       return result;
 
     } catch (error) {
-      console.error('[DailyProfit] 失败:', error);
+      logger.error('失败:', error);
       throw error;
     }
   }
@@ -185,7 +188,7 @@ class DailyProfitService {
       totalCost += totalCostForFund;
       totalDailyProfit += dailyProfit;
 
-      console.log(`[DailyProfit]   ✓ ${fund.fund_code}: 净值=${netValue}, 涨跌幅=${fund.estimated_change}%, 当日盈亏=¥${dailyProfit.toFixed(2)}`);
+      logger.debug(`${fund.fund_code}: 净值=${netValue}, 涨跌幅=${fund.estimated_change}%, 当日盈亏=¥${dailyProfit.toFixed(2)}`);
 
       return {
         fund_code: fund.fund_code,
@@ -241,13 +244,13 @@ class DailyProfitService {
    */
   async backfillDailyProfit() {
     const today = new Date().toISOString().slice(0, 10);
-    console.log(`\n[DailyProfit] ===== 定时兜底任务启动 (${today} 23:55) =====`);
+    logger.info(`===== 定时兜底任务启动 (${today} 23:55) =====`);
 
     try {
       // ★ 周末直接跳过，避免无意义的API请求
       const dayOfWeek = new Date().getDay();
       if (dayOfWeek === 0 || dayOfWeek === 6) {
-        console.log('[DailyProfit] 周末非交易日，跳过补算');
+        logger.info('周末非交易日，跳过补算');
         return { total: 0, skipped: 0, success: 0, failed: 0 };
       }
 
@@ -257,7 +260,7 @@ class DailyProfitService {
       );
 
       if (!userRows.length) {
-        console.log('[DailyProfit] 无持仓用户，跳过');
+        logger.info('无持仓用户，跳过');
         return { total: 0, skipped: 0, success: 0, failed: 0 };
       }
 
@@ -271,10 +274,10 @@ class DailyProfitService {
       // 筛选出今天未记录的用户
       const pendingUsers = userRows.filter(r => !recordedUserIds.has(r.user_id));
 
-      console.log(`[DailyProfit] 持仓用户: ${userRows.length}, 已记录: ${recordedUserIds.size}, 待补算: ${pendingUsers.length}`);
+      logger.info(`持仓用户: ${userRows.length}, 已记录: ${recordedUserIds.size}, 待补算: ${pendingUsers.length}`);
 
       if (!pendingUsers.length) {
-        console.log('[DailyProfit] 所有用户今日收益已记录，无需补算');
+        logger.info('所有用户今日收益已记录，无需补算');
         return { total: userRows.length, skipped: recordedUserIds.size, success: 0, failed: 0 };
       }
 
@@ -282,7 +285,7 @@ class DailyProfitService {
       const firstUserHoldings = await Holding.findByUserId(pendingUsers[0].user_id);
       if (firstUserHoldings && firstUserHoldings.length > 0) {
         if (!await this.isTradingDay(firstUserHoldings)) {
-          console.log('[DailyProfit] 非交易日（节假日），跳过补算');
+          logger.info('非交易日（节假日），跳过补算');
           return { total: userRows.length, skipped: recordedUserIds.size, success: 0, failed: 0 };
         }
       }
@@ -309,23 +312,23 @@ class DailyProfitService {
 
           if (result) {
             success++;
-            console.log(`[DailyProfit] ✓ 用户 ${userId} 补算成功: ¥${result.profit.toFixed(2)}`);
+            logger.info(`用户 ${userId} 补算成功: ¥${result.profit.toFixed(2)}`);
           } else {
             // 无确认基金，不算失败
-            console.log(`[DailyProfit] - 用户 ${userId} 跳过（无确认基金）`);
+            logger.info(`用户 ${userId} 跳过（无确认基金）`);
           }
         } catch (err) {
           failed++;
-          console.error(`[DailyProfit] ✗ 用户 ${userId} 补算失败:`, err.message);
+          logger.error(`用户 ${userId} 补算失败: ${err.message}`);
         }
       }
 
-      console.log(`[DailyProfit] ===== 兜底任务完成 =====`);
-      console.log(`   待补算: ${pendingUsers.length}, 成功: ${success}, 失败: ${failed}\n`);
+      logger.info(`===== 兜底任务完成 =====`);
+      logger.info(`待补算: ${pendingUsers.length}, 成功: ${success}, 失败: ${failed}`);
 
       return { total: userRows.length, skipped: recordedUserIds.size, success, failed };
     } catch (error) {
-      console.error('[DailyProfit] 兜底任务异常:', error);
+      logger.error('兜底任务异常:', error);
       throw error;
     }
   }
@@ -340,7 +343,7 @@ class DailyProfitService {
       const pendingTransactions = await Transaction.findPendingByUserId(userId);
       if (!pendingTransactions.length) return;
 
-      console.log(`[DailyProfit] 发现 ${pendingTransactions.length} 笔待结算订单，开始自动结算 (用户 ${userId})...`);
+      logger.info(`发现 ${pendingTransactions.length} 笔待结算订单，开始自动结算 (用户 ${userId})...`);
 
       for (const tx of pendingTransactions) {
         try {
@@ -385,7 +388,7 @@ class DailyProfitService {
               amount: parseFloat(tx.amount)
             });
 
-            console.log(`[DailyProfit] 自动结算买入: #${tx.id}, actualShares=${actualShares.toFixed(2)}, nav=${confirmedNav}, holdingCreated=${!holding}`);
+            logger.info(`自动结算买入: #${tx.id}, actualShares=${actualShares.toFixed(2)}, nav=${confirmedNav}, holdingCreated=${!holding}`);
           } else if (tx.type === 'sell') {
             // 卖出结算：用确认净值计算实际金额，扣减持仓份额和成本
             const sellShares = parseFloat(tx.shares);
@@ -424,14 +427,14 @@ class DailyProfitService {
               amount: actualNetAmount
             });
 
-            console.log(`[DailyProfit] 自动结算卖出: #${tx.id}, nav=${confirmedNav}, amount=${actualNetAmount.toFixed(2)}`);
+            logger.info(`自动结算卖出: #${tx.id}, nav=${confirmedNav}, amount=${actualNetAmount.toFixed(2)}`);
           }
         } catch (err) {
-          console.error(`[DailyProfit] 结算交易 #${tx.id} 失败:`, err.message);
+          logger.error(`结算交易 #${tx.id} 失败: ${err.message}`);
         }
       }
     } catch (err) {
-      console.error(`[DailyProfit] 用户 ${userId} 自动结算失败:`, err.message);
+      logger.error(`用户 ${userId} 自动结算失败: ${err.message}`);
     }
   }
 

@@ -1,9 +1,12 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const pool = require('../config/database');
 const fundService = require('../services/fundService');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('SyncFunds');
 
 async function sync() {
-  console.log('开始同步基金数据...');
+  logger.info('开始同步基金数据...');
   try {
     const funds = await fundService.getAllFunds();
 
@@ -27,10 +30,10 @@ async function sync() {
       inserted += result.affectedRows;
     }
 
-    console.log(`同步完成，共处理 ${values.length} 条，插入 ${inserted} 条`);
+    logger.info(`同步完成，共处理 ${values.length} 条，插入 ${inserted} 条`);
     process.exit(0);
   } catch (err) {
-    console.error('同步失败:', err.message);
+    logger.error(`同步失败: ${err.message}`, err.stack);
     process.exit(1);
   }
 }

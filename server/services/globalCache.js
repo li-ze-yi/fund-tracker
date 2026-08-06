@@ -28,6 +28,9 @@
  * 🛡️ 有效防止IP被封（请求频率大幅降低）
  */
 
+const { createLogger } = require('../utils/logger');
+const logger = createLogger('GlobalCache');
+
 class GlobalCache {
   constructor() {
     this.cache = new Map();
@@ -47,7 +50,7 @@ class GlobalCache {
     // 定时清理器
     this.cleanupInterval = null;
     
-    console.log('[GlobalCache] 初始化完成');
+    logger.info('初始化完成');
   }
 
   /**
@@ -128,7 +131,7 @@ class GlobalCache {
     // 1️⃣ 强制刷新模式
     if (forceRefresh) {
       this.stats.forcedRefreshes++;
-      console.log(`[GlobalCache] 强制刷新: ${key}`);
+      logger.info(`强制刷新: ${key}`);
       const data = await fetchFn();
       this.set(key, data, type);
       return data;
@@ -147,7 +150,7 @@ class GlobalCache {
         
         // 日志（仅部分输出，避免刷屏）
         if (this.stats.totalRequests % 50 === 0) {
-          console.log(`[GlobalCache] 命中: ${key} (${(age / 1000).toFixed(1)}s前, TTL=${(ttl / 1000)}s, 命中率=${this.getHitRate()}%)`);
+          logger.debug(`命中: ${key} (${(age / 1000).toFixed(1)}s前, TTL=${(ttl / 1000)}s, 命中率=${this.getHitRate()}%)`);
         }
         
         return cached.data;
@@ -174,7 +177,7 @@ class GlobalCache {
       
       return data;
     } catch (error) {
-      console.error(`[GlobalCache] 获取数据失败: ${key}`, error.message);
+      logger.error(`获取数据失败: ${key}, error=${error.message}`);
       throw error;
     }
   }
@@ -342,7 +345,7 @@ class GlobalCache {
 
     if (cleaned > 0) {
       this.stats.evictions += cleaned;
-      console.log(`[GlobalCache] 清理完成: 移除${cleaned}个过期条目, 当前缓存数: ${this.cache.size}`);
+      logger.info(`清理完成: 移除${cleaned}个过期条目, 当前缓存数: ${this.cache.size}`);
     }
   }
 
@@ -418,7 +421,7 @@ class GlobalCache {
   clear() {
     const size = this.cache.size;
     this.cache.clear();
-    console.log(`[GlobalCache] 缓存已清空: 移除${size}个条目`);
+    logger.info(`缓存已清空: 移除${size}个条目`);
     
     // 重置统计
     this.stats = { hits: 0, misses: 0, evictions: 0, totalRequests: 0, forcedRefreshes: 0 };
@@ -436,7 +439,7 @@ class GlobalCache {
       this.cleanup();
     }, intervalMs);
 
-    console.log(`[GlobalCache] 定时清理已启动: 每${intervalMs / 1000}秒执行一次`);
+    logger.info(`定时清理已启动: 每${intervalMs / 1000}秒执行一次`);
   }
 
   /**
@@ -446,7 +449,7 @@ class GlobalCache {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
-      console.log('[GlobalCache] 定时清理已停止');
+      logger.info('定时清理已停止');
     }
   }
 
@@ -454,7 +457,7 @@ class GlobalCache {
    * 预热缓存（批量预加载热门数据）
    */
   async prewarm(keysAndFetchers) {
-    console.log(`[GlobalCache] 开始预热: ${keysAndFetchers.length}个条目`);
+    logger.info(`开始预热: ${keysAndFetchers.length}个条目`);
     
     let successCount = 0;
     let failCount = 0;
@@ -477,8 +480,8 @@ class GlobalCache {
       })
     );
 
-    console.log(
-      `[GlobalCache] 预热完成: 成功${successCount}个, 失败${failCount}个, ` +
+    logger.info(
+      `预热完成: 成功${successCount}个, 失败${failCount}个, ` +
       `当前缓存数: ${this.cache.size}`
     );
 
