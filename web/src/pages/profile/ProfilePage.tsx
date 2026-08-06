@@ -12,6 +12,8 @@ import {
   AndroidOutlined,
   DownloadOutlined,
 } from '@ant-design/icons';
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 import { useAuthStore } from '@/store/authStore';
 import FeedbackModal from '@/components/modals/FeedbackModal';
 
@@ -151,7 +153,19 @@ export default function ProfilePage() {
           cursor: 'pointer',
           transition: 'transform var(--transition-fast), box-shadow var(--transition-fast)',
         }}
-        onClick={() => window.open('/download/app-release.apk', '_blank')}
+        onClick={async () => {
+          const downloadUrl = `${window.location.origin}/download/app-release.apk`;
+          if (Capacitor.isNativePlatform()) {
+            await Browser.open({ url: downloadUrl });
+          } else {
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = 'app-release.apk';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
+        }}
         onMouseEnter={(e) => {
           e.currentTarget.style.transform = 'translateY(-2px)';
           e.currentTarget.style.boxShadow = 'var(--shadow-glow-gold)';
