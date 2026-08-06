@@ -11,6 +11,7 @@
   "dependencies": {
     "@ant-design/icons": "^5.3.0",
     "@capacitor/android": "^8.3.4",
+    "@capacitor/browser": "^8.0.4",
     "@capacitor/cli": "^7.6.5",
     "@capacitor/core": "^8.3.4",
     "antd": "^5.14.0",
