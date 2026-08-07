@@ -5,6 +5,7 @@ const pool = require('../config/database');
 const globalCache = require('./globalCache');
 const holdingService = require('./holdingService');
 const fundService = require('./fundService');
+const holidayService = require('./holidayService');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('DailyProfit');
@@ -164,6 +165,213 @@ class DailyProfitService {
   }
 
   /**
+   * ★ 兜底任务专用：仅基于历史确认净值直算日收益（不调用任何实时估值接口）
+   * 23:55 A股已收盘，实时估值无意义；此方法只拉历史净值，按确认净值差直算当日盈亏
+   */
+  async calculateAndSaveDailyProfitFromConfirmedNav(userId, holdings) {
+    try {
+      if (!holdings || holdings.length === 0) {
+        logger.info(`用户 ${userId} 无持仓，跳过`);
+        return null;
+      }
+
+      const now = new Date();
+      const today = now.toISOString().slice(0, 10);
+      const cacheKey = `${userId}_${today}`;
+
+      const lastUpdate = this.lastUpdateCache.get(cacheKey);
+      if (lastUpdate) {
+        const minutesSinceLastUpdate = (now - lastUpdate) / (1000 * 60);
+        if (minutesSinceLastUpdate < this.MIN_UPDATE_INTERVAL_MINUTES) {
+          return null;
+        }
+      }
+
+      logger.info(`===== 开始处理用户 ${userId} (${today}) [确认净值直算] =====`);
+
+      // ★ 只拉历史净值，不调用任何实时估值接口
+      // 优先使用缓存：命中且缓存中最新净值日期 === today 才直接复用（避免白天未含今日净值的旧缓存导致 isConfirmed 误判）
+      // 未命中或缓存中无今日净值 → 调 API 拉取并回写缓存（与 enrichHoldingsWithRealTimeData 共享同一 cacheKey，盘中已缓存的兜底可直接复用）
+      const fundCodes = holdings.map(h => h.fund_code);
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const historyMap = {};
+      const needFetch = [];
+      for (const code of fundCodes) {
+        const cacheKey = `history_${code}_3d_${today}`;
+        const result = globalCache.checkCache(cacheKey, 'history_recent');
+        if (result.hit && result.data && result.data.length > 0 && result.data[0].date === today) {
+          historyMap[code] = result.data;
+        } else {
+          needFetch.push(code);
+        }
+      }
+
+      if (needFetch.length > 0) {
+        const freshMap = await fundService.batchGetHistoryNetValues(needFetch, threeDaysAgo, today);
+        for (const code of needFetch) {
+          const data = freshMap[code];
+          if (data && data.length > 0) {
+            const cacheKey = `history_${code}_3d_${today}`;
+            globalCache.set(cacheKey, data, 'history_recent');
+          }
+          historyMap[code] = data;
+        }
+        logger.info(`历史净值: 缓存命中 ${fundCodes.length - needFetch.length}/${fundCodes.length}, 拉取 ${needFetch.length} 只`);
+      } else {
+        logger.info(`历史净值: 全部缓存命中 ${fundCodes.length}/${fundCodes.length}`);
+      }
+
+      // ★ 查询今日交易份额（复用 holdingService.enrichHoldingsWithRealTimeData 中的逻辑）
+      let todayTxSharesMap = {};
+      try {
+        const [rows] = await pool.query(
+          `SELECT fund_code, type, SUM(shares) as total_shares FROM transactions
+           WHERE user_id = ? AND transaction_date = ? AND status = 'confirmed'
+           GROUP BY fund_code, type`,
+          [userId, today]
+        );
+        rows.forEach(r => {
+          if (!todayTxSharesMap[r.fund_code]) todayTxSharesMap[r.fund_code] = { buy: 0, sell: 0 };
+          todayTxSharesMap[r.fund_code][r.type] = parseFloat(r.total_shares) || 0;
+        });
+      } catch (e) {
+        logger.error(`查询今日交易份额失败: ${e.message}`);
+      }
+
+      const confirmedFunds = [];
+      const unconfirmedFunds = [];
+      const confirmedProfits = [];
+      let totalMarketValue = 0;
+      let totalCost = 0;
+      let totalDailyProfit = 0;
+      const fundsDetails = [];
+
+      for (const holding of holdings) {
+        const fundCode = holding.fund_code;
+        const history = historyMap[fundCode] || [];
+        const latestHistoryDate = history.length > 0 ? history[0].date : null;
+        const isConfirmed = latestHistoryDate === today;
+
+        // 未确认基金（最新净值日期 < 今天）：不参与计算，不回退估值
+        if (!isConfirmed) {
+          unconfirmedFunds.push(holding);
+          continue;
+        }
+
+        confirmedFunds.push(holding);
+
+        const shares = parseFloat(holding.shares) || 0;
+        const costPrice = parseFloat(holding.cost_price) || 0;
+        const todayNav = parseFloat(history[0].nav) || 0;
+        const yesterdayNav = history[1] ? (parseFloat(history[1].nav) || 0) : 0;
+        const todayTx = todayTxSharesMap[fundCode] || { buy: 0, sell: 0 };
+        // 昨日份额 = 当前份额 - 今日买入 + 今日卖出
+        const yesterdayShares = Math.max(0, shares - (todayTx.buy || 0) + (todayTx.sell || 0));
+
+        const dailyProfit = yesterdayShares * (todayNav - yesterdayNav);
+        const marketValue = shares * todayNav;
+        const totalCostForFund = shares * costPrice;
+        const gainPercent = yesterdayNav > 0 ? ((todayNav - yesterdayNav) / yesterdayNav) * 100 : 0;
+
+        totalMarketValue += marketValue;
+        totalCost += totalCostForFund;
+        totalDailyProfit += dailyProfit;
+        confirmedProfits.push(dailyProfit);
+
+        logger.debug(`${fundCode}: 今日净值=${todayNav}, 昨日净值=${yesterdayNav}, 当日盈亏=¥${dailyProfit.toFixed(2)}`);
+
+        fundsDetails.push({
+          fund_code: fundCode,
+          fund_name: holding.fund_name || '',
+          shares: shares,
+          net_value: todayNav,
+          market_value: Math.round(marketValue * 100) / 100,
+          cost_price: costPrice,
+          total_cost: Math.round(totalCostForFund * 100) / 100,
+          daily_profit: Math.round(dailyProfit * 100) / 100,
+          gain_percent: Math.round(gainPercent * 10000) / 10000,
+          data_source: 'actual',
+          update_status: 'confirmed'
+        });
+      }
+
+      logger.info(`已确认: ${confirmedFunds.length}/${holdings.length}`);
+      if (confirmedFunds.length > 0) {
+        logger.info(`确认列表: ${confirmedFunds.map(f => f.fund_code).join(', ')}`);
+      }
+      if (unconfirmedFunds.length > 0) {
+        const pendingCodes = unconfirmedFunds.map(f => f.fund_code).join(', ');
+        logger.info(`待确认: ${pendingCodes} (不参与计算)`);
+      }
+
+      // ★ 没有任何基金确认 → 跳过
+      if (confirmedFunds.length === 0) {
+        logger.info(`今天暂无任何基金确认，跳过计算`);
+        return null;
+      }
+
+      // ★ 全 0 跳过判定（基于本次直算结果）
+      if (confirmedProfits.length === 0 || confirmedProfits.every(p => p === 0)) {
+        logger.info(`所有确认基金的收益为0或无效，可能为非交易日，跳过`);
+        return null;
+      }
+
+      const calculationResult = {
+        fundsDetails,
+        totalMarketValue: Math.round(totalMarketValue * 100) / 100,
+        totalCost: Math.round(totalCost * 100) / 100,
+        totalDailyProfit: Math.round(totalDailyProfit * 100) / 100,
+        fundCount: confirmedFunds.length
+      };
+
+      // ★ 获取基准值并计算收益率
+      const yesterdayRecord = await DailyProfit.findYesterdayByUserId(userId);
+      let baselineValue = calculationResult.totalCost;
+      if (baselineValue <= 0) {
+        baselineValue = yesterdayRecord?.market_value || calculationResult.totalMarketValue;
+      }
+      const returnRate = baselineValue > 0 ? (calculationResult.totalDailyProfit / baselineValue) * 100 : 0;
+
+      // ★ 构建详细信息（仅包含已确认基金）
+      const details = this.buildDetails(calculationResult, confirmedFunds.length, holdings.length);
+
+      // ★ 保存到数据库
+      await DailyProfit.upsert({
+        userId,
+        date: today,
+        profit: Math.round(calculationResult.totalDailyProfit * 100) / 100,
+        returnRate: Math.round(returnRate * 10000) / 10000,
+        totalInvestment: calculationResult.totalCost,
+        marketValue: calculationResult.totalMarketValue,
+        details
+      });
+
+      this.lastUpdateCache.set(cacheKey, now);
+
+      const result = {
+        date: today,
+        profit: calculationResult.totalDailyProfit,
+        returnRate,
+        marketValue: calculationResult.totalMarketValue,
+        confirmedCount: confirmedFunds.length,
+        totalCount: holdings.length,
+        pendingCount: unconfirmedFunds.length,
+        details
+      };
+
+      logger.info(`✅ 日收益已更新 (仅基于${confirmedFunds.length}只确认基金):`);
+      logger.info(`收益: ¥${calculationResult.totalDailyProfit.toFixed(2)} (${returnRate.toFixed(2)}%)`);
+      logger.info(`待确认: ${unconfirmedFunds.length}只 (确认后将自动加入)`);
+
+      return result;
+
+    } catch (error) {
+      logger.error('失败:', error);
+      throw error;
+    }
+  }
+
+  /**
    * ★ 核心计算：仅基于已确认基金的当日收益
    *
    * 直接使用 holdingService 计算的 daily_profit 值（与持仓界面一致）
@@ -239,18 +447,28 @@ class DailyProfitService {
   }
 
   /**
-   * ★ 定时兜底任务：为今天未记录日收益的用户补算
+   * ★ 定时兜底任务：为今天未记录或部分记录日收益的用户补算
    * 在每天 23:55 由 cron 触发，确保即使用户当天未打开 App 也能记录日收益
+   * 改造：不再调用新浪实时估值接口，改为只拉历史确认净值直算日收益
+   *       修复"部分记录"用户漏算问题（早打开 App 时部分基金未确认 → 后续确认后补全）
    */
   async backfillDailyProfit() {
     const today = new Date().toISOString().slice(0, 10);
     logger.info(`===== 定时兜底任务启动 (${today} 23:55) =====`);
 
     try {
-      // ★ 周末直接跳过，避免无意义的API请求
-      const dayOfWeek = new Date().getDay();
-      if (dayOfWeek === 0 || dayOfWeek === 6) {
-        logger.info('周末非交易日，跳过补算');
+      // ★ 交易日判断：直接使用 holidayService，避免触发新浪请求
+      // 非交易日直接返回，不调历史净值接口
+      let isTrading = false;
+      try {
+        isTrading = await holidayService.isTradingDay(today);
+      } catch (error) {
+        logger.error(`holidayService.isTradingDay 失败，降级为周末检查: ${error.message}`);
+        const dayOfWeek = new Date().getDay();
+        isTrading = !(dayOfWeek === 0 || dayOfWeek === 6);
+      }
+      if (!isTrading) {
+        logger.info('非交易日（节假日/周末），跳过补算');
         return { total: 0, skipped: 0, success: 0, failed: 0 };
       }
 
@@ -264,30 +482,58 @@ class DailyProfitService {
         return { total: 0, skipped: 0, success: 0, failed: 0 };
       }
 
-      // 查询今天已有日收益记录的用户
+      // 查询今天已有日收益记录的用户（含 details 用于判断是否为完整记录）
       const [recordedRows] = await pool.query(
-        `SELECT DISTINCT user_id FROM daily_profits WHERE date = ?`,
+        `SELECT user_id, details FROM daily_profits WHERE date = ?`,
         [today]
       );
-      const recordedUserIds = new Set(recordedRows.map(r => r.user_id));
 
-      // 筛选出今天未记录的用户
-      const pendingUsers = userRows.filter(r => !recordedUserIds.has(r.user_id));
+      // ★ 去重逻辑改造：判定"完整记录跳过" vs "待补算"（无记录或部分记录）
+      // 完整记录：details.summary.confirmed_funds >= details.summary.total_funds → 跳过
+      // 部分记录：confirmed_funds < total_funds → 纳入补算（覆盖写入补全后续确认的基金）
+      // 容错：details 解析失败或缺字段 → 按"部分记录"处理，避免漏算
+      const pendingUsers = [];
+      let fullRecordSkipCount = 0;
 
-      logger.info(`持仓用户: ${userRows.length}, 已记录: ${recordedUserIds.size}, 待补算: ${pendingUsers.length}`);
+      for (const row of userRows) {
+        const userId = row.user_id;
+        const recorded = recordedRows.find(r => r.user_id === userId);
+        if (!recorded) {
+          // 无记录 → 纳入补算
+          pendingUsers.push(row);
+          continue;
+        }
 
-      if (!pendingUsers.length) {
-        logger.info('所有用户今日收益已记录，无需补算');
-        return { total: userRows.length, skipped: recordedUserIds.size, success: 0, failed: 0 };
+        let isFullRecord = false;
+        try {
+          let details = recorded.details;
+          if (typeof details === 'string') {
+            details = JSON.parse(details);
+          }
+          const summary = details && details.summary;
+          if (summary && typeof summary.confirmed_funds === 'number' && typeof summary.total_funds === 'number') {
+            isFullRecord = summary.confirmed_funds >= summary.total_funds;
+          } else {
+            // 缺字段 → 按部分记录处理
+            isFullRecord = false;
+          }
+        } catch (e) {
+          // 解析失败 → 按部分记录处理
+          isFullRecord = false;
+        }
+
+        if (isFullRecord) {
+          fullRecordSkipCount++;
+        } else {
+          pendingUsers.push(row);
+        }
       }
 
-      // ★ 用第一个待补算用户的持仓判断是否为交易日（含节假日检测），非交易日直接跳过
-      const firstUserHoldings = await Holding.findByUserId(pendingUsers[0].user_id);
-      if (firstUserHoldings && firstUserHoldings.length > 0) {
-        if (!await this.isTradingDay(firstUserHoldings)) {
-          logger.info('非交易日（节假日），跳过补算');
-          return { total: userRows.length, skipped: recordedUserIds.size, success: 0, failed: 0 };
-        }
+      logger.info(`持仓用户: ${userRows.length}, 完整记录跳过: ${fullRecordSkipCount}, 待补算(含部分记录): ${pendingUsers.length}`);
+
+      if (!pendingUsers.length) {
+        logger.info('所有用户今日收益已完整记录，无需补算');
+        return { total: userRows.length, skipped: fullRecordSkipCount, success: 0, failed: 0 };
       }
 
       // 逐用户补算（串行，避免并发请求外部API过多）
@@ -304,11 +550,12 @@ class DailyProfitService {
           // （盘中全部卖出但未重新打开 App 时，兜底任务必须先结算才能正确计算当日收益）
           await this._settlePendingTransactions(userId);
 
+          // 结算后重新获取最新持仓
           const holdings = await Holding.findByUserId(userId);
           if (!holdings || holdings.length === 0) continue;
 
-          const enriched = await holdingService.enrichHoldingsWithRealTimeData(holdings, true);
-          const result = await this.calculateAndSaveDailyProfit(userId, enriched);
+          // ★ 不再调用 enrichHoldingsWithRealTimeData，直接基于历史确认净值直算
+          const result = await this.calculateAndSaveDailyProfitFromConfirmedNav(userId, holdings);
 
           if (result) {
             success++;
@@ -324,9 +571,9 @@ class DailyProfitService {
       }
 
       logger.info(`===== 兜底任务完成 =====`);
-      logger.info(`待补算: ${pendingUsers.length}, 成功: ${success}, 失败: ${failed}`);
+      logger.info(`待补算(含部分记录): ${pendingUsers.length}, 成功: ${success}, 失败: ${failed}`);
 
-      return { total: userRows.length, skipped: recordedUserIds.size, success, failed };
+      return { total: userRows.length, skipped: fullRecordSkipCount, success, failed };
     } catch (error) {
       logger.error('兜底任务异常:', error);
       throw error;
