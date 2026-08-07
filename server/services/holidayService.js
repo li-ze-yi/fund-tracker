@@ -56,7 +56,12 @@ async function fetchHolidayFromApi(dateStr) {
   logger.info(`调用节假日 API: ${url}`);
   const startTime = Date.now();
 
-  const response = await axios.get(url, { timeout: 3000 });
+  const response = await axios.get(url, {
+    timeout: 3000,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    },
+  });
 
   const elapsed = Date.now() - startTime;
   logger.info(`节假日 API 响应: date=${dateStr}, 耗时=${elapsed}ms, httpStatus=${response.status}`);
@@ -82,15 +87,23 @@ async function fetchHolidayFromApi(dateStr) {
  * @returns {Promise<boolean>}
  */
 async function isHoliday(dateStr) {
+  const cacheKey = `holiday_${dateStr}`;
+
+  // 先检查缓存，命中时直接返回（避免 getOrFetch 内部 debug 日志不可见）
+  const cached = globalCache.checkCache(cacheKey, HOLIDAY_CACHE_TYPE);
+  if (cached.hit) {
+    logger.info(`缓存命中: date=${dateStr}, isHoliday=${cached.data.isHoliday}`);
+    return cached.data.isHoliday;
+  }
+
+  // 缓存未命中 → 调用 API
+  logger.info(`缓存未命中，查询 API: date=${dateStr}`);
   try {
-    const result = await globalCache.getOrFetch(
-      `holiday_${dateStr}`,
-      () => fetchHolidayFromApi(dateStr),
-      { type: HOLIDAY_CACHE_TYPE }
-    );
+    const result = await fetchHolidayFromApi(dateStr);
+    globalCache.set(cacheKey, result, HOLIDAY_CACHE_TYPE);
     return result.isHoliday;
   } catch (error) {
-    // 降级：API 失败时视为非节假日（退化为周末判断），不缓存降级结果（fetchFn 抛错时 getOrFetch 不会写入缓存）
+    // 降级：API 失败时视为非节假日（退化为周末判断），不缓存降级结果
     logger.warn(`API 调用失败，回退周末判断: date=${dateStr}, error=${error.message}`);
     return false;
   }
