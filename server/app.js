@@ -6,6 +6,7 @@ const cron = require('node-cron');
 const { executeDuePlans } = require('./services/planService');
 const dailyProfitService = require('./services/dailyProfitService');
 const pendingSettleService = require('./services/pendingSettleService');
+const globalCache = require('./services/globalCache');
 const { createLogger } = require('./utils/logger');
 
 const logger = createLogger('App');
@@ -40,8 +41,17 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   logger.info(`服务器运行在端口 ${PORT}`);
+
+  // 全局缓存：启动时加载磁盘缓存与统计，并启动持久化（重启后可找回）
+  try {
+    await globalCache.loadFromFile();
+  } catch (err) {
+    logger.error(`加载全局缓存失败: ${err.message}`);
+  }
+  globalCache.startPersistence();
+  globalCache.startCleanup();
 
   // 定投计划定时调度
   // 净值确认时间说明：A股基金净值通常在收盘后18:00-20:00间由基金公司确认发布

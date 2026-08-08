@@ -28,6 +28,9 @@
  * 🛡️ 有效防止IP被封（请求频率大幅降低）
  */
 
+const fs = require('fs');
+const fsp = require('fs/promises');
+const path = require('path');
 const { createLogger } = require('../utils/logger');
 const logger = createLogger('GlobalCache');
 
@@ -46,10 +49,16 @@ class GlobalCache {
     
     // 最大缓存条目数（防止内存溢出）
     this.maxSize = 500;
-    
+
     // 定时清理器
     this.cleanupInterval = null;
-    
+
+    // 文件持久化配置（重启后缓存与统计可恢复）
+    this.cacheFilePath = process.env.CACHE_FILE_PATH ||
+      path.join(__dirname, '..', 'data', 'globalCache.json');
+    this.saveInterval = null;   // 周期落盘定时器
+    this.saving = false;        // 防并发写标志
+
     logger.info('初始化完成');
   }
 
@@ -486,6 +495,145 @@ class GlobalCache {
     );
 
     return { successCount, failCount, results };
+  }
+
+  /**
+   * 将缓存条目 + 统计计数器落盘（异步，原子写）
+   * - 跳过已过期条目，避免落盘 stale 数据
+   * - 先写 .tmp 再 rename 原子替换，防止半截文件
+   * - 单条不可序列化则跳过该条（容错）
+   */
+  async saveToFile() {
+    if (this.saving) return;
+    this.saving = true;
+    try {
+      const now = Date.now();
+      const entries = [];
+      for (const [key, value] of this.cache.entries()) {
+        if (now - value.timestamp > this.getTTL(value.type)) continue; // 丢弃过期
+        try {
+          JSON.stringify(value);
+        } catch (e) {
+          continue; // 不可序列化则跳过
+        }
+        entries.push([key, value]);
+      }
+      const payload = {
+        v: 1,
+        savedAt: now,
+        stats: this.stats, // 请求次数 / 命中 / 淘汰等计数器一并持久化
+        entries
+      };
+      const dir = path.dirname(this.cacheFilePath);
+      await fsp.mkdir(dir, { recursive: true });
+      const tmp = `${this.cacheFilePath}.tmp`;
+      await fsp.writeFile(tmp, JSON.stringify(payload), 'utf8');
+      await fsp.rename(tmp, this.cacheFilePath);
+    } catch (err) {
+      logger.error(`缓存落盘失败: ${err.message}`);
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  /**
+   * 同步落盘（供进程退出钩子使用，确保能写完）
+   */
+  saveToFileSync() {
+    try {
+      const now = Date.now();
+      const entries = [];
+      for (const [key, value] of this.cache.entries()) {
+        if (now - value.timestamp > this.getTTL(value.type)) continue;
+        entries.push([key, value]);
+      }
+      const payload = {
+        v: 1,
+        savedAt: now,
+        stats: this.stats,
+        entries
+      };
+      const dir = path.dirname(this.cacheFilePath);
+      fs.mkdirSync(dir, { recursive: true });
+      const tmp = `${this.cacheFilePath}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(payload), 'utf8');
+      fs.renameSync(tmp, this.cacheFilePath);
+    } catch (err) {
+      logger.error(`缓存同步落盘失败: ${err.message}`);
+    }
+  }
+
+  /**
+   * 启动时从磁盘加载缓存与统计计数器
+   * - 统计计数器（hits/misses/evictions/totalRequests/forcedRefreshes）跨重启累计保留
+   * - 缓存条目重建 Map，丢弃已过期条目
+   * - 文件缺失/损坏则冷启动（不崩溃）
+   */
+  async loadFromFile() {
+    try {
+      if (!fs.existsSync(this.cacheFilePath)) {
+        logger.info('未找到缓存文件，冷启动');
+        return false;
+      }
+      const raw = await fsp.readFile(this.cacheFilePath, 'utf8');
+      const payload = JSON.parse(raw);
+      if (!payload || !Array.isArray(payload.entries)) {
+        logger.warn('缓存文件格式异常，忽略并冷启动');
+        return false;
+      }
+
+      // 恢复统计计数器（跨重启累计保留）
+      const s = this.stats;
+      const src = payload.stats || {};
+      s.hits = Number(src.hits) || 0;
+      s.misses = Number(src.misses) || 0;
+      s.evictions = Number(src.evictions) || 0;
+      s.totalRequests = Number(src.totalRequests) || 0;
+      s.forcedRefreshes = Number(src.forcedRefreshes) || 0;
+
+      // 重建 Map，丢弃已过期条目
+      const now = Date.now();
+      let loaded = 0;
+      let dropped = 0;
+      for (const [key, value] of payload.entries) {
+        if (!value || typeof value !== 'object' || !('type' in value)) continue;
+        if (now - (value.timestamp || 0) > this.getTTL(value.type)) {
+          dropped++;
+          continue;
+        }
+        this.cache.set(key, value);
+        loaded++;
+      }
+      logger.info(
+        `缓存加载完成: 载入${loaded}条, 丢弃过期${dropped}条, ` +
+        `统计已恢复 (命中率=${this.getHitRate()}%)`
+      );
+      return true;
+    } catch (err) {
+      logger.error(`缓存加载失败，冷启动: ${err.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * 启动缓存持久化：周期落盘 + 进程退出时落盘
+   * @param {number} intervalMs 周期落盘间隔，默认 60s
+   */
+  startPersistence(intervalMs = 60 * 1000) {
+    if (this.saveInterval) clearInterval(this.saveInterval);
+
+    this.saveInterval = setInterval(() => {
+      this.saveToFile();
+    }, intervalMs);
+    logger.info(`缓存持久化已启动: 每${intervalMs / 1000}秒落盘一次`);
+
+    // 优雅退出：先同步落盘再退出（保证重启前数据已写回磁盘）
+    const onExit = () => {
+      this.saveToFileSync();
+      process.exit(0);
+    };
+    process.once('SIGINT', onExit);
+    process.once('SIGTERM', onExit);
   }
 }
 
