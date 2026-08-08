@@ -154,7 +154,10 @@ export default function ProfilePage() {
           transition: 'transform var(--transition-fast), box-shadow var(--transition-fast)',
         }}
         onClick={async () => {
-          const downloadUrl = `${window.location.origin}/download/app-release.apk`;
+          const serverBaseUrl = import.meta.env.VITE_API_URL
+            ? import.meta.env.VITE_API_URL.replace('/api', '')
+            : window.location.origin;
+          const downloadUrl = `${serverBaseUrl}/download/app-release.apk`;
           if (Capacitor.isNativePlatform()) {
             await Browser.open({ url: downloadUrl });
           } else {
