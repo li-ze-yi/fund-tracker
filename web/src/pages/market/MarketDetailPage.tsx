@@ -17,6 +17,22 @@ interface IndexItem {
 
 type IndexCode = string;
 
+// 将后端返回的 '0930' / '09:30' 统一格式化为 'HH:MM'，并只在交易关键时点显示，
+// 避免 240+ 个分钟标签全部堆叠导致重叠。
+const xAxisTimeFormatter = (value: string): string => {
+  if (!value) return value;
+  const norm = value.includes(':') ? value.replace(':', '') : value;
+  if (norm.length < 4) return value;
+  const hh = norm.slice(0, 2);
+  const mm = norm.slice(2, 4);
+  const minutes = parseInt(mm, 10);
+  if (Number.isNaN(minutes)) return value;
+  // 关键时点：开盘 09:30 / 上午收盘 11:30 / 下午开盘 13:00 / 收盘 15:00
+  const isKey = norm === '0930' || norm === '1130' || norm === '1300' || norm === '1500';
+  if (isKey || minutes === 0 || minutes === 30) return `${hh}:${mm}`;
+  return '';
+};
+
 export default function MarketDetailPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -142,12 +158,16 @@ export default function MarketDetailPage() {
     },
     xAxis: {
       type: 'category',
+      boundaryGap: false,
       data: intradayData?.times?.length ? intradayData!.times : ['09:30', '10:00', '10:30', '11:00', '11:30', '13:00', '13:30', '14:00', '14:30', '15:00'],
       axisLabel: {
         fontSize: isMobile ? 10 : 11,
         color: isLight ? '#64748B' : '#94A3B8',
-        interval: isMobile ? 2 : 0,
-        rotate: isMobile ? 45 : 0,
+        hideOverlap: true,
+        showMinLabel: true,
+        showMaxLabel: true,
+        interval: 0,
+        formatter: xAxisTimeFormatter,
       },
       axisLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' } },
       axisTick: { show: false },
@@ -217,6 +237,14 @@ export default function MarketDetailPage() {
             }
           },
         ],
+      } : undefined,
+      // 午间休市分隔线：标记 11:30 上午收盘，区分两个交易时段
+      markLine: intradayData?.prices?.length ? {
+        symbol: 'none',
+        silent: true,
+        lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.25)', type: 'dashed', width: 1 },
+        label: { show: false },
+        data: [{ xAxis: '1130' }],
       } : undefined,
       lineStyle: {
         color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'),
