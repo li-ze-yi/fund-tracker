@@ -378,10 +378,10 @@ async function generateFallbackIntraday(code) {
         if (fields.length >= 35 && parseFloat(fields[3]) > 0) {
           marketData = {
             current: parseFloat(fields[3]),
-            open: parseFloat(fields[2]),
+            open: parseFloat(fields[5]),
             high: parseFloat(fields[33] || fields[3] * 1.01),
             low: parseFloat(fields[34] || fields[3] * 0.99),
-            preClose: parseFloat(fields[32] || fields[3])
+            preClose: parseFloat(fields[4] || fields[3])
           };
         }
       }
@@ -562,10 +562,10 @@ function parseTencentRealtimeSnapshot(text, baseCode) {
   const currentPrice = parseFloat(fields[3]);
   if (!currentPrice || currentPrice === 0) return null;
 
-  const preClose = parseFloat(fields[32]) || currentPrice;
+  const preClose = parseFloat(fields[4]) || currentPrice;
   const highPrice = parseFloat(fields[33]) || currentPrice * 1.01;
   const lowPrice = parseFloat(fields[34]) || currentPrice * 0.99;
-  const openPrice = parseFloat(fields[2]) || preClose;
+  const openPrice = parseFloat(fields[5]) || preClose;
 
   const now = new Date();
   const currentHour = now.getHours();
