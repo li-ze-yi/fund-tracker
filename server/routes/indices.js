@@ -225,15 +225,30 @@ router.get('/:code/intraday', async (req, res) => {
       }
 
       if (!result && TX[code]) {
-        try {
-          const txSecid = TX[code];
-          const txKlineUrl = `http://ifq.gtimg.cn/appstock/app/kline/kline?param=${txSecid},day,,,30,qfq`;
-          const txRes = await fetchWithTimeout(txKlineUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
-          const txText = await txRes.text();
-          result = parseTencentKlineHistory(txText, code);
-          if (result) logger.info(`腾讯历史 ${code}: ${result.times.length} 个数据点`);
-        } catch(e) {
-          logger.error(`腾讯历史失败: ${e.message}`);
+        const txSecid = TX[code];
+        // 港股(hk 前缀)腾讯提供真实分时接口,优先走真实逐分钟数据,避免落到伪造快照
+        if (txSecid.startsWith('hk')) {
+          try {
+            const txMinUrl = `http://web.ifzq.gtimg.cn/appstock/app/minute/query?_var=min_data_${txSecid}&code=${txSecid}`;
+            const txMinRes = await fetchWithTimeout(txMinUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
+            const txMinText = await txMinRes.text();
+            result = parseTencentMinuteData(txMinText, code);
+            if (result) logger.info(`腾讯港股分时 ${code}: ${result.times.length} 个数据点`);
+          } catch(e) {
+            logger.error(`腾讯港股分时失败: ${e.message}`);
+          }
+        }
+
+        if (!result) {
+          try {
+            const txKlineUrl = `http://ifq.gtimg.cn/appstock/app/kline/kline?param=${txSecid},day,,,30,qfq`;
+            const txRes = await fetchWithTimeout(txKlineUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
+            const txText = await txRes.text();
+            result = parseTencentKlineHistory(txText, code);
+            if (result) logger.info(`腾讯历史 ${code}: ${result.times.length} 个数据点`);
+          } catch(e) {
+            logger.error(`腾讯历史失败: ${e.message}`);
+          }
         }
 
         if (!result) {
@@ -286,7 +301,7 @@ function parseTencentMinuteData(text, code) {
     const varMatch = text.match(/min_data_\w+\s*=\s*(\{[\s\S]*\})/);
     if (!varMatch) return null;
     const json = JSON.parse(varMatch[1]);
-    const txc = TX_A[code];
+    const txc = TX_A[code] || TX[code];
     const data = json.data && json.data[txc];
     if (!data || !data.data) return null;
 
