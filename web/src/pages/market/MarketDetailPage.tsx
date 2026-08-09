@@ -53,6 +53,15 @@ const buildFullTradingGrid = (code: string): string[] | null => {
   return grid;
 };
 
+// 午间休市分隔线位置：A股 11:30 午休，港股 12:00 午休，美股等无午休返回 null
+const getLunchBreak = (code: string): string | null => {
+  const hk = ['HSI', 'HSTECH', 'HSCEI'];
+  const aShare = ['000001', '000016', '399001', '399006', '000300', '000688', '399673', '000905', '000852'];
+  if (hk.includes(code)) return '1200';
+  if (aShare.includes(code)) return '1130';
+  return null;
+};
+
 export default function MarketDetailPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -122,8 +131,8 @@ export default function MarketDetailPage() {
       'sina_kline': '📈 新浪财经·K线',
       'sina_minute_api': '⏱️ 新浪财经·分钟数据',
       'tencent_history': '📉 腾讯财经·历史K线',
-      'tencent_snapshot_realparams': '🎯 腾讯财经·实时参数',
-      'realtime_params_fallback': '🔄 实时参数生成',
+      'tencent_snapshot_realparams': '⚠️ 模拟数据(非真实行情)',
+      'realtime_params_fallback': '⚠️ 模拟数据(降级生成)',
       'unknown': '❓ 数据源未知'
     };
     return sourceMap[source || ''] || sourceMap['unknown'];
@@ -285,13 +294,13 @@ export default function MarketDetailPage() {
           },
         ],
       } : undefined,
-      // 午间休市分隔线：标记 11:30 上午收盘，区分两个交易时段
+      // 午间休市分隔线：A股 11:30 / 港股 12:00 午休，美股等无午休则不显示
       markLine: displayPrices.length ? {
         symbol: 'none',
         silent: true,
         lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.25)', type: 'dashed', width: 1 },
         label: { show: false },
-        data: [{ xAxis: '1130' }],
+        data: getLunchBreak(initialCode) ? [{ xAxis: getLunchBreak(initialCode) }] : [],
       } : undefined,
       lineStyle: {
         color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'),
