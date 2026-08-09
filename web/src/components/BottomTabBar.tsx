@@ -2,6 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   PieChartOutlined,
   StarOutlined,
+  DotChartOutlined,
   BarChartOutlined,
   UserOutlined,
 } from '@ant-design/icons';
@@ -9,6 +10,7 @@ import {
 const tabs = [
   { path: '/portfolio', icon: <PieChartOutlined />, label: '持仓' },
   { path: '/watchlist', icon: <StarOutlined />, label: '自选' },
+  { path: '/market/rotation', icon: <DotChartOutlined />, label: '行情' },
   { path: '/stats', icon: <BarChartOutlined />, label: '统计' },
   { path: '/profile', icon: <UserOutlined />, label: '我的' },
 ];

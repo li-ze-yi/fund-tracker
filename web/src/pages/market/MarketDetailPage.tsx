@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Button, Skeleton, Segmented } from 'antd';
 import { ArrowLeftOutlined, RiseOutlined, FallOutlined, LineChartOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
-import { fetchIndexData, fetchIntradayData, ALL_INDEX_META } from '@/services/indexService';
+import { fetchIndexData, fetchIntradayData, ALL_INDEX_META, type IntradayData } from '@/services/indexService';
 import { useThemeStore } from '@/store/themeStore';
 
 interface IndexItem {
@@ -70,7 +70,7 @@ export default function MarketDetailPage() {
   const [selectedIndex, setSelectedIndex] = useState<IndexCode>(initialCode);
   const [indices, setIndices] = useState<IndexItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [intradayData, setIntradayData] = useState<{ times: string[]; prices: number[]; source?: string; pointCount?: number } | null>(null);
+  const [intradayData, setIntradayData] = useState<IntradayData | null>(null);
   const [intradayLoading, setIntradayLoading] = useState(false);
 
   useEffect(() => {
@@ -162,10 +162,48 @@ export default function MarketDetailPage() {
     }
   }
 
+  // —— 派生量价坐标：昨收基准、成交量副图数据、曲线末端最新价 ——
+  const prevClose = currentIndex
+    ? Number((currentIndex.point - currentIndex.change).toFixed(2))
+    : (displayPrices[0] ?? 0);
+  const hasVolume = !!(
+    intradayData &&
+    Array.isArray(intradayData.volumes) &&
+    intradayData.volumes.length === displayTimes.length &&
+    intradayData.volumes.some((v) => v > 0)
+  );
+  // 成交量跟随价格按同一 fullGrid 映射，保证午休缺口对齐
+  let displayVolumes: (number | null)[] = [];
+  if (isIntradayAvailable && intradayData && intradayData.volumes) {
+    if (fullGrid) {
+      const volByTime = new Map<string, number>();
+      intradayData.volumes.forEach((v, i) => volByTime.set(intradayData!.times[i].replace(':', ''), v));
+      displayVolumes = fullGrid.map((t) => {
+        const v = volByTime.get(t);
+        return v === undefined ? 0 : v;
+      });
+    } else {
+      displayVolumes = intradayData.volumes;
+    }
+  }
+  // 曲线末端最后一个有效点，用于"最新价"标签坐标（避免未来空时段拖到图最右）
+  let lastValidIndex = -1;
+  let lastValidPrice = 0;
+  displayPrices.forEach((p, i) => {
+    if (p != null && !Number.isNaN(p)) {
+      lastValidIndex = i;
+      lastValidPrice = p;
+    }
+  });
+
   const chartOption = {
     backgroundColor: 'transparent',
+    // 多 grid 时同步 x 轴十字光标（主图与副图联动）
+    axisPointer: { link: [{ xAxisIndex: 'all' }] },
     tooltip: {
       trigger: 'axis',
+      // 移动端用 touchstart 触发，十字跟手
+      triggerOn: isMobile ? 'mousemove|touchstart|click' : 'mousemove',
       backgroundColor: isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(17, 24, 39, 0.95)',
       borderColor: 'rgba(148, 163, 184, 0.2)',
       borderWidth: 1,
@@ -173,13 +211,11 @@ export default function MarketDetailPage() {
       textStyle: { color: isLight ? '#1E293B' : '#F1F5F9', fontSize: isMobile ? 11 : 13 },
       axisPointer: {
         type: 'cross',
-        crossStyle: {
-          color: 'rgba(148, 163, 184, 0.2)',
-        },
-        lineStyle: {
-          color: 'rgba(148, 163, 184, 0.3)',
-          type: 'dashed',
-        }
+        snap: true,
+        crossStyle: { color: isLight ? 'rgba(100,116,139,0.45)' : 'rgba(148,163,184,0.45)', type: 'dashed', width: 1 },
+        lineStyle: { color: isLight ? 'rgba(100,116,139,0.45)' : 'rgba(148,163,184,0.45)', type: 'dashed', width: 1 },
+        label: { backgroundColor: isLight ? '#475569' : '#334155', color: '#fff', fontSize: isMobile ? 10 : 12, borderColor: 'transparent' },
+        z: 100,
       },
       formatter: (params: any) => {
         const p = params[0];
@@ -212,121 +248,201 @@ export default function MarketDetailPage() {
         </div>`;
       },
     },
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: displayTimes.length ? displayTimes : ['09:30', '10:00', '10:30', '11:00', '11:30', '13:00', '13:30', '14:00', '14:30', '15:00'],
-      axisLabel: {
-        fontSize: isMobile ? 10 : 11,
-        color: isLight ? '#64748B' : '#94A3B8',
-        hideOverlap: true,
-        showMinLabel: true,
-        showMaxLabel: true,
-        interval: 0,
-        formatter: xAxisTimeFormatter,
+    xAxis: [
+      {
+        type: 'category',
+        boundaryGap: false,
+        gridIndex: 0,
+        data: displayTimes.length ? displayTimes : ['09:30', '10:00', '10:30', '11:00', '11:30', '13:00', '13:30', '14:00', '14:30', '15:00'],
+        // 有副图时主图隐藏时间标签，避免与下方副图重复
+        axisLabel: hasVolume ? { show: false } : {
+          fontSize: isMobile ? 10 : 11,
+          color: isLight ? '#64748B' : '#94A3B8',
+          hideOverlap: true,
+          showMinLabel: true,
+          showMaxLabel: true,
+          interval: 0,
+          formatter: xAxisTimeFormatter,
+        },
+        axisLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' } },
+        axisTick: { show: false },
       },
-      axisLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' } },
-      axisTick: { show: false },
-    },
-    yAxis: {
-      type: 'value',
-      scale: true,
-      axisLabel: {
-        fontSize: isMobile ? 10 : 11,
-        color: isLight ? '#64748B' : '#94A3B8',
-        formatter: (v: number) => v.toFixed(2),
-      },
-      splitLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)' } },
-      axisLine: { show: false },
-    },
-    series: [{
-      type: 'line',
-      data: displayPrices.length ? displayPrices : [],
-      smooth: false,
-      step: false,
-      symbol: 'circle',
-      symbolSize: isMobile ? 4 : 6,
-      showSymbol: false,
-      hoverAnimation: true,
-      emphasis: {
-        focus: 'series',
+      ...(hasVolume ? [{
+        type: 'category',
+        boundaryGap: false,
+        gridIndex: 1,
+        data: displayTimes.length ? displayTimes : ['09:30', '10:00', '10:30', '11:00', '11:30', '13:00', '13:30', '14:00', '14:30', '15:00'],
+        axisLabel: { fontSize: isMobile ? 10 : 11, color: isLight ? '#64748B' : '#94A3B8', hideOverlap: true, showMinLabel: true, showMaxLabel: true, interval: 0, formatter: xAxisTimeFormatter },
+        axisLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' } },
+        axisTick: { show: false },
+      }] : []),
+    ],
+    yAxis: [
+      {
+        type: 'value',
         scale: true,
-        itemStyle: {
-          shadowBlur: 10,
-          shadowColor: isUp ? (isLight ? 'rgba(220, 38, 38, 0.4)' : 'rgba(239, 68, 68, 0.5)') : (isLight ? 'rgba(22, 163, 74, 0.4)' : 'rgba(34, 197, 94, 0.5)'),
-        }
+        gridIndex: 0,
+        // 方案二：y 轴刻度移回绘图区外侧(硬隔离)，左侧留出窄槽，折线永远不碰刻度
+        splitNumber: isMobile ? 4 : 5,
+        axisLabel: {
+          inside: false,
+          fontSize: isMobile ? 9 : 11,
+          color: isLight ? (isMobile ? '#475569' : '#64748B') : (isMobile ? '#CBD5E1' : '#94A3B8'),
+          margin: isMobile ? 6 : 8,
+          // y 轴刻度不显示小数位(去掉 .00 噪声)，整数更清爽
+          formatter: (v: number) => v.toFixed(0),
+        },
+        // 整列淡色刻度带（替代每个值独立气泡），移动端成片更整洁
+        splitArea: {
+          show: isMobile,
+          areaStyle: { color: ['transparent', isLight ? 'rgba(148,163,184,0.05)' : 'rgba(148,163,184,0.045)'] },
+        },
+        splitLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)' } },
+        axisLine: { show: false },
       },
-      markPoint: displayPrices.length ? {
+      ...(hasVolume ? [{
+        type: 'value',
+        scale: true,
+        gridIndex: 1,
+        splitNumber: 2,
+        axisLabel: { show: false },
+        axisLine: { show: false },
+        axisTick: { show: false },
+        splitLine: { show: false },
+      }] : []),
+    ],
+    series: [
+      {
+        type: 'line',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        data: displayPrices.length ? displayPrices : [],
+        smooth: false,
+        step: false,
         symbol: 'circle',
-        symbolSize: isMobile ? 6 : 8,
-        data: [
-          {
-            type: 'max',
-            name: '最高',
-            itemStyle: {
-              color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'),
-              borderColor: isLight ? '#fff' : '#fff',
-              borderWidth: 2,
+        symbolSize: isMobile ? 4 : 6,
+        showSymbol: false,
+        hoverAnimation: true,
+        emphasis: {
+          focus: 'series',
+          scale: true,
+          itemStyle: {
+            shadowBlur: 10,
+            shadowColor: isUp ? (isLight ? 'rgba(220, 38, 38, 0.4)' : 'rgba(239, 68, 68, 0.5)') : (isLight ? 'rgba(22, 163, 74, 0.4)' : 'rgba(34, 197, 94, 0.5)'),
+          }
+        },
+        markPoint: displayPrices.length ? {
+          symbol: 'circle',
+          symbolSize: isMobile ? 6 : 8,
+          data: [
+            {
+              type: 'max',
+              name: '最高',
+              itemStyle: { color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'), borderColor: '#fff', borderWidth: 2 },
+              label: { show: true, fontSize: isMobile ? 9 : 11, color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'), fontWeight: 600, formatter: '{b}\n{c}' },
             },
-            label: {
-              show: true,
-              fontSize: isMobile ? 9 : 11,
-              color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'),
-              fontWeight: 600,
-              formatter: '{b}\n{c}',
-            }
-          },
-          {
-            type: 'min',
-            name: '最低',
-            itemStyle: {
-              color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'),
-              borderColor: isLight ? '#fff' : '#fff',
-              borderWidth: 2,
+            {
+              type: 'min',
+              name: '最低',
+              itemStyle: { color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'), borderColor: '#fff', borderWidth: 2 },
+              label: { show: true, fontSize: isMobile ? 9 : 11, color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'), fontWeight: 600, formatter: '{b}\n{c}' },
             },
-            label: {
-              show: true,
-              fontSize: isMobile ? 9 : 11,
-              color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'),
-              fontWeight: 600,
-              formatter: '{b}\n{c}',
-            }
-          },
-        ],
-      } : undefined,
-      // 午间休市分隔线：A股 11:30 / 港股 12:00 午休，美股等无午休则不显示
-      markLine: displayPrices.length ? {
-        symbol: 'none',
-        silent: true,
-        lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.25)', type: 'dashed', width: 1 },
-        label: { show: false },
-        data: getLunchBreak(initialCode) ? [{ xAxis: getLunchBreak(initialCode) }] : [],
-      } : undefined,
-      lineStyle: {
-        color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'),
-        width: isMobile ? 2 : 2.5,
-        shadowColor: isUp ? (isLight ? 'rgba(220, 38, 38, 0.2)' : 'rgba(239, 68, 68, 0.3)') : (isLight ? 'rgba(22, 163, 74, 0.2)' : 'rgba(34, 197, 94, 0.3)'),
-        shadowBlur: isMobile ? 6 : 10,
-        shadowOffsetY: isMobile ? 3 : 5,
-      },
-      areaStyle: {
-        color: {
-          type: 'linear',
-          x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: isUp ? (isLight ? 'rgba(220, 38, 38, 0.2)' : 'rgba(239, 68, 68, 0.25)') : (isLight ? 'rgba(22, 163, 74, 0.2)' : 'rgba(34, 197, 94, 0.25)') },
-            { offset: 0.5, color: isUp ? (isLight ? 'rgba(220, 38, 38, 0.06)' : 'rgba(239, 68, 68, 0.08)') : (isLight ? 'rgba(22, 163, 74, 0.06)' : 'rgba(34, 197, 94, 0.08)') },
-            { offset: 1, color: isUp ? (isLight ? 'rgba(220, 38, 38, 0.01)' : 'rgba(239, 68, 68, 0.01)') : (isLight ? 'rgba(22, 163, 74, 0.01)' : 'rgba(34, 197, 94, 0.01)') },
+            // 曲线末端"最新价"标签：贴在最后一个有效点，带涨跌色背景
+            ...(lastValidIndex >= 0 ? [{
+              coord: [lastValidIndex, lastValidPrice],
+              value: lastValidPrice.toFixed(2),
+              symbol: 'circle',
+              symbolSize: 0,
+              label: {
+                show: true,
+                // 手机端改为图内浮标(insideTop)，并左移避免标签在右缘被裁切；桌面端仍贴右外侧
+                position: isMobile ? 'insideTop' : 'right',
+                offset: isMobile ? [-24, 0] : [0, 0],
+                formatter: '{c}',
+                backgroundColor: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'),
+                color: '#fff', fontSize: isMobile ? 10 : 11, padding: [2, 5], borderRadius: 3, fontWeight: 600,
+              },
+            }] : []),
           ],
+        } : undefined,
+        // 昨收基准线（虚线 + "昨收"标注）+ 午休分隔线
+        markLine: displayPrices.length ? {
+          symbol: 'none',
+          silent: true,
+          lineStyle: { color: isLight ? 'rgba(100,116,139,0.55)' : 'rgba(148,163,184,0.5)', type: 'dashed', width: 1 },
+          data: [
+            ...(getLunchBreak(initialCode) ? [{ xAxis: getLunchBreak(initialCode), label: { show: false } }] : []),
+            {
+              yAxis: prevClose,
+              label: { show: true, position: isMobile ? 'insideStartTop' : 'insideEndTop', formatter: `昨收 ${prevClose.toFixed(2)}`, fontSize: isMobile ? 9 : 10, color: isLight ? '#64748B' : '#94A3B8' },
+            },
+          ],
+        } : undefined,
+        // 以昨收为界：上方淡红、下方淡绿，直观区分高于/低于昨收
+        markArea: displayPrices.length ? {
+          silent: true,
+          data: [
+            [{ yAxis: prevClose, itemStyle: { color: isLight ? 'rgba(220,38,38,0.04)' : 'rgba(239,68,68,0.05)' } }, { yAxis: 'max' }],
+            [{ yAxis: 'min', itemStyle: { color: isLight ? 'rgba(22,163,74,0.04)' : 'rgba(34,197,94,0.05)' } }, { yAxis: prevClose }],
+          ],
+        } : undefined,
+        lineStyle: {
+          color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'),
+          width: isMobile ? 2 : 2.5,
+          shadowColor: isUp ? (isLight ? 'rgba(220, 38, 38, 0.2)' : 'rgba(239, 68, 68, 0.3)') : (isLight ? 'rgba(22, 163, 74, 0.2)' : 'rgba(34, 197, 94, 0.3)'),
+          shadowBlur: isMobile ? 6 : 10,
+          shadowOffsetY: isMobile ? 3 : 5,
+        },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: isUp ? (isLight ? 'rgba(220, 38, 38, 0.2)' : 'rgba(239, 68, 68, 0.25)') : (isLight ? 'rgba(22, 163, 74, 0.2)' : 'rgba(34, 197, 94, 0.25)') },
+              { offset: 0.5, color: isUp ? (isLight ? 'rgba(220, 38, 38, 0.06)' : 'rgba(239, 68, 68, 0.08)') : (isLight ? 'rgba(22, 163, 74, 0.06)' : 'rgba(34, 197, 94, 0.08)') },
+              { offset: 1, color: isUp ? (isLight ? 'rgba(220, 38, 38, 0.01)' : 'rgba(239, 68, 68, 0.01)') : (isLight ? 'rgba(22, 163, 74, 0.01)' : 'rgba(34, 197, 94, 0.01)') },
+            ],
+          },
         },
       },
-    }],
-    grid: {
-      top: isMobile ? 20 : 25,
-      bottom: isMobile ? (displayTimes.length > 10 ? 55 : 35) : 45,
-      left: isMobile ? 50 : 65,
-      right: isMobile ? 15 : 25
-    },
+      ...(hasVolume ? [{
+        type: 'bar',
+        xAxisIndex: 1,
+        yAxisIndex: 1,
+        data: displayVolumes.map((v, i) => {
+          const p = displayPrices[i];
+          const up = p == null ? isUp : p >= prevClose;
+          return {
+            value: v ?? 0,
+            itemStyle: { color: up ? (isLight ? 'rgba(220,38,38,0.45)' : 'rgba(239,68,68,0.5)') : (isLight ? 'rgba(22,163,74,0.45)' : 'rgba(34,197,94,0.5)') },
+          };
+        }),
+        barWidth: '55%',
+        large: true,
+      }] : []),
+    ],
+    grid: [
+      {
+        top: isMobile ? 16 : 25,
+        // 有副图时主图底部用百分比锚定(32%)，与下方副图恒留 2% 分隔缝，
+        // 避免不同机型高度下主图底边压到副图时间轴导致折线/x轴相交
+        bottom: isMobile ? (hasVolume ? '32%' : (displayTimes.length > 10 ? 52 : 32)) : (hasVolume ? 95 : 45),
+        // 手机端 y 轴左槽收窄到 36px：刻度已改为整数显示(如3900)更短，留出更少左留白但仍不裁切
+        left: isMobile ? 36 : 65,
+        // 手机端 right 压到 8px：末端"最新价"标签改为图内浮标(insideTop+左移)，不再占用右侧整列
+        right: isMobile ? 8 : 25,
+        containLabel: false,
+      },
+      ...(hasVolume ? [{
+        // 手机端 y 轴左槽收窄到 36px：刻度已改为整数显示(如3900)更短，留出更少左留白但仍不裁切
+        left: isMobile ? 36 : 65,
+        right: isMobile ? 8 : 25,
+        // 副图顶边 70% 低于主图底边 68%，天然分隔；bottom 28px 稳定容纳时间轴标签
+        top: isMobile ? '70%' : '72%',
+        bottom: isMobile ? 28 : 34,
+        containLabel: false,
+      }] : []),
+    ],
   };
 
   if (loading) {
@@ -504,11 +620,14 @@ export default function MarketDetailPage() {
       <Card
         style={{
           marginBottom: 20,
+          // 手机端让走势图卡片破出页面左右 padding，整屏通栏，消除图表到屏幕边缘的多重留白
+          marginLeft: isMobile ? -16 : undefined,
+          marginRight: isMobile ? -16 : undefined,
           background: 'var(--bg-elevated)',
           borderColor: 'var(--border-subtle)',
         }}
         styles={{
-          body: { padding: '20px 16px' },
+          body: { padding: isMobile ? '16px 0' : '20px 16px' },
         }}
       >
         <div style={{
@@ -560,7 +679,7 @@ export default function MarketDetailPage() {
         {intradayLoading && !intradayData ? (
           <Skeleton active paragraph={{ rows: 6 }} />
         ) : intradayData && intradayData.prices && intradayData.prices.length > 0 ? (
-          <ReactECharts option={chartOption} style={{ height: 'clamp(240px, 42vw, 360px)' }} opts={{ renderer: 'canvas' }} />
+          <ReactECharts option={chartOption} style={{ height: hasVolume ? 'clamp(300px, 60vw, 480px)' : 'clamp(260px, 46vw, 380px)' }} opts={{ renderer: 'canvas' }} />
         ) : (
           <div style={{
             height: 'clamp(240px, 42vw, 360px)',
