@@ -226,16 +226,23 @@ router.get('/:code/intraday', async (req, res) => {
 
       if (!result && TX[code]) {
         const txSecid = TX[code];
-        // 港股(hk 前缀)腾讯提供真实分时接口,优先走真实逐分钟数据,避免落到伪造快照
-        if (txSecid.startsWith('hk')) {
+        // 港股(hk)/美股(us)腾讯提供真实分时接口,优先走真实逐分钟数据;
+        // 美股历史日可能仅返回单点,点数过少(<30)视为无效,降级到快照兜底
+        if (txSecid.startsWith('hk') || txSecid.startsWith('us')) {
+          const market = txSecid.startsWith('hk') ? '港股' : '美股';
           try {
             const txMinUrl = `http://web.ifzq.gtimg.cn/appstock/app/minute/query?_var=min_data_${txSecid}&code=${txSecid}`;
             const txMinRes = await fetchWithTimeout(txMinUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
             const txMinText = await txMinRes.text();
-            result = parseTencentMinuteData(txMinText, code);
-            if (result) logger.info(`腾讯港股分时 ${code}: ${result.times.length} 个数据点`);
+            const minResult = parseTencentMinuteData(txMinText, code);
+            if (minResult && minResult.times.length >= 30) {
+              result = minResult;
+              logger.info(`腾讯${market}分时 ${code}: ${result.times.length} 个数据点`);
+            } else if (minResult) {
+              logger.warn(`腾讯${market}分时 ${code} 点数过少(${minResult.times.length}),降级快照`);
+            }
           } catch(e) {
-            logger.error(`腾讯港股分时失败: ${e.message}`);
+            logger.error(`腾讯${market}分时失败: ${e.message}`);
           }
         }
 
