@@ -33,6 +33,26 @@ const xAxisTimeFormatter = (value: string): string => {
   return '';
 };
 
+// A 股完整交易时段刻度（含午休缺口），用于盘中固定显示 09:30–15:00 全刻度。
+// 返回 'HHMM' 格式数组（与主源 tencent_minute 一致；xAxisTimeFormatter 兼容带冒号的降级数据）。
+const buildFullTradingGrid = (code: string): string[] | null => {
+  const aShare = ['000001', '000016', '399001', '399006', '000300', '000688', '399673', '000905', '000852'];
+  if (!aShare.includes(code)) return null; // 港股/美股跨午休或跨午夜，沿用后端原始数据
+  const sessions: [string, string][] = [['0930', '1130'], ['1300', '1500']];
+  const grid: string[] = [];
+  for (const [start, end] of sessions) {
+    let t = start;
+    while (t <= end) {
+      grid.push(t);
+      const hh = parseInt(t.slice(0, 2), 10);
+      const mm = parseInt(t.slice(2, 4), 10);
+      const total = hh * 60 + mm + 1;
+      t = `${String(Math.floor(total / 60)).padStart(2, '0')}${String(total % 60).padStart(2, '0')}`;
+    }
+  }
+  return grid;
+};
+
 export default function MarketDetailPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -109,6 +129,30 @@ export default function MarketDetailPage() {
     return sourceMap[source || ''] || sourceMap['unknown'];
   };
 
+  // 将收到的（盘中可能截断的）分时数据映射到固定全天刻度网格，未来时段留空，
+  // 实现「盘中固定显示 09:30–15:00 全刻度、曲线只填到当前、右侧留白」。
+  const isIntradayAvailable = !!(intradayData && intradayData.prices && intradayData.prices.length > 0);
+  const fullGrid = buildFullTradingGrid(selectedIndex);
+  let displayTimes: string[] = [];
+  let displayPrices: (number | null)[] = [];
+  let realPointCount = 0;
+  if (isIntradayAvailable) {
+    if (fullGrid) {
+      const priceByTime = new Map<string, number>();
+      intradayData!.times.forEach((t, i) => priceByTime.set(t.replace(':', ''), intradayData!.prices[i]));
+      displayTimes = fullGrid;
+      displayPrices = fullGrid.map((t) => {
+        const v = priceByTime.get(t);
+        return v === undefined ? null : v;
+      });
+      realPointCount = priceByTime.size;
+    } else {
+      displayTimes = intradayData!.times;
+      displayPrices = intradayData!.prices;
+      realPointCount = intradayData!.prices.length;
+    }
+  }
+
   const chartOption = {
     backgroundColor: 'transparent',
     tooltip: {
@@ -135,6 +179,9 @@ export default function MarketDetailPage() {
         }
 
         const currentPrice = p.value;
+        if (currentPrice == null || Number.isNaN(currentPrice)) {
+          return `<div style="color: #94A3B8;">尚未走到的时段</div>`;
+        }
         const basePrice = intradayData.prices[0];
         const changePercent = ((currentPrice - basePrice) / basePrice * 100).toFixed(2);
         const changeAmount = (currentPrice - basePrice).toFixed(2);
@@ -159,7 +206,7 @@ export default function MarketDetailPage() {
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: intradayData?.times?.length ? intradayData!.times : ['09:30', '10:00', '10:30', '11:00', '11:30', '13:00', '13:30', '14:00', '14:30', '15:00'],
+      data: displayTimes.length ? displayTimes : ['09:30', '10:00', '10:30', '11:00', '11:30', '13:00', '13:30', '14:00', '14:30', '15:00'],
       axisLabel: {
         fontSize: isMobile ? 10 : 11,
         color: isLight ? '#64748B' : '#94A3B8',
@@ -185,7 +232,7 @@ export default function MarketDetailPage() {
     },
     series: [{
       type: 'line',
-      data: intradayData?.prices?.length ? intradayData!.prices : [],
+      data: displayPrices.length ? displayPrices : [],
       smooth: false,
       step: false,
       symbol: 'circle',
@@ -200,7 +247,7 @@ export default function MarketDetailPage() {
           shadowColor: isUp ? (isLight ? 'rgba(220, 38, 38, 0.4)' : 'rgba(239, 68, 68, 0.5)') : (isLight ? 'rgba(22, 163, 74, 0.4)' : 'rgba(34, 197, 94, 0.5)'),
         }
       },
-      markPoint: intradayData?.prices?.length ? {
+      markPoint: displayPrices.length ? {
         symbol: 'circle',
         symbolSize: isMobile ? 6 : 8,
         data: [
@@ -239,7 +286,7 @@ export default function MarketDetailPage() {
         ],
       } : undefined,
       // 午间休市分隔线：标记 11:30 上午收盘，区分两个交易时段
-      markLine: intradayData?.prices?.length ? {
+      markLine: displayPrices.length ? {
         symbol: 'none',
         silent: true,
         lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.25)', type: 'dashed', width: 1 },
@@ -267,7 +314,7 @@ export default function MarketDetailPage() {
     }],
     grid: {
       top: isMobile ? 20 : 25,
-      bottom: isMobile ? (intradayData?.times?.length && intradayData!.times.length > 10 ? 55 : 35) : 45,
+      bottom: isMobile ? (displayTimes.length > 10 ? 55 : 35) : 45,
       left: isMobile ? 50 : 65,
       right: isMobile ? 15 : 25
     },
@@ -486,7 +533,7 @@ export default function MarketDetailPage() {
                 background: 'var(--loss-bg)',
                 border: '1px solid var(--loss-border)',
               }}>
-                {intradayData.pointCount || intradayData.prices.length} 个数据点
+                {realPointCount} 个数据点
               </span>
               <span style={{
                 fontSize: 10,
