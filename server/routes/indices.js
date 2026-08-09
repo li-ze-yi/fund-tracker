@@ -226,8 +226,8 @@ router.get('/:code/intraday', async (req, res) => {
 
       if (!result && TX[code]) {
         const txSecid = TX[code];
-        // 港股(hk)/美股(us)腾讯提供真实分时接口,优先走真实逐分钟数据;
-        // 美股历史日可能仅返回单点,点数过少(<30)视为无效,降级到快照兜底
+        // 港股(hk)/美股(us)腾讯提供真实分时接口,仅接受真实逐分钟数据;
+        // 点数过少(<30)或无数据时不再生成模拟曲线,直接返回无数据(前端显示"暂无分时数据")
         if (txSecid.startsWith('hk') || txSecid.startsWith('us')) {
           const market = txSecid.startsWith('hk') ? '港股' : '美股';
           try {
@@ -239,47 +239,13 @@ router.get('/:code/intraday', async (req, res) => {
               result = minResult;
               logger.info(`腾讯${market}分时 ${code}: ${result.times.length} 个数据点`);
             } else if (minResult) {
-              logger.warn(`腾讯${market}分时 ${code} 点数过少(${minResult.times.length}),降级快照`);
+              logger.warn(`腾讯${market}分时 ${code} 点数过少(${minResult.times.length}),无真实分时数据`);
+            } else {
+              logger.warn(`腾讯${market}分时 ${code} 未返回数据`);
             }
           } catch(e) {
             logger.error(`腾讯${market}分时失败: ${e.message}`);
           }
-        }
-
-        if (!result) {
-          try {
-            const txKlineUrl = `http://ifq.gtimg.cn/appstock/app/kline/kline?param=${txSecid},day,,,30,qfq`;
-            const txRes = await fetchWithTimeout(txKlineUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
-            const txText = await txRes.text();
-            result = parseTencentKlineHistory(txText, code);
-            if (result) logger.info(`腾讯历史 ${code}: ${result.times.length} 个数据点`);
-          } catch(e) {
-            logger.error(`腾讯历史失败: ${e.message}`);
-          }
-        }
-
-        if (!result) {
-          try {
-            const txRealtimeUrl = `http://qt.gtimg.cn/q=${TX[code]}`;
-            const txRealRes = await fetchWithTimeout(txRealtimeUrl, { headers: { Referer: 'http://finance.qq.com' } }, 10000);
-            const txRealText = await txRealRes.text();
-            result = parseTencentRealtimeSnapshot(txRealText, code);
-            if (result) logger.info(`腾讯快照 ${code}: ${result.times.length} 个数据点`);
-          } catch(e) {
-            logger.error(`腾讯快照失败: ${e.message}`);
-          }
-        }
-      }
-
-      if (!result) {
-        logger.warn(`${code} 所有数据源失败，使用降级方案`);
-        try {
-          result = await generateFallbackIntraday(code);
-          if (result) {
-            logger.info(`降级方案 ${code}: ${result.times.length} 个数据点`);
-          }
-        } catch(e) {
-          logger.error(`降级方案失败: ${e.message}`);
         }
       }
 
@@ -287,7 +253,8 @@ router.get('/:code/intraday', async (req, res) => {
     }, { type: 'realtime' }); // 盘中实时数据缓存，28s 刷新
 
     if (!data) {
-      return res.status(500).json({ error: 'Failed to generate intraday data', code });
+      // 无真实分时数据:返回空数据而非报错,前端据此显示"暂无分时数据"
+      return res.json({ code, date, data: null, source: 'none', pointCount: 0 });
     }
 
     res.json({
@@ -386,6 +353,7 @@ function parseTencentMinuteKline(text, code) {
 }
 
 async function generateFallbackIntraday(code) {
+  return null; // 模拟数据已移除:曾用 OHLC+Math.random 伪造曲线,现已关闭,无真实分时则上游返回"暂无数据"
   let marketData = null;
 
   var txc = getTxCode(code);
@@ -548,6 +516,7 @@ function parseSinaMinuteData(dataArray) {
 }
 
 function parseTencentKlineHistory(text, baseCode) {
+  return null; // 历史日K线非分时数据,不再充当分时图填充;无真实分时则显示"暂无数据"
   const match = text.match(new RegExp(TX[baseCode] + '=\\s*(".*")'));
   if (!match || !match[1]) return null;
 
@@ -575,6 +544,7 @@ function parseTencentKlineHistory(text, baseCode) {
 }
 
 function parseTencentRealtimeSnapshot(text, baseCode) {
+  return null; // 模拟数据已移除:曾用 OHLC+Math.random 伪造曲线,现已关闭
   const match = text.match(new RegExp(TX[baseCode] + '="(.*)"'));
   if (!match || !match[1]) return null;
 
