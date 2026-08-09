@@ -294,9 +294,23 @@ function parseTencentMinuteData(text, code) {
     const times = [];
     const prices = [];
 
+    // 兼容腾讯分钟接口的多种返回结构：
+    // 1) 字符串："0930 3896.49;0931 ..."（旧版）
+    // 2) 数组：[{ t, p }, ...]（部分接口）
+    // 3) 对象：{ data: ["0930 3896.49 ...", ...] }（最新版，data 字段为数组）★ 此前漏处理导致主源静默失效
+    let points = [];
     if (typeof minuteData === 'string') {
-      const points = minuteData.split(';');
-      points.forEach(p => {
+      points = minuteData.split(';');
+    } else if (Array.isArray(minuteData)) {
+      points = minuteData;
+    } else if (minuteData && Array.isArray(minuteData.data)) {
+      points = minuteData.data;
+    } else {
+      return null;
+    }
+
+    points.forEach(p => {
+      if (typeof p === 'string') {
         const parts = p.trim().split(/\s+/);
         if (parts.length >= 2) {
           const time = parts[0];
@@ -306,15 +320,11 @@ function parseTencentMinuteData(text, code) {
             prices.push(Number(price.toFixed(2)));
           }
         }
-      });
-    } else if (Array.isArray(minuteData)) {
-      minuteData.forEach(item => {
-        if (item.t && item.p) {
-          times.push(item.t.substring(0, 5));
-          prices.push(Number(parseFloat(item.p).toFixed(2)));
-        }
-      });
-    }
+      } else if (p && p.t && p.p) {
+        times.push(p.t.substring(0, 5));
+        prices.push(Number(parseFloat(p.p).toFixed(2)));
+      }
+    });
 
     return times.length > 0 ? { times, prices, source: 'tencent_minute' } : null;
   } catch(e) {

@@ -81,6 +81,7 @@ export default function MarketDetailPage() {
 
   const getSourceLabel = (source?: string) => {
     const sourceMap: Record<string, string> = {
+      'tencent_minute': '📊 腾讯财经·分时数据',
       'eastmoney_minute': '📊 东方财富·分钟K线',
       'sina_kline': '📈 新浪财经·K线',
       'sina_minute_api': '⏱️ 新浪财经·分钟数据',
