@@ -204,8 +204,9 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
   const marketStatus = await checkMarketStatus(holdings);
 
-  // ★ 查询今日交易份额
-  const today = new Date().toISOString().slice(0, 10);
+  // ★ 查询今日交易份额（使用北京时间，避免凌晨 UTC 日期偏移导致 yesterdayShares=0）
+  const _now = new Date();
+  const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
   const userId = holdings[0].user_id;
   let todayTxSharesMap = {};
   try {
@@ -221,6 +222,18 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     });
   } catch (e) {
     logger.error(`查询今日交易份额失败: ${e.message}`);
+  }
+
+  // ★ 查询 pending 买入订单对应的基金集合（占位持仓不计算收益）
+  let pendingBuyFundSet = new Set();
+  try {
+    const [pendingRows] = await pool.query(
+      `SELECT DISTINCT fund_code FROM transactions WHERE user_id = ? AND status = 'pending' AND type = 'buy'`,
+      [userId]
+    );
+    pendingRows.forEach(r => pendingBuyFundSet.add(r.fund_code));
+  } catch (e) {
+    logger.error(`查询pending买入订单失败: ${e.message}`);
   }
 
   // ═══════════════════════════════════════════
@@ -349,7 +362,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
         effectiveNav,
         fundMarketStatus,
         yesterdayNav,
-        todayTxSharesMap[fundCode] || { buy: 0, sell: 0 }
+        todayTxSharesMap[fundCode] || { buy: 0, sell: 0 },
+        pendingBuyFundSet.has(fundCode) && holding.confirmed_nav === null
       )
     };
   });
@@ -363,7 +377,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
   return result;
 }
 
-function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, confirmedNav = 0, marketStatus = { isMarketOpen: true }, yesterdayNav = 0, todayTxShares = { buy: 0, sell: 0 }) {
+function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, confirmedNav = 0, marketStatus = { isMarketOpen: true }, yesterdayNav = 0, todayTxShares = { buy: 0, sell: 0 }, isPendingPurchase = false) {
   const shares = parseFloat(holding.shares) || 0;
 
   // 已清仓且非卖出当天（sold_date < today）→ 返回 sold_out 状态，accumulated_profit 显示实现盈亏
@@ -397,6 +411,28 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     }
   }
 
+  // 占位持仓（pending 购买创建）→ 不计算收益，仅展示估算市值
+  if (isPendingPurchase) {
+    const estValue = realTimeData?.estimatedValue || realTimeData?.netValue || 0;
+    const marketValue = shares > 0 && estValue > 0 ? shares * estValue : 0;
+    return {
+      market_value: Math.round(marketValue * 100) / 100,
+      estimated_change: null,
+      daily_profit: 0,
+      accumulated_profit: 0,
+      net_value: estValue > 0 ? estValue : null,
+      cost_price: parseFloat(holding.cost_price) || 0,
+      shares: shares,
+      update_time: realTimeData?.updateTime || null,
+      last_updated: realTimeData?.updateTime || null,
+      is_fresh: false,
+      update_status: 'pending_purchase',
+      data_source: 'estimated',
+      fund_code: holding.fund_code,
+      is_confirmed: false
+    };
+  }
+
   const costPrice = parseFloat(holding.cost_price) || 0;
   const totalCost = parseFloat(holding.total_cost) || shares * costPrice;
   // 昨日份额 = 当前份额 - 今日买入 + 今日卖出
@@ -417,15 +453,20 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
   let usedEstimated = false;
 
   // 净值优先级：今日确认净值 > 盘中估算 > 昨日确认净值
-  // 注意：pending_confirm 状态（15:00后但今日净值未确认）也应使用盘中估算
-  if (confirmedNav > 0) {
+  // 盘前（hour < 9）不使用估算净值（避免有累计收益但日涨幅显示"--"的不一致）
+  if (isConfirmed && confirmedNav > 0) {
+    // 今日确认净值已公布
     displayNav = confirmedNav;
     marketValue = shares * confirmedNav;
-  } else if (estValue != null && estValue > 0) {
-    // 无今日确认净值但有盘中估算 → 使用盘中估算净值（盘中+盘后待确认均适用）
+  } else if (hour >= 9 && estValue != null && estValue > 0 && estChange != null) {
+    // 盘中/盘后估算（仅在 9:00 后使用，盘前用确认净值）
     displayNav = estValue;
     marketValue = shares * estValue;
     usedEstimated = true;
+  } else if (confirmedNav > 0) {
+    // 昨日确认净值（盘前或无估算时回退）
+    displayNav = confirmedNav;
+    marketValue = shares * confirmedNav;
   } else if (realTimeData && realTimeData.netValue) {
     displayNav = realTimeData.netValue;
     marketValue = shares * realTimeData.netValue;
@@ -516,6 +557,7 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     update_status = 'pre_market';
     data_source = 'actual';
     is_fresh = false;
+    // 盘前统一清零（市值用确认净值，日涨幅和日收益也应为 0，保持一致）
     gainPercent = null;
     dailyGain = 0;
   } else if (isConfirmed) {

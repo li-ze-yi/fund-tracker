@@ -5,6 +5,7 @@ const { authenticate } = require('../middlewares/auth');
 router.use(authenticate);
 router.get('/', ctrl.list);
 router.post('/', ctrl.create);
+router.post('/purchase', ctrl.purchase);
 router.put('/:id', ctrl.update);
 router.delete('/:id', ctrl.delete);
 
