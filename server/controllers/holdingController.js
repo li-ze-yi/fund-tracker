@@ -76,7 +76,11 @@ async function settlePendingAsync(userId) {
 
         const history = await fundService.getHistoryNetValues(tx.fund_code, navDate, navDate);
         const confirmedNav = history.length ? history[0].nav : 0;
-        if (!confirmedNav) continue;
+        logger.info(`[Settle] 检查交易 #${tx.id}: fund=${tx.fund_code}, type=${tx.type}, navDate=${navDate}, confirmedNav=${confirmedNav}, amount=${tx.amount}`);
+        if (!confirmedNav) {
+          logger.info(`[Settle] 跳过 #${tx.id}: NAV 未确认，下次继续`);
+          continue;
+        }
 
         const holding = await Holding.findByUserAndFund(userId, tx.fund_code);
 
@@ -99,6 +103,7 @@ async function settlePendingAsync(userId) {
               costPrice,
               totalCost: parseFloat(tx.amount)
             });
+            logger.info(`[Settle] 买入 #${tx.id}: 新建持仓, shares=${actualShares.toFixed(2)}, nav=${confirmedNav}, fee=${feeAmount.toFixed(2)}`);
           } else if (holding.confirmed_nav === null) {
             // 占位持仓（pending 购买创建）→ 替换为实际数据
             await Holding.update(holding.id, userId, {
@@ -110,6 +115,7 @@ async function settlePendingAsync(userId) {
               soldDate: null,
               totalReturn: 0
             });
+            logger.info(`[Settle] 买入 #${tx.id}: 占位持仓替换(id=${holding.id}), shares=${actualShares.toFixed(2)}, nav=${confirmedNav}, costPrice=${costPrice.toFixed(4)}`);
           } else {
             // 已有持仓 → 加仓
             const currentShares = parseFloat(holding.shares) + actualShares;
@@ -123,6 +129,7 @@ async function settlePendingAsync(userId) {
               soldDate: null,
               totalReturn: 0
             });
+            logger.info(`[Settle] 买入 #${tx.id}: 加仓(holding.id=${holding.id}), addedShares=${actualShares.toFixed(2)}, totalShares=${currentShares.toFixed(2)}, nav=${confirmedNav}`);
           }
 
           await Transaction.updateToConfirmed(tx.id, userId, {
@@ -425,6 +432,8 @@ exports.purchase = async (req, res, next) => {
       logger.warn(`获取确认净值失败: ${e.message}`);
     }
 
+    logger.info(`[Purchase] NAV查询: fund=${fundCode}, navDate=${navDate}, confirmedNav=${confirmedNav}, 分支=${confirmedNav > 0 ? 'confirmed' : 'pending'}`);
+
     const round2 = (v) => Math.round(v * 100) / 100;
 
     // 4. 分支处理
@@ -503,6 +512,9 @@ exports.purchase = async (req, res, next) => {
         userId, fundCode, shares: 0, costPrice: 0, groupId,
         confirmedNav: null, confirmedNavDate: null, totalCost: amt
       });
+      logger.info(`[Purchase] 占位持仓已创建: fund=${fundCode}, amount=${amt}, navDate=${navDate}`);
+    } else {
+      logger.info(`[Purchase] 持仓已存在(id=${existing.id})，跳过占位创建: fund=${fundCode}`);
     }
     await Transaction.create({
       userId, fundCode, type: 'buy', shares: 0, price: 0, amount: amt,

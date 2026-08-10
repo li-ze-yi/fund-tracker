@@ -352,6 +352,14 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
     const fundMarketStatus = getFundMarketStatus(realTimeData, marketStatus);
 
+    const isPendingPurchase = pendingBuyFundSet.has(fundCode) && holding.confirmed_nav === null;
+
+    if (isPendingPurchase) {
+      logger.info(`[HoldingService] 占位持仓: fund=${fundCode}, holdingId=${holding.id}, totalCost=${holding.total_cost}, shares=${holding.shares}, confirmed_nav=${holding.confirmed_nav}, update_status=pending_purchase`);
+    } else if (pendingBuyFundSet.has(fundCode)) {
+      logger.info(`[HoldingService] 确认持仓含pending: fund=${fundCode}, holdingId=${holding.id}, confirmed_nav=${holding.confirmed_nav}, 不标记为待入库`);
+    }
+
     return {
       ...holding,
       realTimeData: realTimeData,
@@ -363,7 +371,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
         fundMarketStatus,
         yesterdayNav,
         todayTxSharesMap[fundCode] || { buy: 0, sell: 0 },
-        pendingBuyFundSet.has(fundCode) && holding.confirmed_nav === null
+        isPendingPurchase
       )
     };
   });

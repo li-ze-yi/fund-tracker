@@ -82,10 +82,10 @@ export default function PortfolioPage() {
   useEffect(() => {
     loadHoldings(true);
     settingService.getSettings().then((data) => {
-      const d = data.settings || data;
-      if (d?.refresh_frequency != null) setRefreshFreq(d.refresh_frequency);
+      if (data?.refresh_frequency != null) setRefreshFreq(data.refresh_frequency);
     }).catch(() => {});
-  }, [loadHoldings]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const handleManualRefresh = () => {
