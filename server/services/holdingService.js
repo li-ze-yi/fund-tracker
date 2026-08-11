@@ -460,21 +460,18 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
   let displayNav = null;
   let usedEstimated = false;
 
-  // 净值优先级：今日确认净值 > 盘中估算 > 昨日确认净值
-  // 盘前（hour < 9）不使用估算净值（避免有累计收益但日涨幅显示"--"的不一致）
-  if (isConfirmed && confirmedNav > 0) {
-    // 今日确认净值已公布
+  // 净值优先级：确认净值（今日/昨日）> 盘中估算 > 实时接口净值
+  // 确认净值优先原则：确保持仓金额和累计收益在盘中估算时保持稳定，
+  // 不随估算值波动，直到今日确认净值公布后才更新
+  if (confirmedNav > 0) {
+    // 使用确认净值（今日已公布则用今日，否则用昨日），持仓金额保持稳定
     displayNav = confirmedNav;
     marketValue = shares * confirmedNav;
   } else if (hour >= 9 && estValue != null && estValue > 0 && estChange != null) {
-    // 盘中/盘后估算（仅在 9:00 后使用，盘前用确认净值）
+    // 无确认净值但有盘中估算 → 退而求其次使用估算值
     displayNav = estValue;
     marketValue = shares * estValue;
     usedEstimated = true;
-  } else if (confirmedNav > 0) {
-    // 昨日确认净值（盘前或无估算时回退）
-    displayNav = confirmedNav;
-    marketValue = shares * confirmedNav;
   } else if (realTimeData && realTimeData.netValue) {
     displayNav = realTimeData.netValue;
     marketValue = shares * realTimeData.netValue;
