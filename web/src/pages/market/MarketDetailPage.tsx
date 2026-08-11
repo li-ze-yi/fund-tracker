@@ -169,7 +169,7 @@ export default function MarketDetailPage() {
   const hasVolume = !!(
     intradayData &&
     Array.isArray(intradayData.volumes) &&
-    intradayData.volumes.length === displayTimes.length &&
+    intradayData.volumes.length === intradayData.times.length &&
     intradayData.volumes.some((v) => v > 0)
   );
   // 成交量跟随价格按同一 fullGrid 映射，保证午休缺口对齐
