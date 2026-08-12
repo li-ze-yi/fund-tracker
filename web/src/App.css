@@ -14,19 +14,19 @@
   --bg-content-area: #F8FAFC;
   --bg-header: rgba(255, 255, 255, 0.82);
   --bg-tabbar: rgba(255, 255, 255, 0.85);
-  --bg-row-even: rgba(255, 255, 255, 0.65);
-  --bg-row-odd: rgba(241, 245, 249, 0.5);
-  --bg-row-hover: rgba(226, 232, 240, 0.6);
+  --bg-row-even: rgba(255, 255, 255, 0.7);
+  --bg-row-odd: rgba(238, 241, 246, 0.5);
+  --bg-row-hover: rgba(220, 226, 236, 0.6);
 
   --border-subtle: rgba(148, 163, 184, 0.15);
   --border-default: rgba(148, 163, 184, 0.25);
   --border-strong: rgba(148, 163, 184, 0.40);
 
   --text-primary: #1E293B;
-  --text-secondary: #64748B;
-  --text-tertiary: #78859B;
-  --text-muted: #94A3B8;
-  --text-dim: #A0AEC0;
+  --text-secondary: #475569;
+  --text-tertiary: #64748B;
+  --text-muted: #78859B;
+  --text-dim: #94A3B8;
 
   --accent-gold: #B8860B;
   --accent-gold-light: #D4A84B;
@@ -58,6 +58,12 @@
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Hero 卡片渐变（浅色主题） */
+  --hero-gradient-start: rgba(255, 255, 255, 0.95);
+  --hero-gradient-end: rgba(245, 247, 250, 0.9);
+  --hero-border-light: rgba(184, 134, 11, 0.12);
+  --hero-accent-glow: radial-gradient(ellipse at 100% 0%, rgba(184, 134, 11, 0.06), transparent 60%);
 }
 
 /* ========== 深色主题 ========== */
@@ -71,19 +77,19 @@
   --bg-content-area: #0E1628;
   --bg-header: rgba(17, 24, 39, 0.75);
   --bg-tabbar: rgba(17, 24, 39, 0.8);
-  --bg-row-even: rgba(31, 41, 55, 0.4);
-  --bg-row-odd: rgba(22, 33, 52, 0.35);
-  --bg-row-hover: rgba(42, 56, 80, 0.5);
+  --bg-row-even: rgba(31, 41, 55, 0.5);
+  --bg-row-odd: rgba(18, 28, 45, 0.42);
+  --bg-row-hover: rgba(42, 56, 80, 0.55);
 
   --border-subtle: rgba(148, 163, 184, 0.08);
   --border-default: rgba(148, 163, 184, 0.14);
   --border-strong: rgba(148, 163, 184, 0.24);
 
   --text-primary: #F1F5F9;
-  --text-secondary: #94A3B8;
-  --text-tertiary: #8896AB;
-  --text-muted: #64748B;
-  --text-dim: #475569;
+  --text-secondary: #CBD5E1;
+  --text-tertiary: #94A3B8;
+  --text-muted: #8896AB;
+  --text-dim: #64748B;
 
   --accent-gold: #D4A84B;
   --accent-gold-light: #F0D78C;
@@ -105,6 +111,12 @@
   --shadow-glow-gold: 0 0 20px rgba(212, 168, 75, 0.15), 0 0 60px rgba(212, 168, 75, 0.06);
   --shadow-glow-gain: 0 0 12px rgba(239, 68, 68, 0.15);
   --shadow-glow-loss: 0 0 12px rgba(34, 197, 94, 0.15);
+
+  /* Hero 卡片渐变（深色主题） */
+  --hero-gradient-start: rgba(17, 24, 39, 0.85);
+  --hero-gradient-end: rgba(11, 17, 32, 0.9);
+  --hero-border-light: rgba(212, 168, 75, 0.15);
+  --hero-accent-glow: radial-gradient(ellipse at 100% 0%, rgba(212, 168, 75, 0.08), transparent 60%);
 }
 
 [data-theme="dark"] body {
@@ -304,6 +316,12 @@ a { color: var(--accent-gold); text-decoration: none; }
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* 列表项交错入场动画 */
+@keyframes staggerItemIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
@@ -353,9 +371,9 @@ a { color: var(--accent-gold); text-decoration: none; }
 /* 页面内容外层包裹 - 滚动区域 */
 .page-content {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   background: var(--bg-base);
-  animation: contentFadeIn 0.45s ease-out both;
 }
 
 /* 内容舞台容器 - 可视化卡片容器 */
@@ -378,7 +396,6 @@ a { color: var(--accent-gold); text-decoration: none; }
       0 0 0 1px var(--border-subtle);
     margin-top: 8px;
     margin-bottom: 8px;
-    overflow: hidden;
   }
 
   [data-theme="dark"] .page-stage {
@@ -622,6 +639,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   :root {
     --font-display: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --font-mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+    --content-padding: 4px;
   }
 
   html {
@@ -634,8 +652,8 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 
   /* 优化整体间距 */
   .glass-card {
-    margin-left: 8px !important;
-    margin-right: 8px !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
   }
 
   /* 确保不出现横向滚动 */
@@ -969,7 +987,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   /* ========== FundListItem 移动端优化 ========== */
   .fund-list-item {
     padding: 6px 10px !important;
-    margin: 0 6px 2px !important;
+    margin: 0 0 2px !important;
     border-radius: var(--radius-md) !important;
     border-top-left-radius: var(--radius-md) !important;
     border-top-right-radius: var(--radius-md) !important;
@@ -1112,7 +1130,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     align-items: flex-start !important;
     padding: 10px 12px !important;
     gap: 6px !important;
-    margin-top: 2px !important;
+    margin-top: 0 !important;
   }
 
   .portfolio-total-asset > div:first-child {
@@ -1145,10 +1163,11 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     margin-left: 5px !important;
   }
 
-  /* 表头容器与数据行 flex 容器宽度对齐：margin 8 + padding 8 = 16px，与数据行 margin 6 + padding 10 = 16px 一致 */
+  /* 表头容器与数据行左右对齐（margin 0，撑满页面） */
   .portfolio-table-header {
-    padding-left: 8px !important;
-    padding-right: 8px !important;
+    margin: 8px 0 0 !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
   }
 
   /* 保留表头（隐藏持仓金额列）- 优化列宽比例 */
@@ -1172,14 +1191,14 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     flex: 1.5 !important;
   }
 
-  /* 表头字体缩小 */
+  /* 表头字体 */
   .portfolio-table-header > div {
     font-size: 11px !important;
   }
 
   /* 优化移动端间距 */
   .portfolio-group-switcher {
-    padding: 4px 8px !important;
+    padding: 2px 4px !important;
   }
 
   /* ========== WatchlistPage 移动端优化 ========== */
@@ -1189,7 +1208,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 
   .watchlist-title {
     font-size: clamp(18px, 5vw, 22px) !important;
-    padding: 0 8px !important;
+    padding: 0 4px !important;
     margin-bottom: 10px !important;
   }
 
@@ -1205,11 +1224,6 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   /* ========== MarketIndexStrip 移动端优化 ========== */
   .market-index-strip {
     padding: 6px 0 !important;
-  }
-
-  .market-index-scroll {
-    gap: 16px !important;
-    padding: 4px 12px !important;
   }
 
   .market-index-scroll > div {

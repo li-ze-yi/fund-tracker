@@ -306,7 +306,7 @@ export default function Header() {
             prefix={<SearchOutlined style={{ color: 'var(--text-dim)' }} />}
             suffix={
               <CameraOutlined
-                style={{ color: 'var(--text-muted)', cursor: 'pointer', fontSize: 15 }}
+                style={{ color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 15 }}
                 onClick={(e) => { e.stopPropagation(); setImageImportOpen(true); }}
               />
             }

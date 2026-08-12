@@ -365,7 +365,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           }}>
             <span className="number-tabular" style={{
               fontSize: 12,
-              color: 'var(--text-dim)',
+              color: 'var(--text-secondary)',
               fontFamily: 'var(--font-mono)',
             }}>
               {fund.fund_code}
@@ -387,12 +387,12 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
             {fund.update_status === 'no_estimate' ? (
               <span className="number-tabular" style={{
                 fontSize: 11,
-                color: 'var(--text-dim)',
+                color: 'var(--text-tertiary)',
                 fontFamily: 'var(--font-mono)',
                 background: 'var(--flat-bg)',
                 padding: '1px 5px',
                 borderRadius: 3,
-                opacity: 0.4,
+                opacity: 0.6,
               }}>
                 净值 --
               </span>
@@ -411,9 +411,9 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
             {fund.last_updated && (
               <span className="number-tabular" style={{
                 fontSize: 10,
-                color: 'var(--text-dim)',
+                color: 'var(--text-tertiary)',
                 fontFamily: 'var(--font-mono)',
-                opacity: 0.7,
+                opacity: 0.8,
               }}>
                 {new Date(fund.last_updated).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
               </span>
@@ -432,7 +432,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           <span style={{
             fontSize: 17,
             fontWeight: 700,
-            color: isMarketClosed ? 'var(--text-dim)' : (isUp ? 'var(--gain)' : 'var(--loss)'),
+            color: isMarketClosed ? 'var(--text-muted)' : (isUp ? 'var(--gain)' : 'var(--loss)'),
             fontFamily: 'var(--font-mono)',
             letterSpacing: '-0.01em',
           }}>
@@ -487,7 +487,8 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
         border: '1px solid var(--border-subtle)',
         borderTopLeftRadius: 0,
         borderTopRightRadius: 0,
-        transition: 'all var(--transition-base)',
+        transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
         position: 'relative',
         overflow: 'hidden',
       }}
@@ -495,11 +496,13 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
         e.currentTarget.style.borderColor = 'var(--border-default)';
         e.currentTarget.style.background = 'var(--bg-row-hover)';
         e.currentTarget.style.transform = 'translateX(2px)';
+        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.borderColor = 'var(--border-subtle)';
         e.currentTarget.style.background = isEvenRow ? 'var(--bg-row-even)' : 'var(--bg-row-odd)';
         e.currentTarget.style.transform = 'translateX(0)';
+        e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.02)';
       }}
     >
       {/* 左侧涨跌色带 */}
@@ -511,9 +514,9 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           bottom: 0,
           width: 3,
           background: isUp
-            ? 'linear-gradient(180deg, var(--gain), rgba(220,38,38,0.2))'
-            : 'linear-gradient(180deg, var(--loss), rgba(22,163,74,0.2))',
-          opacity: 0.7,
+            ? 'linear-gradient(180deg, var(--gain), rgba(220,38,38,0.3))'
+            : 'linear-gradient(180deg, var(--loss), rgba(22,163,74,0.3))',
+          opacity: 0.85,
         }} />
       )}
       <div style={{ flex: 2, minWidth: 0 }} data-col="fund_name" data-market-value={`¥${(fund.market_value ?? 0).toLocaleString()}`}>
@@ -524,7 +527,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           {renderUpdateIndicator()}
         </div>
         <div className="fund-code-type-row" style={{ display: 'flex', gap: 5, alignItems: 'center', marginTop: 3 }}>
-          <span className="number-tabular" style={{ fontSize: 12, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>{fund.fund_code}</span>
+          <span className="number-tabular" style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{fund.fund_code}</span>
           {fund.fund_type && (
             <Tag style={{ fontSize: 10, lineHeight: '17px', padding: '0 5px', background: 'var(--flat-bg)', color: 'var(--text-secondary)', border: 'none', borderRadius: 3 }}>
               {fund.fund_type}
@@ -533,7 +536,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
         </div>
         {/* 移动端：持仓金额 + 状态标签行 */}
         <div className="mobile-amount-status-row" style={{ display: 'none' }}>
-          <span className="number-tabular" style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+          <span className="number-tabular" style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
             {hideAmount ? '****' : `¥${(fund.market_value ?? 0).toLocaleString()}`}
           </span>
           {renderUpdateIndicator()}
@@ -547,11 +550,11 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
       </div>
 
       <div className="number-tabular" style={{ flex: 0.9, textAlign: 'right' }} data-col="estimated_change">
-        <span className="change-percent" style={{ fontSize: 15, fontWeight: 700, color: (isMarketClosed || isSoldOut || isPendingPurchase) ? 'var(--text-dim)' : (isUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
+        <span className="change-percent" style={{ fontSize: 15, fontWeight: 700, color: (isMarketClosed || isSoldOut || isPendingPurchase) ? 'var(--text-muted)' : (isUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
           {(isMarketClosed || isSoldOut || isPendingPurchase) ? '--' : `${isUp ? '+' : ''}${(fund.estimated_change ?? 0).toFixed(2)}%`}
         </span>
         {fund.update_status === 'no_estimate' && (fund.update_time || fund.last_updated) && (
-          <div style={{ fontSize: 10, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
             ({(() => {
               const dateStr = fund.update_time || fund.last_updated || '';
               const d = new Date(dateStr);
@@ -563,7 +566,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
       </div>
 
       <div className="number-tabular" style={{ flex: 1, textAlign: 'right' }} data-col="daily_profit">
-        <div className="profit-amount" style={{ fontSize: 14, fontWeight: 600, color: (isMarketClosed || isSoldOut || isPendingPurchase) ? 'var(--text-dim)' : (isDailyUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
+        <div className="profit-amount" style={{ fontSize: 14, fontWeight: 600, color: (isMarketClosed || isSoldOut || isPendingPurchase) ? 'var(--text-muted)' : (isDailyUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
           {(isMarketClosed || isPendingPurchase) ? '--' : (hideAmount ? '****' : `${isDailyUp ? '+' : '-'}¥${Math.abs(fund.daily_profit ?? 0).toFixed(2)}`)}
         </div>
       </div>
@@ -572,7 +575,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
         <div className="profit-amount" style={{ fontSize: 14, fontWeight: 600, color: isAccumulatedUp ? 'var(--gain)' : 'var(--loss)', fontFamily: 'var(--font-mono)' }}>
           {hideAmount ? '****' : `${isAccumulatedUp ? '+' : '-'}¥${Math.abs(fund.accumulated_profit ?? 0).toFixed(2)}`}
         </div>
-        <div className="profit-percent" style={{ fontSize: 11, fontWeight: 400, color: isAccumulatedUp ? 'var(--gain)' : 'var(--loss)', opacity: 0.6, marginTop: 1, fontFamily: 'var(--font-mono)' }}>
+        <div className="profit-percent" style={{ fontSize: 11, fontWeight: 400, color: isAccumulatedUp ? 'var(--gain)' : 'var(--loss)', opacity: 0.7, marginTop: 1, fontFamily: 'var(--font-mono)' }}>
           ({isAccumulatedUp ? '+' : ''}{totalReturnPct.toFixed(2)}%)
         </div>
       </div>

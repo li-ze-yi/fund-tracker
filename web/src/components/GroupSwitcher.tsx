@@ -99,10 +99,10 @@ export default function GroupSwitcher({ activeId, onChange }: GroupSwitcherProps
               background: isActive
                 ? 'linear-gradient(135deg, var(--accent-gold), #C49A3F)'
                 : 'var(--bg-card)',
-              color: isActive ? '#0B1120' : 'var(--text-secondary)',
+              color: isActive ? '#0B1120' : 'var(--text-primary)',
               border: isActive ? 'none' : '1px solid var(--border-subtle)',
               boxShadow: isActive
-                ? '0 2px 8px rgba(184,134,11,0.25), 0 0 24px rgba(184,134,11,0.06), inset 0 1px 0 rgba(255,255,255,0.2)'
+                ? '0 0 0 1px rgba(184,134,11,0.3), 0 2px 8px rgba(184,134,11,0.25), 0 0 24px rgba(184,134,11,0.06), inset 0 1px 0 rgba(255,255,255,0.2)'
                 : '0 1px 2px rgba(0,0,0,0.03)',
               transition: 'all var(--transition-base)',
               transform: isActive ? 'scale(1.05)' : 'scale(1)',
@@ -115,18 +115,20 @@ export default function GroupSwitcher({ activeId, onChange }: GroupSwitcherProps
                 e.currentTarget.style.background = 'var(--bg-card-hover)';
                 e.currentTarget.style.color = 'var(--text-primary)';
                 e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.04)';
               }
             }}
             onMouseLeave={(e) => {
               if (!isActive) {
                 e.currentTarget.style.borderColor = 'var(--border-subtle)';
                 e.currentTarget.style.background = 'var(--bg-card)';
-                e.currentTarget.style.color = 'var(--text-secondary)';
+                e.currentTarget.style.color = 'var(--text-primary)';
                 e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
               }
             }}
           >
-            <div style={{ lineHeight: 1.4 }}>{g.name}</div>
+            <div style={{ lineHeight: 1.4, color: isActive ? 'inherit' : 'var(--text-primary)' }}>{g.name}</div>
             <div className="group-amount" style={{ fontSize: 11, opacity: 0.75, marginTop: 1 }}>
               {g.total_asset != null && (
                 <span className="number-tabular">¥{Number(g.total_asset).toLocaleString()}</span>

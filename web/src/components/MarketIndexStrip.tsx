@@ -24,6 +24,15 @@ export default function MarketIndexStrip() {
   });
   const [indices, setIndices] = useState<IndexItem[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== 'undefined' && window.innerWidth <= 1024
+  );
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 1024);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('ft_visible_indices', JSON.stringify(visibleCodes));
@@ -49,7 +58,7 @@ export default function MarketIndexStrip() {
     let pos = 0;
     let rafId: number;
     let lastTime = 0;
-    const speed = 0.02; // px per ms
+    const speed = 0.02;
 
     const animate = (time: number) => {
       if (lastTime) {
@@ -88,6 +97,7 @@ export default function MarketIndexStrip() {
         boxShadow: '0 1px 0 var(--border-subtle), 0 2px 12px -2px rgba(0,0,0,0.04)',
         position: 'relative',
         overflow: 'hidden',
+        ...(isMobile ? { marginLeft: 'calc(-1 * var(--content-padding))', marginRight: 'calc(-1 * var(--content-padding))' } : {}),
       }}>
         {!expanded && !selectorOpen && displayList.length > 0 ? (
           <div
@@ -96,8 +106,14 @@ export default function MarketIndexStrip() {
             style={{
               display: 'flex',
               overflow: 'hidden',
-              gap: 24,
-              padding: '6px 16px',
+              gap: isMobile ? 16 : 24,
+              padding: isMobile ? '4px 6px' : '6px 16px',
+              WebkitMaskImage: isMobile
+                ? 'linear-gradient(to right, transparent 0%, black 2%, black 98%, transparent 100%)'
+                : 'linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%)',
+              maskImage: isMobile
+                ? 'linear-gradient(to right, transparent 0%, black 2%, black 98%, transparent 100%)'
+                : 'linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%)',
             }}
           >
             {[...displayList, ...displayList].map((item, idx) => (

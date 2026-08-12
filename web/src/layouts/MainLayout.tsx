@@ -8,7 +8,7 @@ export default function MainLayout() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <Header />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', paddingTop: 60, paddingBottom: 64 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', paddingTop: 60, paddingBottom: 64, minHeight: 0, overflow: 'hidden' }}>
         <AnnouncementBanner />
         <main className="page-content">
           <div className="page-stage">

@@ -1218,6 +1218,11 @@ export default function StatsPage() {
       {/* 移动端响应式优化样式 */}
       <style>{`
         @media screen and (max-width: 768px) {
+          .stats-page-container {
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+          }
+
           .stats-page-title {
             font-size: clamp(18px, 5vw, 22px) !important;
             margin-bottom: 16px !important;

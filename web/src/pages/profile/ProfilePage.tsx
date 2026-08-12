@@ -44,7 +44,7 @@ export default function ProfilePage() {
       <style>{`
         @media screen and (max-width: 768px) {
           .profile-page {
-            padding: 12px 8px !important;
+            padding: 12px 0 !important;
           }
 
           /* 用户信息卡片 */

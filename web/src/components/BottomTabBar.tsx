@@ -26,6 +26,9 @@ export default function BottomTabBar() {
         bottom: 0,
         left: 0,
         right: 0,
+        width: '100%',
+        maxWidth: 'var(--content-max-width)',
+        margin: '0 auto',
         height: 58,
         background: 'var(--bg-tabbar)',
         backdropFilter: 'blur(20px) saturate(180%)',
@@ -74,7 +77,7 @@ export default function BottomTabBar() {
           >
             <span style={{
               fontSize: active ? 23 : 21,
-              color: active ? 'var(--accent-gold)' : 'var(--text-dim)',
+              color: active ? 'var(--accent-gold)' : 'var(--text-secondary)',
               transition: 'all var(--transition-base)',
               lineHeight: 1,
               display: 'block',
@@ -84,8 +87,8 @@ export default function BottomTabBar() {
             </span>
             <span style={{
               fontSize: 11,
-              fontWeight: active ? 700 : 500,
-              color: active ? 'var(--accent-gold)' : 'var(--text-dim)',
+              fontWeight: active ? 700 : 600,
+              color: active ? 'var(--accent-gold)' : 'var(--text-secondary)',
               letterSpacing: '0.02em',
               transition: 'all var(--transition-fast)',
               lineHeight: 1.2,
