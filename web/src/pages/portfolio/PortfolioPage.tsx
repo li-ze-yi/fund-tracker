@@ -256,14 +256,30 @@ export default function PortfolioPage() {
 
           <div className="glass-card portfolio-total-asset" style={{
             margin: '8px 12px',
-            padding: '14px 18px',
+            padding: '18px 20px',
             borderRadius: 'var(--radius-lg)',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'baseline',
             flexWrap: 'wrap',
             gap: 12,
+            background: 'var(--bg-card)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid var(--border-subtle)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.03), inset 0 1px 0 rgba(255,255,255,0.05)',
+            position: 'relative',
+            overflow: 'hidden',
           }}>
+            {/* 背景微光晕 */}
+            <div style={{
+              position: 'absolute',
+              top: '-40px',
+              right: '-20px',
+              width: '160px',
+              height: '160px',
+              background: 'radial-gradient(circle, rgba(184,134,11,0.04), transparent 70%)',
+              pointerEvents: 'none',
+            }} />
             <div style={{ marginBottom: 4 }}>
               <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 500 }}>总资产</span>
               <span
@@ -320,6 +336,10 @@ export default function PortfolioPage() {
               borderBottomLeftRadius: 0,
               borderBottomRightRadius: 0,
               borderBottom: 'none',
+              background: 'var(--bg-card)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid var(--border-subtle)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
             }}
           >
             <div
@@ -365,7 +385,7 @@ export default function PortfolioPage() {
 
           {displayHoldings.map((fund, index) => (
             <div key={fund.id || index} className="fund-list-item-wrapper">
-              <FundListItem fund={fund} />
+              <FundListItem fund={fund} index={index} />
             </div>
           ))}
 

@@ -25,15 +25,17 @@ interface FundListItemProps {
     day_of_week?: string;  // 非交易日时显示星期几
   };
   mode?: 'holding' | 'watchlist';
+  index?: number;
 }
 
-function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
+function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemProps) {
   const navigate = useNavigate();
   const isUp = (fund.estimated_change ?? 0) >= 0;
   const hideAmount = useHideAmountStore((s) => s.hidden);
   const isMarketClosed = fund.update_status === 'market_closed' || fund.update_status === 'pre_market';
   const isSoldOut = fund.update_status === 'sold_out';
   const isPendingPurchase = fund.update_status === 'pending_purchase';
+  const isEvenRow = index % 2 === 0;
 
   // 渲染更新状态标记（5种状态：估算中/待确认/已确认/休市/待开市）
   const renderUpdateIndicator = () => {
@@ -304,21 +306,39 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
           margin: '0 10px 2px',
           borderRadius: 'var(--radius-sm)',
           cursor: 'pointer',
-          background: 'var(--bg-card)',
+          background: isEvenRow ? 'var(--bg-row-even)' : 'var(--bg-row-odd)',
           border: '1px solid var(--border-subtle)',
           borderTopLeftRadius: 0,
           borderTopRightRadius: 0,
-          transition: 'all var(--transition-fast)',
+          transition: 'all var(--transition-base)',
+          position: 'relative',
+          overflow: 'hidden',
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.borderColor = 'var(--border-default)';
-          e.currentTarget.style.background = 'var(--bg-card-hover)';
+          e.currentTarget.style.background = 'var(--bg-row-hover)';
+          e.currentTarget.style.transform = 'translateX(2px)';
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.borderColor = 'var(--border-subtle)';
-          e.currentTarget.style.background = 'var(--bg-card)';
+          e.currentTarget.style.background = isEvenRow ? 'var(--bg-row-even)' : 'var(--bg-row-odd)';
+          e.currentTarget.style.transform = 'translateX(0)';
         }}
       >
+        {/* 左侧涨跌色带 */}
+        {!isMarketClosed && (
+          <div style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 3,
+            background: isUp
+              ? 'linear-gradient(180deg, var(--gain), rgba(220,38,38,0.2))'
+              : 'linear-gradient(180deg, var(--loss), rgba(22,163,74,0.2))',
+            opacity: 0.7,
+          }} />
+        )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
             fontSize: 15,
@@ -462,22 +482,40 @@ function FundListItemInner({ fund, mode = 'holding' }: FundListItemProps) {
         margin: '0 10px 2px',
         borderRadius: 'var(--radius-sm)',
         cursor: 'pointer',
-        background: 'var(--bg-card)',
-        backdropFilter: 'blur(12px)',
+        background: isEvenRow ? 'var(--bg-row-even)' : 'var(--bg-row-odd)',
+        backdropFilter: 'blur(8px)',
         border: '1px solid var(--border-subtle)',
         borderTopLeftRadius: 0,
         borderTopRightRadius: 0,
-        transition: 'all var(--transition-fast)',
+        transition: 'all var(--transition-base)',
+        position: 'relative',
+        overflow: 'hidden',
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.borderColor = 'var(--border-default)';
-        e.currentTarget.style.background = 'var(--bg-card-hover)';
+        e.currentTarget.style.background = 'var(--bg-row-hover)';
+        e.currentTarget.style.transform = 'translateX(2px)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.borderColor = 'var(--border-subtle)';
-        e.currentTarget.style.background = 'var(--bg-card)';
+        e.currentTarget.style.background = isEvenRow ? 'var(--bg-row-even)' : 'var(--bg-row-odd)';
+        e.currentTarget.style.transform = 'translateX(0)';
       }}
     >
+      {/* 左侧涨跌色带 */}
+      {!isMarketClosed && !isSoldOut && !isPendingPurchase && (
+        <div style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 3,
+          background: isUp
+            ? 'linear-gradient(180deg, var(--gain), rgba(220,38,38,0.2))'
+            : 'linear-gradient(180deg, var(--loss), rgba(22,163,74,0.2))',
+          opacity: 0.7,
+        }} />
+      )}
       <div style={{ flex: 2, minWidth: 0 }} data-col="fund_name" data-market-value={`¥${(fund.market_value ?? 0).toLocaleString()}`}>
         <div className="fund-name-row" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

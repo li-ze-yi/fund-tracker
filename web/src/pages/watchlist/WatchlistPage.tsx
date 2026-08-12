@@ -110,9 +110,9 @@ export default function WatchlistPage() {
           }
         />
       ) : (
-        favorites.map((item) => (
+        favorites.map((item, idx) => (
           <div key={item.id || item.fund_code} style={{ position: 'relative', marginBottom: 2 }}>
-            <FundListItem fund={item} mode="watchlist" />
+            <FundListItem fund={item} mode="watchlist" index={idx} />
             <Button
               size="small"
               type="text"

@@ -82,8 +82,10 @@ export default function MarketIndexStrip() {
     <>
       <div className="market-index-strip" style={{
         padding: '8px 0',
-        background: 'var(--bg-elevated)',
-        borderBottom: '1px solid var(--border-subtle)',
+        background: 'var(--bg-header)',
+        backdropFilter: 'blur(16px) saturate(150%)',
+        WebkitBackdropFilter: 'blur(16px) saturate(150%)',
+        boxShadow: '0 1px 0 var(--border-subtle), 0 2px 12px -2px rgba(0,0,0,0.04)',
         position: 'relative',
         overflow: 'hidden',
       }}>
@@ -154,17 +156,24 @@ export default function MarketIndexStrip() {
                 key={item.code}
                 onClick={() => navigate(`/market?code=${item.code}`)}
                 style={{
-                  minWidth: 108,
+                  minWidth: 112,
                   padding: '8px 14px',
                   borderRadius: 'var(--radius-md)',
                   background: item.point !== undefined ? (isUp(item.change) ? 'var(--gain-bg)' : 'var(--loss-bg)') : 'var(--flat-bg)',
                   border: item.point !== undefined ? `1px solid ${isUp(item.change) ? 'var(--gain-border)' : 'var(--loss-border)'}` : '1px solid var(--border-subtle)',
                   cursor: 'pointer',
                   flexShrink: 0,
-                  transition: 'transform var(--transition-fast)',
+                  transition: 'all var(--transition-base)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px) scale(1.03)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.06)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'scale(1)';
+                  e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.03)';
+                }}
               >
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>{item.name}</div>
                 <div className="number-tabular" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginTop: 1, fontFamily: 'var(--font-mono)' }}>

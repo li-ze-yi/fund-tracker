@@ -11,6 +11,12 @@
   --bg-card-hover: rgba(241, 245, 249, 0.9);
   --bg-glass: rgba(255, 255, 255, 0.6);
   --bg-input: rgba(248, 250, 252, 0.95);
+  --bg-content-area: #F8FAFC;
+  --bg-header: rgba(255, 255, 255, 0.82);
+  --bg-tabbar: rgba(255, 255, 255, 0.85);
+  --bg-row-even: rgba(255, 255, 255, 0.65);
+  --bg-row-odd: rgba(241, 245, 249, 0.5);
+  --bg-row-hover: rgba(226, 232, 240, 0.6);
 
   --border-subtle: rgba(148, 163, 184, 0.15);
   --border-default: rgba(148, 163, 184, 0.25);
@@ -62,6 +68,12 @@
   --bg-card-hover: rgba(30, 41, 59, 0.6);
   --bg-glass: rgba(17, 24, 39, 0.5);
   --bg-input: rgba(15, 23, 42, 0.8);
+  --bg-content-area: #0E1628;
+  --bg-header: rgba(17, 24, 39, 0.75);
+  --bg-tabbar: rgba(17, 24, 39, 0.8);
+  --bg-row-even: rgba(31, 41, 55, 0.4);
+  --bg-row-odd: rgba(22, 33, 52, 0.35);
+  --bg-row-hover: rgba(42, 56, 80, 0.5);
 
   --border-subtle: rgba(148, 163, 184, 0.08);
   --border-default: rgba(148, 163, 184, 0.14);
@@ -97,8 +109,9 @@
 
 [data-theme="dark"] body {
   background:
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(212, 168, 75, 0.06), transparent),
-    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(59, 130, 246, 0.04), transparent),
+    radial-gradient(ellipse 70% 45% at 50% -15%, rgba(212, 168, 75, 0.07), transparent 60%),
+    radial-gradient(ellipse 50% 35% at 100% 0%, rgba(59, 130, 246, 0.05), transparent 60%),
+    radial-gradient(ellipse 40% 30% at 0% 100%, rgba(212, 168, 75, 0.03), transparent 50%),
     var(--bg-base);
   background-attachment: fixed;
 }
@@ -240,6 +253,11 @@
   background-size: 200% 100%;
 }
 
+:root {
+  --content-max-width: 960px;
+  --content-padding: clamp(12px, 2vw, 24px);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -258,8 +276,9 @@ html, body, #root {
 
 body {
   background:
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(184, 134, 11, 0.03), transparent),
-    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(59, 130, 246, 0.02), transparent),
+    radial-gradient(ellipse 70% 45% at 50% -15%, rgba(184, 134, 11, 0.04), transparent 60%),
+    radial-gradient(ellipse 50% 35% at 100% 0%, rgba(59, 130, 246, 0.03), transparent 60%),
+    radial-gradient(ellipse 40% 30% at 0% 100%, rgba(184, 134, 11, 0.02), transparent 50%),
     var(--bg-base);
   background-attachment: fixed;
 }
@@ -329,6 +348,73 @@ a { color: var(--accent-gold); text-decoration: none; }
 
 .animate-fade-in-up {
   animation: fadeInUp 0.4s ease-out both;
+}
+
+/* 页面内容外层包裹 - 滚动区域 */
+.page-content {
+  flex: 1;
+  overflow: auto;
+  background: var(--bg-base);
+  animation: contentFadeIn 0.45s ease-out both;
+}
+
+/* 内容舞台容器 - 可视化卡片容器 */
+.page-stage {
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: var(--content-padding) var(--content-padding) 80px;
+  min-height: 100%;
+  position: relative;
+}
+
+/* 宽屏（>1200px）内容舞台：圆角卡片+阴影浮起 */
+@media screen and (min-width: 1200px) {
+  .page-stage {
+    background: var(--bg-content-area);
+    border-radius: var(--radius-lg);
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.04),
+      0 8px 32px -8px rgba(0, 0, 0, 0.06),
+      0 0 0 1px var(--border-subtle);
+    margin-top: 8px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+
+  [data-theme="dark"] .page-stage {
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.2),
+      0 8px 32px -8px rgba(0, 0, 0, 0.3),
+      0 0 0 1px var(--border-subtle);
+  }
+}
+
+/* 宽屏角落环境光晕 - 模拟控制台漏光 */
+@media screen and (min-width: 1400px) {
+  .page-content {
+    background:
+      radial-gradient(ellipse 500px 400px at 0% 0%, rgba(184, 134, 11, 0.03), transparent 60%),
+      radial-gradient(ellipse 500px 400px at 100% 100%, rgba(59, 130, 246, 0.02), transparent 60%),
+      var(--bg-base);
+  }
+
+  [data-theme="dark"] .page-content {
+    background:
+      radial-gradient(ellipse 500px 400px at 0% 0%, rgba(212, 168, 75, 0.05), transparent 60%),
+      radial-gradient(ellipse 500px 400px at 100% 100%, rgba(59, 130, 246, 0.03), transparent 60%),
+      var(--bg-base);
+  }
+}
+
+@keyframes contentFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .glass-card {

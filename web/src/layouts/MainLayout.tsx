@@ -10,9 +10,11 @@ export default function MainLayout() {
       <Header />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', paddingTop: 60, paddingBottom: 64 }}>
         <AnnouncementBanner />
-        <div style={{ flex: 1, overflow: 'auto' }}>
-          <Outlet />
-        </div>
+        <main className="page-content">
+          <div className="page-stage">
+            <Outlet />
+          </div>
+        </main>
       </div>
       <BottomTabBar />
       <AnnouncementModal />

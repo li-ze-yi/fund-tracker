@@ -93,19 +93,19 @@ export default function GroupSwitcher({ activeId, onChange }: GroupSwitcherProps
               padding: '8px 18px',
               borderRadius: 'var(--radius-full)',
               cursor: 'pointer',
-              fontWeight: isActive ? 600 : 500,
+              fontWeight: isActive ? 700 : 500,
               fontSize: 13,
               letterSpacing: '0.01em',
               background: isActive
                 ? 'linear-gradient(135deg, var(--accent-gold), #C49A3F)'
-                : 'var(--bg-glass)',
+                : 'var(--bg-card)',
               color: isActive ? '#0B1120' : 'var(--text-secondary)',
               border: isActive ? 'none' : '1px solid var(--border-subtle)',
               boxShadow: isActive
-                ? 'var(--shadow-glow-gold)'
-                : 'var(--shadow-sm)',
+                ? '0 2px 8px rgba(184,134,11,0.25), 0 0 24px rgba(184,134,11,0.06), inset 0 1px 0 rgba(255,255,255,0.2)'
+                : '0 1px 2px rgba(0,0,0,0.03)',
               transition: 'all var(--transition-base)',
-              transform: isActive ? 'scale(1.02)' : 'scale(1)',
+              transform: isActive ? 'scale(1.05)' : 'scale(1)',
               whiteSpace: 'nowrap',
               animation: `fadeInUp 0.35s ease-out ${idx * 0.05}s both`,
             }}
@@ -114,13 +114,15 @@ export default function GroupSwitcher({ activeId, onChange }: GroupSwitcherProps
                 e.currentTarget.style.borderColor = 'var(--border-strong)';
                 e.currentTarget.style.background = 'var(--bg-card-hover)';
                 e.currentTarget.style.color = 'var(--text-primary)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
               }
             }}
             onMouseLeave={(e) => {
               if (!isActive) {
                 e.currentTarget.style.borderColor = 'var(--border-subtle)';
-                e.currentTarget.style.background = 'var(--bg-glass)';
+                e.currentTarget.style.background = 'var(--bg-card)';
                 e.currentTarget.style.color = 'var(--text-secondary)';
+                e.currentTarget.style.transform = 'scale(1)';
               }
             }}
           >

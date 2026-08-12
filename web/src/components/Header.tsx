@@ -262,15 +262,14 @@ export default function Header() {
           left: 0,
           right: 0,
           height: 60,
-          background: 'var(--bg-elevated)',
-          borderBottom: '1px solid var(--border-subtle)',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 18px',
+          background: 'var(--bg-header)',
+          backdropFilter: 'blur(20px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+          boxShadow: '0 1px 0 var(--border-subtle), 0 4px 24px -4px rgba(0,0,0,0.06)',
           zIndex: 100,
-          gap: 14,
         }}
       >
+        <div style={{ maxWidth: 'var(--content-max-width)', margin: '0 auto', width: '100%', display: 'flex', alignItems: 'center', height: '100%', gap: 14, padding: '0 var(--content-padding)' }}>
         <span
           onClick={() => navigate('/portfolio')}
           className="header-title"
@@ -612,6 +611,7 @@ export default function Header() {
             }
           }
         `}</style>
+      </div>
       </div>
 
       <AddHoldingModal
