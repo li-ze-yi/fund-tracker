@@ -193,6 +193,66 @@ async function checkMarketStatus(holdings) {
   }
 }
 
+/**
+ * ★ 确认净值三级来源解析：缓存 → 数据库 → API
+ * 盘中估算以解析出的确认净值为基准，减少对外部 API 基准确认净值的依赖。
+ * 解析优先级：
+ *   ① 缓存命中（confirmed_nav_{code}，复用 history_recent 动态TTL）→ 直接返回
+ *   ② 数据库值新鲜（holdings.confirmed_nav > 0 且 confirmed_nav_date === 最近确认交易日）→ 使用并写回缓存
+ *   ③ API（fundmobapi 确认净值 / lsjz 历史最新值）→ 使用并写回缓存
+ * @param {string} fundCode 基金代码
+ * @param {object|null} holding 持仓记录（用于 DB confirmed_nav）
+ * @param {Array|null} historyData 最近历史净值（判定 DB 新鲜度 / API 兜底）
+ * @param {object|null} realTimeData 实时数据（fundmobapi 确认净值，API 兜底源）
+ * @returns {{ nav: number, date: string|null, source: 'cache'|'db'|'api'|'none' }} nav<=0 表示解析失败
+ */
+function resolveConfirmedNav(fundCode, holding, historyData, realTimeData) {
+  const cacheKey = `confirmed_nav_${fundCode}`;
+  const cacheType = 'history_recent'; // 确认净值复用历史近期动态TTL（收盘后快速刷新）
+
+  const normalizeDate = (v) => {
+    if (!v) return null;
+    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    return String(v).split('T')[0].split(' ')[0];
+  };
+
+  // ① 缓存命中 → 不再访问 DB/API
+  const cached = globalCache.checkCache(cacheKey, cacheType);
+  if (cached.hit && cached.data && parseFloat(cached.data.nav) > 0) {
+    return cached.data;
+  }
+
+  const latestHistory = historyData && historyData.length > 0 ? historyData[0] : null;
+  const latestHistoryDate = latestHistory ? latestHistory.date : null;
+
+  // ② 数据库值新鲜（占位持仓 confirmed_nav<=0 或日期不匹配则不命中）
+  const dbNav = parseFloat(holding && holding.confirmed_nav) || 0;
+  const dbNavDate = normalizeDate(holding && holding.confirmed_nav_date);
+  if (dbNav > 0 && latestHistoryDate && dbNavDate === latestHistoryDate) {
+    const data = { nav: dbNav, date: dbNavDate, source: 'db' };
+    globalCache.set(cacheKey, data, cacheType);
+    return data;
+  }
+
+  // ③ API：优先复用 fundmobapi 确认净值，其次 lsjz 历史最新值
+  let apiNav = 0;
+  let apiDate = null;
+  if (realTimeData && parseFloat(realTimeData.netValue) > 0) {
+    apiNav = parseFloat(realTimeData.netValue);
+    apiDate = normalizeDate(realTimeData.updateTime);
+  } else if (latestHistory && parseFloat(latestHistory.nav) > 0) {
+    apiNav = parseFloat(latestHistory.nav);
+    apiDate = latestHistoryDate;
+  }
+  if (apiNav > 0) {
+    const data = { nav: apiNav, date: apiDate, source: 'api' };
+    globalCache.set(cacheKey, data, cacheType);
+    return data;
+  }
+
+  return { nav: 0, date: null, source: 'none' };
+}
+
 // ✨ 优化3：批量获取所有基金数据（替代逐个请求）
 // 核心优化：新浪估值用1次请求替代N次，确认净值并行获取
 async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, valuationMethod = 'holdings', valuationOverrides = {}) {
@@ -341,8 +401,11 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     const dbConfirmedNav = parseFloat(holding.confirmed_nav) || 0;
     const dbConfirmedNavDate = holding.confirmed_nav_date ? holding.confirmed_nav_date.toISOString().slice(0, 10) : null;
 
-    let effectiveNav = latestHistoryNav > 0 ? latestHistoryNav : dbConfirmedNav;
+    // ★ 确认净值三级来源解析（缓存 → 数据库 → API），盘中估算以解析出的确认净值为基准
+    const resolvedNav = resolveConfirmedNav(fundCode, holding, historyData, realTimeData);
+    const effectiveNav = resolvedNav.nav > 0 ? resolvedNav.nav : dbConfirmedNav;
 
+    // 保留原写库：API 历史净值比 DB 更新时回写（保证 DB confirmed_nav 新鲜）
     if (latestHistoryNav > 0 && latestHistoryDate && latestHistoryDate > dbConfirmedNavDate) {
       Holding.update(holding.id, holding.user_id, {
         confirmedNav: latestHistoryNav,
@@ -460,13 +523,22 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
   let displayNav = null;
   let usedEstimated = false;
 
-  // 净值优先级：确认净值（今日/昨日）> 盘中估算 > 实时接口净值
-  // 确认净值优先原则：确保持仓金额和累计收益在盘中估算时保持稳定，
-  // 不随估算值波动，直到今日确认净值公布后才更新
+  // 净值优先级：确认净值基准的盘中估算 > 确认净值（今日/昨日）> API 盘中估算 > 实时接口净值
+  // 盘中（A股交易时段 9:00-15:00 且有实时估算涨跌幅）以三级解析出的确认净值为基准计算估算净值，
+  // 让估算基准与展示值一致；非盘中（盘前/盘后/休市）仍用确认净值保持稳定。
+  // 注：不能单用 marketStatus.isMarketOpen——收盘后今日净值已确认时它仍为 true，会导致盘后误用估算值。
   if (confirmedNav > 0) {
-    // 使用确认净值（今日已公布则用今日，否则用昨日），持仓金额保持稳定
-    displayNav = confirmedNav;
-    marketValue = shares * confirmedNav;
+    if (isTradingHours && estChange != null) {
+      // ★ 盘中估算：展示估算净值 = 确认净值 × (1 + 实时涨跌幅 / 100)
+      displayNav = confirmedNav * (1 + estChange / 100);
+      marketValue = shares * displayNav;
+      usedEstimated = true;
+      logger.info(`${holding.fund_code}: 盘中估算基准=解析确认净值 ${confirmedNav}, change=${estChange}%, estimatedValue=${displayNav.toFixed(4)}`);
+    } else {
+      // 使用确认净值（今日已公布则用今日，否则用昨日），持仓金额保持稳定
+      displayNav = confirmedNav;
+      marketValue = shares * confirmedNav;
+    }
   } else if (hour >= 9 && estValue != null && estValue > 0 && estChange != null) {
     // 无确认净值但有盘中估算 → 退而求其次使用估算值
     displayNav = estValue;
@@ -622,5 +694,6 @@ module.exports = {
   calculateHoldingMetrics,
   checkMarketStatus,
   clearAllCache,
-  getFundMarketStatus
+  getFundMarketStatus,
+  resolveConfirmedNav
 };

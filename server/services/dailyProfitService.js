@@ -262,6 +262,25 @@ class DailyProfitService {
         const costPrice = parseFloat(holding.cost_price) || 0;
         const todayNav = parseFloat(history[0].nav) || 0;
         const yesterdayNav = history[1] ? (parseFloat(history[1].nav) || 0) : 0;
+
+        // ★ 回写确认净值到 holdings（保证 DB confirmed_nav 新鲜，供盘中估算三级解析命中 DB/缓存）
+        // 幂等：todayNav<=0 或 DB 日期已不早于最新确认交易日时不写库，重复运行不覆盖更新的值
+        if (todayNav > 0) {
+          const dbNavDate = holding.confirmed_nav_date
+            ? (holding.confirmed_nav_date instanceof Date
+                ? holding.confirmed_nav_date.toISOString().slice(0, 10)
+                : this._normalizeDateStr(holding.confirmed_nav_date))
+            : null;
+          if (!dbNavDate || dbNavDate < latestHistoryDate) {
+            logger.info(`[回写确认净值] fund=${fundCode}, nav=${todayNav}, date=${latestHistoryDate}, 回写 holdings`);
+            Holding.update(holding.id, holding.user_id, {
+              confirmedNav: todayNav,
+              confirmedNavDate: latestHistoryDate
+            }).catch(err => {
+              logger.error(`[回写确认净值] 失败 fund=${fundCode}, holdingId=${holding.id}: ${err.message}`);
+            });
+          }
+        }
         const todayTx = todayTxSharesMap[fundCode] || { buy: 0, sell: 0 };
         // 昨日份额 = 当前份额 - 今日买入 + 今日卖出
         const yesterdayShares = Math.max(0, shares - (todayTx.buy || 0) + (todayTx.sell || 0));
