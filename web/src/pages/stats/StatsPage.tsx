@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { Card, Segmented, Table, Skeleton, Empty, Tooltip } from 'antd';
 import { BarChartOutlined, CalendarOutlined, DollarOutlined, PercentageOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
@@ -79,18 +79,44 @@ interface DateTableViewProps {
 function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYear, granularity, onMonthChange, onYearChange, onGranularityChange, hideAmount, isLight, isMobile, showReturnRate, onShowReturnRateChange, selectedDay, selectedMonth, selectedYear, fundBreakdown, fundBreakdownLoading, onSelectDay, onSelectMonth, onSelectYear }: DateTableViewProps) {
   const { year, month } = currentMonth;
 
-  // 根据实际文本长度（含符号与 2 位小数）动态返回字号：短数字更大，长数字自动缩小避免溢出
-  // bonus 用于日/月/年视图差异化放大（格子越大 bonus 越大）
-  const getDynamicFontSize = (text: string, isMobile: boolean, bonus = 0): number => {
-    const len = text.length;
-    let size;
-    if (len <= 4) size = 15;        // 短数字：+993 / 999
-    else if (len <= 6) size = 14;   // +99.45 / -8532
-    else if (len <= 8) size = 13;   // +993.45 / -8532.40
-    else if (len <= 10) size = 12;  // -8532.40 / +12345.67
-    else size = 11;                 // 更长
-    size += bonus;
-    return isMobile ? size : size + 3;
+  // 网格容器宽度测量：直接测量第一个 cell 的实际渲染宽度，避免列数/gap 推算误差
+  const gridWrapRef = useRef<HTMLDivElement>(null);
+  const [cellWidth, setCellWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = gridWrapRef.current;
+    if (!el) return;
+    const update = () => {
+      // 直接取第一个实际格子元素的宽度（跳过 weekday 等非格子子元素）
+      const cellSelector = granularity === 'day' ? '.date-table-cell:not(.empty)' : '.year-grid-cell';
+      const firstCell = el.querySelector(cellSelector) as HTMLElement | null;
+      if (firstCell) {
+        setCellWidth(firstCell.clientWidth);
+      } else {
+        setCellWidth(el.clientWidth);
+      }
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [granularity]);
+
+  // 根据实际文本宽度自动适配字号：短数字取最大字号，长数字自动缩小至不溢出格子宽度
+  // 基于等宽字体字符宽度比例直接计算，cellWidth 已含 padding（clientWidth），需扣除
+  const getDynamicFontSize = (text: string, maxSize: number, minSize = 9, _weight: 600 | 700 = 600): number => {
+    if (!text || cellWidth <= 0) return maxSize;
+    // JetBrains Mono 等宽字体，单字符宽度约 0.62em（Bold 含字间距余量）
+    const charWidthRatio = 0.62;
+    // cellWidth 是 clientWidth（含 padding 不含 border）。扣除水平 padding + border + 安全余量
+    // day: .date-table-cell 无 padding；month/year: .year-grid-cell 移动 padding 6px×2、桌面 8px×2
+    const horizontalReserve = granularity === 'day'
+      ? 4
+      : (isMobile ? 16 : 20);
+    const availablePx = Math.max(8, cellWidth - horizontalReserve);
+    // 字号上限：让文本总宽度不超过可用宽度
+    const sizeByWidth = Math.floor(availablePx / (text.length * charWidthRatio));
+    return Math.max(minSize, Math.min(maxSize, sizeByWidth));
   };
 
   // 今天
@@ -257,7 +283,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
       {granularity === 'day' ? (
         <>
           {/* 7 列网格 */}
-          <div className="date-table-grid">
+          <div className="date-table-grid" ref={gridWrapRef}>
             {weekDays.map((d, i) => (
               <div key={`wd-${i}`} className="date-table-weekday">{d}</div>
             ))}
@@ -314,11 +340,11 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                     }}
                     onClick={() => onSelectDay(dateStr)}
                   >
-                    <span style={{ fontSize: isMobile ? 16 : 18, fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1 }}>
+                    <span style={{ fontSize: isMobile ? 15 : 18, fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1 }}>
                       {day}
                     </span>
                     {hasData && (
-                      <span style={{ fontSize: getDynamicFontSize(cellMainText, isMobile, 0), fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1, marginTop: 2 }}>
+                      <span style={{ fontSize: getDynamicFontSize(cellMainText, isMobile ? 14 : 24, isMobile ? 6 : 8, 600), fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1, marginTop: 2 }}>
                         {cellMainText}
                       </span>
                     )}
@@ -332,7 +358,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
         <>
           {/* 月视图：12 个月网格 */}
           {/* 12 个月网格 4x3 */}
-          <div className="year-grid-view">
+          <div className="year-grid-view" ref={gridWrapRef}>
             {Array.from({ length: 12 }, (_, i) => {
               const m = i + 1;
               const monthKey = `${currentYear}-${String(m).padStart(2, '0')}`;
@@ -384,7 +410,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                   >
                     <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>{m} 月</span>
                     {hasData && (
-                      <span style={{ fontSize: getDynamicFontSize(mainText, isMobile, 2), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
+                      <span style={{ fontSize: getDynamicFontSize(mainText, isMobile ? 16 : 22, isMobile ? 6 : 7, 700), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
                         {mainText}
                       </span>
                     )}
@@ -398,7 +424,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
         <>
           {/* 年视图：多年年度网格（当前年前后各 3 年，共 7 年） */}
           {/* 多年网格 3 列 */}
-          <div className="year-grid-view" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          <div className="year-grid-view" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }} ref={gridWrapRef}>
             {years.map((y) => {
               const yKey = String(y);
               const yData = yearlyMap.get(yKey);
@@ -449,7 +475,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                   >
                     <span style={{ fontSize: 14, fontWeight: 600, color: textColor }}>{y} 年</span>
                     {hasData && (
-                      <span style={{ fontSize: getDynamicFontSize(mainText, isMobile, 3), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
+                      <span style={{ fontSize: getDynamicFontSize(mainText, isMobile ? 15 : 24, isMobile ? 6 : 7, 700), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
                         {mainText}
                       </span>
                     )}
@@ -1223,7 +1249,7 @@ export default function StatsPage() {
   };
 
   return (
-    <div className="stats-page-container" style={{ padding: '20px 16px', paddingBottom: 100 }}>
+    <div className="stats-page-container" style={{ padding: '20px 8px', paddingBottom: 100 }}>
       {/* 移动端响应式优化样式 */}
       <style>{`
         @media screen and (max-width: 768px) {
@@ -1243,7 +1269,7 @@ export default function StatsPage() {
           }
 
           .stats-overview-grid {
-            grid-template-columns: repeat(3, 1fr) !important;
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
             gap: 6px !important;
           }
 
@@ -1364,8 +1390,13 @@ export default function StatsPage() {
           }
 
           .stats-page-container {
-            padding: 12px 8px !important;
+            padding: 12px 4px !important;
             padding-bottom: 80px !important;
+            /* 抵消外层 page-stage 左右边距，让统计界面更贴近屏幕两侧 */
+            margin-left: calc(-1 * var(--content-padding)) !important;
+            margin-right: calc(-1 * var(--content-padding)) !important;
+            /* 防止内部内容溢出容器边界 */
+            overflow-x: hidden !important;
           }
 
           /* 日期表格移动端样式 */
@@ -1379,16 +1410,24 @@ export default function StatsPage() {
           }
 
           .date-table-grid {
-            grid-template-columns: repeat(7, minmax(36px, 1fr));
-            overflow-x: auto;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            overflow-x: hidden;
           }
 
           .date-table-cell {
-            min-width: 36px;
+            min-width: 0;
+            overflow: hidden;
+          }
+
+          .date-table-cell > span {
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
           }
 
           .year-grid-view {
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 6px;
           }
 
@@ -1442,7 +1481,7 @@ export default function StatsPage() {
         ) : (
         <div className="stats-overview-grid" style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
+          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
           gap: 12,
         }}>
           {overviewItems.map((item, idx) => (
@@ -1719,8 +1758,9 @@ export default function StatsPage() {
         }
         .date-table-grid {
           display: grid;
-          grid-template-columns: repeat(7, 1fr);
+          grid-template-columns: repeat(7, minmax(0, 1fr));
           gap: 4px;
+          min-width: 0;
         }
         .date-table-weekday {
           font-size: 12px;
@@ -1761,8 +1801,9 @@ export default function StatsPage() {
         /* 年视图 12 月网格 */
         .year-grid-view {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 8px;
+          min-width: 0;
         }
         .year-grid-cell {
           border-radius: 8px;
@@ -1775,6 +1816,14 @@ export default function StatsPage() {
           transition: transform 0.12s ease, border-color 0.12s ease;
           border: 1px solid transparent;
           min-height: 80px;
+          min-width: 0;
+          overflow: hidden;
+        }
+        .year-grid-cell > span {
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .year-grid-cell:hover {
           transform: scale(1.04);
