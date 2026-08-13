@@ -64,6 +64,7 @@
   --hero-gradient-end: rgba(245, 247, 250, 0.9);
   --hero-border-light: rgba(184, 134, 11, 0.12);
   --hero-accent-glow: radial-gradient(ellipse at 100% 0%, rgba(184, 134, 11, 0.06), transparent 60%);
+  --neon-glow-gold: rgba(184, 134, 11, 0.25);
 }
 
 /* ========== 深色主题 ========== */
@@ -117,6 +118,7 @@
   --hero-gradient-end: rgba(11, 17, 32, 0.9);
   --hero-border-light: rgba(212, 168, 75, 0.15);
   --hero-accent-glow: radial-gradient(ellipse at 100% 0%, rgba(212, 168, 75, 0.08), transparent 60%);
+  --neon-glow-gold: rgba(212, 168, 75, 0.30);
 }
 
 [data-theme="dark"] body {
@@ -632,6 +634,40 @@ div#after3pm > label.ant-radio-wrapper:nth-child(1) > span.ant-radio-label {
 
 div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   color: #f1efef !important;
+}
+
+/* ========== 持仓页：分组 + 汇总合并容器 ========== */
+/* 单个容器承载分组切换器与汇总区，共享圆角边框与 hero 渐变背景 */
+.portfolio-summary-container {
+  margin: 8px 10px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--hero-gradient-start), var(--hero-gradient-end));
+  border: 1px solid var(--hero-border-light);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.10);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 分组切换器：收窄纵向留白，贴近顶部 */
+.portfolio-summary-container .portfolio-group-switcher {
+  padding: 8px 6px 2px;
+}
+
+/* 汇总区：去掉独立卡片样式，用顶端发丝分隔线与分组区分 */
+.portfolio-summary-container .portfolio-total-asset {
+  margin: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  border-top: 1px solid var(--border-subtle) !important;
+}
+
+/* 深色：分隔线用更透亮的发丝色 */
+[data-theme="dark"] .portfolio-summary-container .portfolio-total-asset {
+  border-top-color: var(--hero-border-light) !important;
 }
 
 /* ========== 移动端响应式优化 (≤768px) ========== */
@@ -1199,6 +1235,11 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   /* 优化移动端间距 */
   .portfolio-group-switcher {
     padding: 2px 4px !important;
+  }
+
+  /* 汇总容器与表头同宽：手机全宽对齐 */
+  .portfolio-summary-container {
+    margin: 8px 0 !important;
   }
 
   /* ========== WatchlistPage 移动端优化 ========== */

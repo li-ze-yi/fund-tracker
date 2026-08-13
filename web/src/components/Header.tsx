@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Input, Dropdown, Space, Button, Tag, App, Tooltip } from 'antd';
-import { LogoutOutlined, UserOutlined, SearchOutlined, PlusOutlined, StarOutlined, StarFilled, ReloadOutlined, CameraOutlined } from '@ant-design/icons';
+import { LogoutOutlined, UserOutlined, SearchOutlined, PlusOutlined, StarOutlined, StarFilled, CameraOutlined, SunOutlined, MoonOutlined } from '@ant-design/icons';
 import { useAuthStore } from '@/store/authStore';
+import { useThemeStore } from '@/store/themeStore';
 import { fundService } from '@/services/fundService';
 import { favoriteService } from '@/services/favoriteService';
 import { settingService } from '@/services/settingService';
@@ -12,6 +13,8 @@ import ImageImportModal from '@/components/modals/ImageImportModal';
 
 export default function Header() {
   const { user, logout } = useAuthStore();
+  const themeMode = useThemeStore((s) => s.mode);
+  const toggleTheme = useThemeStore((s) => s.toggleMode);
   const navigate = useNavigate();
   const { message } = App.useApp();
   const [searchValue, setSearchValue] = useState('');
@@ -23,6 +26,7 @@ export default function Header() {
   const [favoritedCodes, setFavoritedCodes] = useState<Set<string>>(new Set());
   const [animatingStar, setAnimatingStar] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [burstKey, setBurstKey] = useState(0);
   const [refreshFreq, setRefreshFreq] = useState(30);
   const [countdown, setCountdown] = useState(30);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -62,7 +66,10 @@ export default function Header() {
           window.dispatchEvent(new CustomEvent('manual-refresh', {
             detail: { forceRefresh: true, timestamp: Date.now() }
           }));
-          setTimeout(() => setRefreshing(false), 1000);
+          setTimeout(() => {
+            setRefreshing(false);
+            setBurstKey(k => k + 1);
+          }, 1000);
           return refreshFreq;
         }
         return prev - 1;
@@ -86,11 +93,12 @@ export default function Header() {
 
     setTimeout(() => {
       setRefreshing(false);
+      setBurstKey(k => k + 1);
       message.success('数据已刷新');
     }, 1000);
   };
 
-  const progressPercent = refreshFreq > 0 ? ((refreshFreq - countdown) / refreshFreq) * 100 : 0;
+  const refreshProgress = refreshFreq > 0 ? (refreshFreq - countdown) / refreshFreq : 0;
 
   const onSearchChange = (value: string) => {
     setSearchValue(value);
@@ -331,58 +339,125 @@ export default function Header() {
         </Dropdown>
 
         <div className="header-actions" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div
+          {/* 自动刷新沙漏（点击刷新，倒计时动画集成于此） */}
+          <span
+            className="header-countdown"
             onClick={handleManualRefresh}
-            className={`header-energy-button${refreshing ? ' refreshing' : ''}${countdown <= Math.max(5, refreshFreq * 0.15) && !refreshing ? ' urgent' : ''}`}
+            role="button"
+            aria-label={refreshing ? '正在刷新…' : '手动刷新'}
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleManualRefresh(); } }}
             style={{
               position: 'relative',
-              width: isMobile ? 40 : 44,
-              height: isMobile ? 40 : 44,
-              cursor: refreshing ? 'not-allowed' : 'pointer',
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
+              gap: 5,
+              whiteSpace: 'nowrap',
+              userSelect: 'none',
+              color: 'var(--text-dim)',
+              cursor: refreshing ? 'not-allowed' : 'pointer',
+              width: isMobile ? 36 : 42,
+              height: isMobile ? 36 : 42,
+              minWidth: isMobile ? 36 : 42,
+              minHeight: isMobile ? 36 : 42,
+              borderRadius: '10px',
+              border: '1.5px solid var(--border-strong)',
+              background: 'var(--bg-card)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
               justifyContent: 'center',
-              minWidth: isMobile ? 44 : 44,
-              minHeight: isMobile ? 44 : 44,
               touchAction: 'manipulation',
               WebkitTapHighlightColor: 'transparent',
-              borderRadius: '50%',
-              background: refreshing
-                ? 'linear-gradient(135deg, rgba(212,168,75,0.25), rgba(184,134,11,0.15))'
-                : `linear-gradient(135deg, rgba(212,168,75,${0.05 + progressPercent * 0.002}), rgba(184,134,11,${0.02 + progressPercent * 0.001}))`,
-              boxShadow: refreshing
-                ? '0 0 12px rgba(212,168,75,0.3), inset 0 0 8px rgba(212,168,75,0.1)'
-                : progressPercent > 80
-                  ? '0 0 10px rgba(212,168,75,0.2), inset 0 0 6px rgba(212,168,75,0.05)'
-                  : 'inset 0 1px 2px rgba(0,0,0,0.1)',
-              transition: 'all 0.3s ease',
+              transition: 'all var(--transition-fast)',
+            }}
+            onMouseEnter={(e) => {
+              if (!refreshing) { e.currentTarget.style.boxShadow = '0 0 10px var(--neon-glow-gold)'; e.currentTarget.style.borderColor = 'var(--border-strong)'; }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--bg-card)';
+              e.currentTarget.style.borderColor = 'var(--border-strong)';
+              e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.04)';
             }}
           >
-            {/* 渐变进度环 */}
+            {/* 沙漏：沙子随倒计时从上瓶漏到下瓶，刷新时多圈翻转 */}
+            <span className={`hourglass${countdown <= 5 && !refreshing ? ' urgent' : ''}`} style={{ display: 'inline-flex', position: 'relative', transform: refreshing ? 'rotate(1080deg)' : 'rotate(0deg)', transition: 'transform 0.9s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
+              <svg width={isMobile ? 24 : 30} height={isMobile ? 28 : 35} viewBox="0 0 24 28">
+                <defs>
+                  <linearGradient id="hdrSand" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stopColor="#F0D78C" />
+                    <stop offset="1" stopColor="#C79A3B" />
+                  </linearGradient>
+                </defs>
+                {/* 瓶身实心底（凸显沙漏形状） */}
+                <path d="M2 2 L22 2 L12 13 Z M12 15 L22 26 L2 26 Z" fill="var(--bg-card)" />
+                {/* 上瓶沙子：锥形，沙量随倒计时减少 */}
+                {(() => {
+                  const fu = 1 - refreshProgress;
+                  const yTop = 13 - fu * 11;
+                  const wTop = 20 * fu;
+                  return <polygon points={`${12 - wTop / 2},${yTop} ${12 + wTop / 2},${yTop} 12,13`} fill="url(#hdrSand)" />;
+                })()}
+                {/* 下瓶沙子：锥形，沙量随倒计时增加 */}
+                {(() => {
+                  const fl = refreshProgress;
+                  const yBot = 26 - fl * 11;
+                  const wBot = 20 * (1 - fl);
+                  return <polygon points={`${12 - wBot / 2},${yBot} ${12 + wBot / 2},${yBot} 22,26 2,26`} fill="url(#hdrSand)" />;
+                })()}
+                {/* 瓶颈流沙亮点 */}
+                <rect x="11.2" y="12.6" width="1.6" height="2.2" fill="#E8C96A" opacity="0.95" />
+                {/* 瓶身描边（加粗，强化轮廓） */}
+                <path d="M2 2 L22 2 L12 13 Z M12 15 L22 26 L2 26 Z" fill="none" stroke="var(--hero-border-light)" strokeWidth="1.5" strokeLinejoin="round" />
+              </svg>
+            </span>
+            {/* 刷新完成粒子爆发（只在刷新结束瞬间播放一次） */}
+            {burstKey > 0 && (
+              <span key={burstKey} className="refresh-burst">
+                {[...Array(8)].map((_, i) => (
+                  <span
+                    key={i}
+                    className="burst-particle"
+                    style={{ '--angle': `${i * 45}deg` } as React.CSSProperties}
+                  />
+                ))}
+              </span>
+            )}
+          </span>
+
+          {/* 明暗主题切换：干净幽灵圆钮 */}
+          <Tooltip title={themeMode === 'dark' ? '切换浅色模式' : '切换深色模式'}>
             <div
-              className="energy-ring"
+              onClick={toggleTheme}
+              role="button"
+              aria-label="切换主题"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleTheme(); } }}
+              className="header-icon-btn"
               style={{
-                position: 'absolute',
-                inset: 0,
-                borderRadius: '50%',
-                background: `conic-gradient(from -90deg, #F0D78C ${progressPercent * 0.3}%, #D4A84B ${progressPercent * 0.7}%, #B8860B ${progressPercent}%, rgba(212, 168, 75, 0.1) ${progressPercent}%)`,
-                WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px))',
-                mask: 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px))',
-                transition: refreshing ? 'background 0.15s ease-out' : 'background 0.5s ease-out',
+                width: isMobile ? 36 : 42,
+                height: isMobile ? 36 : 42,
+                minWidth: isMobile ? 36 : 42,
+                minHeight: isMobile ? 36 : 42,
+                borderRadius: '10px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--bg-card)',
+                border: '1.5px solid var(--border-strong)',
+                color: 'var(--text-secondary)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                touchAction: 'manipulation',
+                WebkitTapHighlightColor: 'transparent',
+                transition: 'all var(--transition-fast)',
               }}
-            />
-            <ReloadOutlined
-              spin={refreshing}
-              style={{
-                fontSize: isMobile ? 14 : 16,
-                color: refreshing ? '#F0D78C' : 'var(--accent-gold)',
-                position: 'relative',
-                zIndex: 2,
-                filter: refreshing ? 'drop-shadow(0 0 4px rgba(212,168,75,0.6))' : 'none',
-                transition: 'all 0.3s ease',
-              }}
-            />
-          </div>
+            >
+              <span key={themeMode} className="theme-icon-swap">
+                {themeMode === 'dark'
+                  ? <SunOutlined style={{ fontSize: isMobile ? 15 : 17, color: '#FFB300' }} />
+                  : <MoonOutlined style={{ fontSize: isMobile ? 15 : 17, color: '#C9D2E0' }} />}
+              </span>
+            </div>
+          </Tooltip>
 
           <Dropdown
             menu={{
@@ -401,18 +476,16 @@ export default function Header() {
                 padding: '6px 12px',
                 borderRadius: 'var(--radius-full)',
                 transition: 'background var(--transition-fast)',
-                border: '1px solid transparent',
+                border: '1px solid var(--border-strong)',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = 'var(--bg-card)';
-                e.currentTarget.style.borderColor = 'var(--border-subtle)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.borderColor = 'transparent';
               }}
             >
-              <UserOutlined style={{ fontSize: 18, color: 'var(--accent-gold)' }} />
+              <UserOutlined className="header-avatar-icon" style={{ fontSize: 18, color: 'var(--accent-gold)' }} />
               <span className="header-username" style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-secondary)' }}>{user?.username}</span>
             </Space>
           </Dropdown>
@@ -420,61 +493,87 @@ export default function Header() {
 
         {/* 移动端响应式优化 */}
         <style>{`
-          .header-energy-button {
-            transition: transform 0.15s ease-out, box-shadow 0.3s ease;
+          .header-icon-btn {
             -webkit-tap-highlight-color: transparent;
             user-select: none;
             -webkit-user-select: none;
           }
 
-          .header-energy-button:hover {
-            transform: scale(1.08);
+          .header-icon-btn:hover {
+            background: var(--bg-card);
+            border-color: var(--border-strong);
+            color: var(--accent-gold) !important;
+            box-shadow: 0 0 10px var(--neon-glow-gold);
           }
 
-          .header-energy-button:active {
-            transform: scale(0.92);
+          .header-icon-btn:active {
+            transform: scale(0.9);
           }
 
-          /* 进度接近完成时的脉冲效果 */
-          .header-energy-button.urgent .energy-ring {
-            animation: ring-pulse 1.5s ease-in-out infinite;
+          /* 刷新完成粒子爆发容器 */
+          .refresh-burst {
+            position: absolute;
+            inset: 0;
+            z-index: 3;
+            pointer-events: none;
           }
 
-          /* 刷新时的爆发动画 */
-          .header-energy-button.refreshing {
-            animation: refresh-burst 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+          .burst-particle {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 5px;
+            height: 5px;
+            margin-left: -2.5px;
+            margin-top: -2.5px;
+            border-radius: 50%;
+            background: #F0D78C;
+            box-shadow: 0 0 8px rgba(240, 215, 140, 0.9), 0 0 16px rgba(212, 168, 75, 0.5);
+            transform-origin: 2.5px 2.5px;
+            animation: burst-fly 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
           }
 
-          .header-energy-button.refreshing::after {
+          .burst-particle::after {
             content: '';
             position: absolute;
-            inset: -4px;
+            inset: -1px;
             border-radius: 50%;
-            border: 2px solid rgba(212, 168, 75, 0.6);
-            animation: refresh-ripple 0.8s ease-out forwards;
+            background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, transparent 70%);
           }
 
-          @keyframes ring-pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
-          }
-
-          @keyframes refresh-burst {
-            0% { transform: scale(1); }
-            30% { transform: scale(0.85); }
-            60% { transform: scale(1.15); }
-            100% { transform: scale(1); }
-          }
-
-          @keyframes refresh-ripple {
+          @keyframes burst-fly {
             0% {
-              transform: scale(0.8);
+              transform: rotate(var(--angle, 0deg)) translateX(0) scale(1);
+              opacity: 1;
+            }
+            40% {
               opacity: 1;
             }
             100% {
-              transform: scale(1.6);
+              transform: rotate(var(--angle, 0deg)) translateX(22px) scale(0);
               opacity: 0;
             }
+          }
+
+          /* 沙漏倒计时尾声：呼吸闪烁 */
+          .hourglass.urgent svg {
+            animation: hourglass-breathe 1.2s ease-in-out infinite;
+          }
+
+          @keyframes hourglass-breathe {
+            0%, 100% { opacity: 0.8; }
+            50% { opacity: 1; filter: drop-shadow(0 0 5px rgba(240, 215, 140, 0.8)); }
+          }
+
+          /* 主题图标切换：旋转淡入 */
+          .theme-icon-swap {
+            display: inline-flex;
+            animation: theme-swap 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+          }
+
+          @keyframes theme-swap {
+            0% { transform: rotate(-100deg) scale(0.5); opacity: 0; }
+            100% { transform: rotate(0deg) scale(1); opacity: 1; }
           }
 
           @media screen and (max-width: 768px) {
@@ -536,6 +635,7 @@ export default function Header() {
             }
             
             .header-user {
+              display: none !important;
               padding: 4px 8px !important;
               gap: 4px !important;
             }
@@ -594,14 +694,7 @@ export default function Header() {
               font-size: 10px !important;
             }
 
-            /* 超小屏能量按钮 */
-            .header-energy-button {
-              width: 36px !important;
-              height: 36px !important;
-              min-width: 44px !important;
-              min-height: 44px !important;
-            }
-
+            /* 超小屏用户菜单 */
             .header-user {
               padding: 3px 6px !important;
             }

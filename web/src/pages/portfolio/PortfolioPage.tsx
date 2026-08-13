@@ -228,48 +228,7 @@ export default function PortfolioPage() {
 
       {!error && holdings.length > 0 && (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 4px' }} className="portfolio-group-switcher">
-            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-              <GroupSwitcher activeId={activeGroup} onChange={setActiveGroup} />
-            </div>
-            <Button
-              type="text"
-              icon={<SettingOutlined />}
-              onClick={() => setGroupManageOpen(true)}
-              style={{
-                flexShrink: 0,
-                marginRight: 6,
-                color: 'var(--text-muted)',
-                borderRadius: 'var(--radius-sm)',
-                transition: 'all var(--transition-fast)'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'var(--accent-gold)';
-                e.currentTarget.style.background = 'var(--bg-card)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--text-muted)';
-                e.currentTarget.style.background = 'transparent';
-              }}
-            />
-          </div>
-
-          <div className="glass-card portfolio-total-asset" style={{
-            margin: '8px 12px',
-            padding: '18px 20px',
-            borderRadius: 'var(--radius-lg)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
-            flexWrap: 'wrap',
-            gap: 12,
-            background: 'linear-gradient(135deg, var(--hero-gradient-start), var(--hero-gradient-end))',
-            backdropFilter: 'blur(12px)',
-            border: '1px solid var(--hero-border-light)',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.10)',
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
+          <div className="portfolio-summary-container">
             {/* 背景微光晕 */}
             <div style={{
               position: 'absolute',
@@ -280,49 +239,87 @@ export default function PortfolioPage() {
               background: 'radial-gradient(circle, var(--hero-accent-glow), transparent 70%)',
               pointerEvents: 'none',
             }} />
-            <div style={{ marginBottom: 4 }}>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>总资产</span>
-              <span
-                className="number-tabular"
-                onClick={toggleHideAmount}
+
+            {/* 分组切换器 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 4px' }} className="portfolio-group-switcher">
+              <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                <GroupSwitcher activeId={activeGroup} onChange={setActiveGroup} />
+              </div>
+              <Button
+                type="text"
+                icon={<SettingOutlined />}
+                onClick={() => setGroupManageOpen(true)}
                 style={{
-                  fontSize: 24,
-                  fontWeight: 800,
-                  color: 'var(--text-primary)',
-                  fontFamily: 'var(--font-mono)',
-                  marginLeft: 10,
-                  cursor: 'pointer',
-                  userSelect: 'none',
+                  flexShrink: 0,
+                  marginRight: 6,
+                  color: 'var(--text-muted)',
+                  borderRadius: 'var(--radius-sm)',
+                  transition: 'all var(--transition-fast)'
                 }}
-              >
-                {hideAmount ? '****' : `¥${totalAsset.toLocaleString()}`}
-              </span>
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--accent-gold)';
+                  e.currentTarget.style.background = 'var(--bg-card)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--text-muted)';
+                  e.currentTarget.style.background = 'transparent';
+                }}
+              />
             </div>
 
-            <div style={{ display: 'flex', gap: 20, alignItems: 'baseline' }}>
-              <div>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>当日收益</span>
-                <span className="number-tabular" style={{
-                  fontSize: 16,
-                  fontWeight: 700,
-                  color: totalDaily >= 0 ? 'var(--gain)' : 'var(--loss)',
-                  fontFamily: 'var(--font-mono)',
-                  marginLeft: 8,
-                }}>
-                  {hideAmount ? '****' : `${totalDaily >= 0 ? '+' : ''}¥${totalDaily.toFixed(2)}`}
+            {/* 汇总区（与分组同容器，用顶端分隔线区分） */}
+            <div className="portfolio-total-asset" style={{
+              padding: '16px 20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              flexWrap: 'wrap',
+              gap: 12,
+            }}>
+              <div style={{ marginBottom: 4 }}>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>总资产</span>
+                <span
+                  className="number-tabular"
+                  onClick={toggleHideAmount}
+                  style={{
+                    fontSize: 24,
+                    fontWeight: 800,
+                    color: 'var(--text-primary)',
+                    fontFamily: 'var(--font-mono)',
+                    marginLeft: 10,
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                >
+                  {hideAmount ? '****' : `¥${totalAsset.toLocaleString()}`}
                 </span>
               </div>
-              <div>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>累计收益</span>
-                <span className="number-tabular" style={{
-                  fontSize: 16,
-                  fontWeight: 700,
-                  color: totalAccumulated >= 0 ? 'var(--gain)' : 'var(--loss)',
-                  fontFamily: 'var(--font-mono)',
-                  marginLeft: 8,
-                }}>
-                  {hideAmount ? '****' : `${totalAccumulated >= 0 ? '+' : ''}¥${totalAccumulated.toFixed(2)}`}
-                </span>
+
+              <div style={{ display: 'flex', gap: 20, alignItems: 'baseline' }}>
+                <div>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>当日收益</span>
+                  <span className="number-tabular" style={{
+                    fontSize: 16,
+                    fontWeight: 700,
+                    color: totalDaily >= 0 ? 'var(--gain)' : 'var(--loss)',
+                    fontFamily: 'var(--font-mono)',
+                    marginLeft: 8,
+                  }}>
+                    {hideAmount ? '****' : `${totalDaily >= 0 ? '+' : ''}¥${totalDaily.toFixed(2)}`}
+                  </span>
+                </div>
+                <div>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>累计收益</span>
+                  <span className="number-tabular" style={{
+                    fontSize: 16,
+                    fontWeight: 700,
+                    color: totalAccumulated >= 0 ? 'var(--gain)' : 'var(--loss)',
+                    fontFamily: 'var(--font-mono)',
+                    marginLeft: 8,
+                  }}>
+                    {hideAmount ? '****' : `${totalAccumulated >= 0 ? '+' : ''}¥${totalAccumulated.toFixed(2)}`}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -336,8 +333,8 @@ export default function PortfolioPage() {
               borderBottomLeftRadius: 0,
               borderBottomRightRadius: 0,
               borderBottom: 'none',
-              background: 'var(--bg-row-even)',
-              border: '1px solid var(--border-subtle)',
+              background: 'linear-gradient(135deg, var(--hero-gradient-start), var(--hero-gradient-end))',
+              border: '1px solid var(--hero-border-light)',
               boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
               position: 'sticky',
               top: 0,
