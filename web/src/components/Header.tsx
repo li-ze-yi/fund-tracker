@@ -34,7 +34,8 @@ export default function Header() {
 
   useEffect(() => {
     settingService.getSettings().then((data) => {
-      const d = data.settings || data;
+      // 兼容两种响应结构：{ settings: {...} } 或直接返回设置对象
+      const d: any = (data as any)?.settings || data;
       if (d?.refresh_frequency != null) {
         setRefreshFreq(d.refresh_frequency);
         setCountdown(d.refresh_frequency);

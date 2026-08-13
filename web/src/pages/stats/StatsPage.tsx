@@ -79,14 +79,18 @@ interface DateTableViewProps {
 function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYear, granularity, onMonthChange, onYearChange, onGranularityChange, hideAmount, isLight, isMobile, showReturnRate, onShowReturnRateChange, selectedDay, selectedMonth, selectedYear, fundBreakdown, fundBreakdownLoading, onSelectDay, onSelectMonth, onSelectYear }: DateTableViewProps) {
   const { year, month } = currentMonth;
 
-  // 根据数字位数动态返回字号
-  const getDynamicFontSize = (value: number, baseSize: number, isMobile: boolean): number => {
-    const abs = Math.abs(value);
-    if (abs < 100) return isMobile ? baseSize : baseSize + 2;       // 0-99: 最大
-    if (abs < 1000) return isMobile ? baseSize - 1 : baseSize + 1;  // 100-999
-    if (abs < 10000) return isMobile ? baseSize - 2 : baseSize;     // 1000-9999
-    if (abs < 100000) return isMobile ? baseSize - 3 : baseSize - 1; // 10000-99999
-    return isMobile ? baseSize - 4 : baseSize - 2;                   // >= 100000: 最小
+  // 根据实际文本长度（含符号与 2 位小数）动态返回字号：短数字更大，长数字自动缩小避免溢出
+  // bonus 用于日/月/年视图差异化放大（格子越大 bonus 越大）
+  const getDynamicFontSize = (text: string, isMobile: boolean, bonus = 0): number => {
+    const len = text.length;
+    let size;
+    if (len <= 4) size = 15;        // 短数字：+993 / 999
+    else if (len <= 6) size = 14;   // +99.45 / -8532
+    else if (len <= 8) size = 13;   // +993.45 / -8532.40
+    else if (len <= 10) size = 12;  // -8532.40 / +12345.67
+    else size = 11;                 // 更长
+    size += bonus;
+    return isMobile ? size : size + 3;
   };
 
   // 今天
@@ -164,12 +168,13 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
       : 'rgba(148, 163, 184, 0.18)';
   };
 
-  // 格式化收益缩略（单元格内显示）
+  // 格式化收益缩略（单元格内显示，保留 2 位小数）
   const formatProfitShort = (profit: number): string => {
     if (hideAmount) return '****';
-    const rounded = Math.round(profit);
+    const rounded = Math.round(profit * 100) / 100;
+    if (rounded === 0) return '+0.00';
     const sign = rounded >= 0 ? '+' : '-';
-    return `${sign}${Math.abs(rounded)}`;
+    return `${sign}${Math.abs(rounded).toFixed(2)}`;
   };
 
   // 格式化 Tooltip 收益金额
@@ -291,6 +296,12 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                 </div>
               );
 
+              const cellMainText = hasData
+                ? showReturnRate
+                  ? `${dayData!.return_rate >= 0 ? '+' : ''}${dayData!.return_rate.toFixed(2)}%`
+                  : formatProfitShort(dayData!.profit)
+                : '';
+
               return (
                 <Tooltip key={dateStr} title={tooltipContent} placement="top">
                   <div
@@ -303,14 +314,12 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                     }}
                     onClick={() => onSelectDay(dateStr)}
                   >
-                    <span style={{ fontSize: 14, fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1 }}>
+                    <span style={{ fontSize: isMobile ? 16 : 18, fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1 }}>
                       {day}
                     </span>
                     {hasData && (
-                      <span style={{ fontSize: getDynamicFontSize(Math.abs(dayData!.profit), 11, isMobile), fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1, marginTop: 2 }}>
-                        {showReturnRate
-                          ? `${dayData!.return_rate >= 0 ? '+' : ''}${dayData!.return_rate.toFixed(1)}%`
-                          : formatProfitShort(dayData!.profit)}
+                      <span style={{ fontSize: getDynamicFontSize(cellMainText, isMobile, 0), fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1, marginTop: 2 }}>
+                        {cellMainText}
                       </span>
                     )}
                   </div>
@@ -363,7 +372,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
               const mainText = !hasData
                 ? ''
                 : showReturnRate
-                  ? `${mData!.return_rate >= 0 ? '+' : ''}${mData!.return_rate.toFixed(1)}%`
+                  ? `${mData!.return_rate >= 0 ? '+' : ''}${mData!.return_rate.toFixed(2)}%`
                   : formatProfitShort(mData!.profit);
 
               return (
@@ -375,7 +384,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                   >
                     <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>{m} 月</span>
                     {hasData && (
-                      <span style={{ fontSize: getDynamicFontSize(Math.abs(mData!.profit), 13, isMobile), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
+                      <span style={{ fontSize: getDynamicFontSize(mainText, isMobile, 2), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
                         {mainText}
                       </span>
                     )}
@@ -428,7 +437,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
               const mainText = !hasData
                 ? ''
                 : showReturnRate
-                  ? `${yData!.return_rate >= 0 ? '+' : ''}${yData!.return_rate.toFixed(1)}%`
+                  ? `${yData!.return_rate >= 0 ? '+' : ''}${yData!.return_rate.toFixed(2)}%`
                   : formatProfitShort(yData!.profit);
 
               return (
@@ -440,7 +449,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                   >
                     <span style={{ fontSize: 14, fontWeight: 600, color: textColor }}>{y} 年</span>
                     {hasData && (
-                      <span style={{ fontSize: getDynamicFontSize(Math.abs(yData!.profit), 14, isMobile), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
+                      <span style={{ fontSize: getDynamicFontSize(mainText, isMobile, 3), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
                         {mainText}
                       </span>
                     )}
