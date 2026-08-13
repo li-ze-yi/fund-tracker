@@ -1,0 +1,166 @@
+/* ===========================================================================
+   主题适配版 —— 全部 --ird-* 映射到 App 的语义 CSS 变量（App.css 中定义），
+   因此自动跟随 html[data-theme="dark"] 明/暗切换，无需两套硬编码色值。
+
+   A股惯例：涨=红(var(--gain))  跌=绿(var(--loss))  —— 与 App 保持一致。
+   注：热力网格单元格背景(heatBg)与北向柱体使用字面 rgba 红/青/蓝，
+   属「A股涨跌色」与图表强调色，刻意保持主题无关（见 components/index.tsx）。
+   =========================================================================== */
+.ird-root {
+  /* —— 映射到 App 语义变量（自动随主题切换）—— */
+  --ird-bg: var(--bg-base);
+  --ird-panel: var(--bg-card);          /* 卡片背景 */
+  --ird-panel-2: var(--bg-elevated);    /* 条形轨道底色 */
+  --ird-border: var(--border-subtle);
+  --ird-text: var(--text-primary);
+  --ird-text-dim: var(--text-secondary);
+  --ird-text-faint: var(--text-muted);
+  --ird-red: var(--gain);               /* 涨 */
+  --ird-green: var(--loss);             /* 跌 */
+  --ird-accent: var(--accent-gold);     /* 金色高亮 */
+  --ird-blue: #4d9fff;                  /* 北向柱体强调色（App 无蓝色语义变量，固定可读蓝） */
+
+  background: var(--ird-bg);
+  color: var(--ird-text);
+  font-family: var(--font-display, "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 16px;
+  box-sizing: border-box;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.ird-root * { box-sizing: border-box; }
+
+.ird-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  border-bottom: 1px solid var(--ird-border);
+  padding-bottom: 10px; margin-bottom: 16px;
+}
+.ird-header h1 { font-size: 18px; margin: 0; letter-spacing: 1px; font-weight: 600; }
+.ird-header .ird-meta { color: var(--ird-text-dim); font-size: 12px; }
+
+.ird-section { margin-bottom: 22px; }
+.ird-section-title {
+  font-size: 13px; color: var(--ird-text-dim); font-weight: 600;
+  margin: 0 0 10px; letter-spacing: .5px;
+  display: flex; align-items: center; gap: 8px;
+}
+.ird-section-title::before {
+  content: ""; width: 3px; height: 13px; background: var(--ird-accent); border-radius: 2px;
+}
+
+/* ---- 大盘概览 ---- */
+.ird-indices {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px;
+}
+.ird-idx-card {
+  background: var(--ird-panel); border: 1px solid var(--ird-border);
+  border-radius: var(--radius-md); padding: 8px 10px;
+}
+.ird-idx-name { color: var(--ird-text-dim); font-size: 12px; }
+.ird-idx-val { font-size: 16px; font-weight: 600; margin: 2px 0; font-variant-numeric: tabular-nums; }
+.ird-idx-pct { font-size: 12px; font-variant-numeric: tabular-nums; }
+.ird-breadth {
+  display: flex; gap: 16px; margin-top: 10px; flex-wrap: wrap;
+  color: var(--ird-text-dim); font-size: 12px;
+}
+.ird-breadth b { color: var(--ird-text); font-variant-numeric: tabular-nums; }
+
+/* ---- 热力网格 ---- */
+.ird-heat-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+}
+.ird-heat-cell {
+  border-radius: var(--radius-sm); padding: 8px 6px; min-height: 58px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  border: 1px solid var(--ird-border);
+}
+.ird-heat-name { font-size: 12px; font-weight: 500; }
+.ird-heat-pct { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ird-heat-flow { font-size: 11px; opacity: .85; font-variant-numeric: tabular-nums; }
+.ird-toggle-row { display: flex; gap: 8px; margin: 4px 0 10px; }
+.ird-toggle {
+  background: var(--ird-panel); border: 1px solid var(--ird-border); color: var(--ird-text-dim);
+  border-radius: var(--radius-sm); padding: 3px 10px; cursor: pointer; font-size: 12px;
+}
+.ird-toggle.active { color: var(--ird-accent); border-color: var(--ird-accent); }
+
+/* ---- 主力资金双向条形 ---- */
+.ird-bars { display: flex; flex-direction: column; gap: 3px; }
+.ird-bar-row { display: grid; grid-template-columns: 88px 1fr 64px; align-items: center; gap: 6px; }
+.ird-bar-name { font-size: 12px; color: var(--ird-text-dim); text-align: right; }
+.ird-bar-track { position: relative; height: 16px; background: var(--ird-panel-2); border-radius: var(--radius-sm); }
+.ird-bar-axis { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--ird-border); }
+.ird-bar-fill { position: absolute; top: 2px; bottom: 2px; border-radius: 2px; }
+.ird-bar-val { font-size: 11px; font-variant-numeric: tabular-nums; }
+.ird-bar-val.pos { color: var(--ird-red); }
+.ird-bar-val.neg { color: var(--ird-green); }
+
+/* ---- 风格矩阵 ---- */
+.ird-style-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.ird-style-cell {
+  background: var(--ird-panel); border: 1px solid var(--ird-border); border-radius: var(--radius-sm);
+  padding: 10px; text-align: center;
+}
+.ird-style-name { font-size: 12px; color: var(--ird-text-dim); }
+.ird-style-pct { font-size: 18px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.ird-scissor { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.ird-scissor-row { display: grid; grid-template-columns: 120px 1fr 48px; align-items: center; gap: 8px; font-size: 12px; }
+.ird-scissor-track { height: 8px; background: var(--ird-panel-2); border-radius: var(--radius-full); position: relative; }
+.ird-scissor-fill { position: absolute; top: 0; bottom: 0; border-radius: var(--radius-full); left: 50%; }
+
+/* ---- 北向资金 ---- */
+.ird-nb { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; }
+.ird-nb-chart { background: var(--ird-panel); border: 1px solid var(--ird-border); border-radius: var(--radius-md); padding: 10px; }
+.ird-nb-list { background: var(--ird-panel); border: 1px solid var(--ird-border); border-radius: var(--radius-md); padding: 10px; }
+.ird-nb-row { display: grid; grid-template-columns: 1fr 80px 70px; gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--ird-border); font-size: 12px; }
+.ird-nb-row:last-child { border-bottom: none; }
+.ird-nb-net.pos { color: var(--ird-red); }
+.ird-nb-net.neg { color: var(--ird-green); }
+
+/* ---- 研判 ---- */
+.ird-thesis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.ird-thesis-card { background: var(--ird-panel); border: 1px solid var(--ird-border); border-radius: var(--radius-md); padding: 12px; }
+.ird-thesis-card h4 { margin: 0 0 6px; font-size: 13px; }
+.ird-thesis-rating {
+  display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: var(--radius-sm);
+  background: var(--accent-gold-dim); color: var(--ird-accent); margin-bottom: 8px;
+}
+.ird-thesis-body { font-size: 12px; color: var(--ird-text); }
+.ird-thesis-meta { font-size: 11px; color: var(--ird-text-faint); margin-top: 8px; }
+
+/* ---- 页脚说明 ---- */
+.ird-notes { border-top: 1px solid var(--ird-border); padding-top: 10px; margin-top: 8px; }
+.ird-notes li { color: var(--ird-text-faint); font-size: 11px; margin-bottom: 4px; }
+.ird-loading, .ird-error { padding: 40px; text-align: center; color: var(--ird-text-dim); }
+.ird-error { color: var(--ird-red); }
+
+/* 颜色工具类（供组件内联用） */
+.ird-up { color: var(--ird-red); }
+.ird-down { color: var(--ird-green); }
+.ird-flat { color: var(--ird-text-dim); }
+
+/* ===========================================================================
+   移动端响应式（≤768px）—— 与 App 全局「不出现横向滚动」策略一致：
+   各区块改用更紧凑的网格列数，整体保持在视口内，不撑破现有 mobile 布局。
+   =========================================================================== */
+@media (max-width: 768px) {
+  .ird-root { padding: 12px 8px; max-width: 100%; }
+  .ird-header h1 { font-size: 15px; letter-spacing: .5px; }
+  .ird-header { flex-wrap: wrap; gap: 4px; }
+
+  .ird-indices { grid-template-columns: repeat(2, 1fr); }
+  .ird-heat-grid { grid-template-columns: repeat(4, 1fr); }   /* 4 列在手机宽度下约 80px/格，刚好不溢出 */
+  .ird-style-grid { grid-template-columns: repeat(2, 1fr); }
+  .ird-thesis { grid-template-columns: 1fr; }
+  .ird-nb { grid-template-columns: 1fr; }
+
+  .ird-bar-row { grid-template-columns: 72px 1fr 56px; gap: 4px; }
+  .ird-bar-name { font-size: 11px; }
+  .ird-bar-val { font-size: 10px; }
+
+  .ird-scissor-row { grid-template-columns: 96px 1fr 40px; gap: 6px; }
+
+  .ird-section { margin-bottom: 16px; }
+}

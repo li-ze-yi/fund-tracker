@@ -25,7 +25,7 @@ interface FundHolding {
   // 更新状态字段（与自选页面一致）
   last_updated?: string | null;
   is_fresh?: boolean;
-  update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate' | 'sold_out';
+  update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate' | 'sold_out' | 'pending_purchase';
   data_source?: 'actual' | 'estimated';
   day_of_week?: string;
 }
@@ -82,10 +82,10 @@ export default function PortfolioPage() {
   useEffect(() => {
     loadHoldings(true);
     settingService.getSettings().then((data) => {
-      const d = data.settings || data;
-      if (d?.refresh_frequency != null) setRefreshFreq(d.refresh_frequency);
+      if (data?.refresh_frequency != null) setRefreshFreq(data.refresh_frequency);
     }).catch(() => {});
-  }, [loadHoldings]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const handleManualRefresh = () => {

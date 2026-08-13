@@ -17,6 +17,7 @@ const StatsPage = lazy(() => import('./pages/stats/StatsPage'));
 const ProfilePage = lazy(() => import('./pages/profile/ProfilePage'));
 const FundDetailPage = lazy(() => import('./pages/fund/FundDetailPage'));
 const MarketDetailPage = lazy(() => import('./pages/market/MarketDetailPage'));
+const IndustryRotationPage = lazy(() => import('./pages/market/IndustryRotationPage'));
 const InvestmentPlanPage = lazy(() => import('./pages/plans/InvestmentPlanPage'));
 const SettingsPage = lazy(() => import('./pages/settings/SettingsPage'));
 
@@ -103,6 +104,7 @@ export default function App() {
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/fund/:code" element={<FundDetailPage />} />
                 <Route path="/market" element={<MarketDetailPage />} />
+                <Route path="/market/rotation" element={<IndustryRotationPage />} />
                 <Route path="/plans" element={<InvestmentPlanPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>

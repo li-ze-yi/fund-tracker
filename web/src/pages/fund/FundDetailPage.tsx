@@ -12,6 +12,7 @@ import BuyModal from '@/components/modals/BuyModal';
 import SellModal from '@/components/modals/SellModal';
 import CreatePlanModal from '@/components/modals/CreatePlanModal';
 import EditHoldingModal from '@/components/modals/EditHoldingModal';
+import PurchaseModal from '@/components/modals/PurchaseModal';
 
 type Period = '1w' | '1m' | '3m' | '6m' | '1y' | 'all';
 
@@ -31,6 +32,7 @@ export default function FundDetailPage() {
   const [sellModalOpen, setSellModalOpen] = useState(false);
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
 
   // 估值方法
   const [fundValuationMethod, setFundValuationMethod] = useState<ValuationMethod | null>(null);
@@ -1176,9 +1178,9 @@ export default function FundDetailPage() {
         display: 'grid',
         gridTemplateColumns: '1fr 1fr 1fr 1fr',
         gap: 12,
-        marginBottom: 12,  // ✅ 减小与下方模块的间距
+        marginBottom: 12,
       }}>
-        {fund.shares != null && fund.shares > 0 && (
+        {fund.shares != null && fund.shares > 0 ? (
           <Button
             className="fund-detail-action-btn"
             icon={<EditOutlined />}
@@ -1192,6 +1194,22 @@ export default function FundDetailPage() {
             }}
           >
             修改
+          </Button>
+        ) : (
+          <Button
+            className="fund-detail-action-btn"
+            type="primary"
+            icon={<ThunderboltOutlined />}
+            onClick={() => setPurchaseModalOpen(true)}
+            style={{
+              height: 48,
+              fontSize: 15,
+              fontWeight: 600,
+              borderRadius: 'var(--radius-md)',
+              boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
+            }}
+          >
+            新购
           </Button>
         )}
         <Button
@@ -1272,6 +1290,13 @@ export default function FundDetailPage() {
       </Card>
 
       {/* 模态框 */}
+      <PurchaseModal
+        open={purchaseModalOpen}
+        fundCode={code || ''}
+        fundName={fund.name || code || ''}
+        onClose={() => setPurchaseModalOpen(false)}
+        onSuccess={loadData}
+      />
       <BuyModal
         open={buyModalOpen}
         fundCode={code || ''}

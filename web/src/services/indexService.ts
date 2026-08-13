@@ -58,6 +58,7 @@ export async function fetchIndexData(codes: string[]): Promise<IndexData[]> {
 export interface IntradayData {
   times: string[];
   prices: number[];
+  volumes?: number[];
   source?: string;
   pointCount?: number;
 }
@@ -73,6 +74,7 @@ export async function fetchIntradayData(code: string): Promise<IntradayData | nu
       const result = {
         times: res.data.data.times || [],
         prices: res.data.data.prices || [],
+        volumes: res.data.data.volumes,
         source: res.data.source,
         pointCount: res.data.pointCount
       };

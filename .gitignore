@@ -10,3 +10,5 @@ Thumbs.db
 android/
 admin/
 test/
+server/data/
+.workbuddy/

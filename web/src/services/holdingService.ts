@@ -14,6 +14,10 @@ export const holdingService = {
   addHolding: (data: { fundCode: string; amount: number; totalReturn: number; groupId?: number }) =>
     api.post('/holdings', data).then((r) => r.data),
 
+  // 新购基金：带上购买日期、15:00前/后标志、买入费率，由后端按净值入库
+  purchaseFund: (data: { fundCode: string; amount: number; purchaseDate: string; after3pm: boolean; feeRate?: number; groupId?: number }) =>
+    api.post('/holdings/purchase', data).then((r) => r.data),
+
   updateHoldingGroup: (id: number, groupId: number) =>
     api.put(`/holdings/${id}`, { groupId }).then((r) => r.data),
 

@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
@@ -31,6 +31,7 @@ app.use('/api/import-export', require('./routes/importExport'));
 app.use('/api/image-import', require('./routes/imageImport'));
 app.use('/api/feedback', require('./routes/feedback'));
 app.use('/api/indices', require('./routes/indices'));
+app.use('/api/market', require('./routes/market'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/announcements', require('./routes/announcements'));
 

@@ -309,19 +309,36 @@ exports.settlePending = async (req, res, next) => {
         const holding = await Holding.findByUserAndFund(userId, tx.fund_code);
 
         if (tx.type === 'buy') {
-          // 买入结算：用确认净值计算实际份额
-          const actualShares = parseFloat(tx.amount) / confirmedNav;
-          logger.info(`订单 #${tx.id} 买入结算计算: amount=${tx.amount}, nav=${confirmedNav}, actualShares=${actualShares.toFixed(4)}`);
+          // 买入结算：用确认净值计算实际份额（扣除买入费率）
+          // fee 字段存的是费率（0~1），pending 时直接存入
+          const feeRate = parseFloat(tx.fee) || 0;
+          const feeAmount = feeRate ? parseFloat(tx.amount) * feeRate : 0;
+          const actualInvestment = parseFloat(tx.amount) - feeAmount;
+          const actualShares = actualInvestment / confirmedNav;
+          const costPrice = actualShares > 0 ? parseFloat(tx.amount) / actualShares : confirmedNav;
+          logger.info(`订单 #${tx.id} 买入结算计算: amount=${tx.amount}, nav=${confirmedNav}, feeRate=${feeRate}, fee=${feeAmount.toFixed(2)}, actualShares=${actualShares.toFixed(4)}`);
 
           if (!holding) {
             // 无持仓（定投首笔等场景）→ 新建持仓
-            logger.info(`订单 #${tx.id} 无持仓记录，新建持仓: fund=${tx.fund_code}, shares=${actualShares.toFixed(4)}, costPrice=${confirmedNav}, totalCost=${tx.amount}`);
+            logger.info(`订单 #${tx.id} 无持仓记录，新建持仓: fund=${tx.fund_code}, shares=${actualShares.toFixed(4)}, costPrice=${costPrice.toFixed(4)}, totalCost=${tx.amount}`);
             await Holding.create({
               userId,
               fundCode: tx.fund_code,
               shares: actualShares,
-              costPrice: confirmedNav,
+              costPrice,
               totalCost: parseFloat(tx.amount)
+            });
+          } else if (holding.confirmed_nav === null) {
+            // 占位持仓（pending 购买创建）→ 替换为实际数据
+            logger.info(`订单 #${tx.id} 替换占位持仓: fund=${tx.fund_code}, shares=${actualShares.toFixed(4)}, costPrice=${costPrice.toFixed(4)}, totalCost=${tx.amount}`);
+            await Holding.update(holding.id, userId, {
+              shares: actualShares,
+              cost_price: costPrice,
+              totalCost: parseFloat(tx.amount),
+              confirmedNav: confirmedNav,
+              confirmedNavDate: navDate,
+              soldDate: null,
+              totalReturn: 0
             });
           } else {
             // 已有持仓 → 加仓
@@ -347,7 +364,7 @@ exports.settlePending = async (req, res, next) => {
             amount: parseFloat(tx.amount)
           });
 
-          logger.info(`订单 #${tx.id} 买入结算完成: actualShares=${actualShares.toFixed(4)}, nav=${confirmedNav}, holdingCreated=${!holding}`);
+          logger.info(`订单 #${tx.id} 买入结算完成: actualShares=${actualShares.toFixed(4)}, nav=${confirmedNav}, feeRate=${feeRate}, fee=${feeAmount.toFixed(2)}, holdingCreated=${!holding}`);
           settled++;
         } else if (tx.type === 'sell') {
           // 卖出结算：用确认净值计算实际金额，此时才扣减持仓份额和成本

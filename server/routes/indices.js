@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const globalCache = require('../services/globalCache');
+const { fetchWithTimeout } = require('../utils/http');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('Indices');
@@ -50,22 +51,6 @@ function pT(line) {
   var pt = parseFloat(f[3]) || 0;
   if (pt === 0) return null;
   return { point: Math.round(pt * 100) / 100, change: Math.round((parseFloat(f[31]) || 0) * 100) / 100, cp: Math.round((parseFloat(f[32]) || 0) * 100) / 100 };
-}
-
-async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(timer);
-    return response;
-  } catch (e) {
-    clearTimeout(timer);
-    if (e.name === 'AbortError') {
-      logger.error(`请求超时 (${timeoutMs}ms): ${url}`);
-    }
-    throw e;
-  }
 }
 
 function getTxCode(code) {
@@ -257,10 +242,16 @@ router.get('/:code/intraday', async (req, res) => {
       return res.json({ code, date, data: null, source: 'none', pointCount: 0 });
     }
 
+    // 仅当解析到真实成交量时才返回 volumes 字段，避免前端显示伪造量能
+    const hasRealVolume = Array.isArray(data.volumes) && data.volumes.length === data.times.length && data.volumes.some((v) => v > 0);
     res.json({
       code,
       date,
-      data,
+      data: {
+        times: data.times,
+        prices: data.prices,
+        ...(hasRealVolume ? { volumes: data.volumes } : {}),
+      },
       source: data.source || 'unknown',
       pointCount: data.times?.length || 0
     });
@@ -282,6 +273,8 @@ function parseTencentMinuteData(text, code) {
     const minuteData = data.data;
     const times = [];
     const prices = [];
+    const volumes = [];
+    let prevCumVol = 0; // 腾讯分钟量为当日累计值，需转逐分钟增量用于副图
 
     // 兼容腾讯分钟接口的多种返回结构：
     // 1) 字符串："0930 3896.49;0931 ..."（旧版）
@@ -307,15 +300,23 @@ function parseTencentMinuteData(text, code) {
           if (time && price > 0) {
             times.push(time.substring(0, 5));
             prices.push(Number(price.toFixed(2)));
+            // 腾讯分钟行格式: 时间 价格 成交量(手,当日累计) 成交额(元)
+            // 取第3段为累计成交量，转逐分钟增量，使副图呈真实量能分布
+            let cumVol = parts.length >= 3 ? (parseFloat(parts[2]) || 0) : 0;
+            const vol = cumVol - prevCumVol;
+            prevCumVol = cumVol;
+            volumes.push(vol > 0 ? Math.round(vol) : 0);
           }
         }
       } else if (p && p.t && p.p) {
         times.push(p.t.substring(0, 5));
         prices.push(Number(parseFloat(p.p).toFixed(2)));
+        const v = p.v || p.volume || p.vol;
+        volumes.push(v ? Number(parseFloat(v)) : 0);
       }
     });
 
-    return times.length > 0 ? { times, prices, source: 'tencent_minute' } : null;
+    return times.length > 0 ? { times, prices, volumes, source: 'tencent_minute' } : null;
   } catch(e) {
     return null;
   }
@@ -333,6 +334,7 @@ function parseTencentMinuteKline(text, code) {
 
     const times = [];
     const prices = [];
+    const volumes = [];
 
     klines.forEach(kline => {
       if (Array.isArray(kline) && kline.length >= 2) {
@@ -342,11 +344,13 @@ function parseTencentMinuteKline(text, code) {
         if (timePart && price > 0) {
           times.push(timePart.substring(0, 5));
           prices.push(Number(price.toFixed(2)));
+          // 腾讯日K数组: [日期,开,收,高,低,成交量,...]，kline[5] 为成交量
+          volumes.push(kline.length >= 6 ? (parseFloat(kline[5]) || 0) : 0);
         }
       }
     });
 
-    return times.length > 0 ? { times, prices, source: 'tencent_minute_kline' } : null;
+    return times.length > 0 ? { times, prices, volumes, source: 'tencent_minute_kline' } : null;
   } catch(e) {
     return null;
   }
@@ -456,6 +460,7 @@ async function generateFallbackIntraday(code) {
 function parseEastMoneyMinuteKline(klines) {
   const times = [];
   const prices = [];
+  const volumes = [];
 
   klines.forEach((line) => {
     const parts = line.split(',');
@@ -467,13 +472,15 @@ function parseEastMoneyMinuteKline(klines) {
       if (timePart && price > 0) {
         times.push(timePart.substring(0, 5));
         prices.push(Number(price.toFixed(2)));
+        // 东财K线字段: [时间,开,收,高,低,成交量,成交额,...]，parts[5] 为成交量(手)
+        volumes.push(parseFloat(parts[5]) || 0);
       }
     }
   });
 
   if (times.length === 0) return null;
 
-  return { times, prices, source: 'eastmoney_minute' };
+  return { times, prices, volumes, source: 'eastmoney_minute' };
 }
 
 function parseSinaKlineData(klineStr, baseCode) {
@@ -483,16 +490,19 @@ function parseSinaKlineData(klineStr, baseCode) {
 
     const times = [];
     const prices = [];
+    const volumes = [];
 
     items.forEach(item => {
       if (item.d && item.p) {
         const timeStr = item.d.includes(' ') ? item.d.split(' ')[1] : item.d;
         times.push(timeStr.substring(0, 5));
         prices.push(Number(parseFloat(item.p).toFixed(2)));
+        const v = item.v || item.volume || item.vol;
+        volumes.push(v ? Number(parseFloat(v)) : 0);
       }
     });
 
-    return times.length > 0 ? { times, prices, source: 'sina_kline' } : null;
+    return times.length > 0 ? { times, prices, volumes, source: 'sina_kline' } : null;
   } catch(e) {
     return null;
   }
@@ -503,16 +513,19 @@ function parseSinaMinuteData(dataArray) {
 
   const times = [];
   const prices = [];
+  const volumes = [];
 
   dataArray.forEach(item => {
     if (item.day && item.close) {
       const timeStr = item.day.includes(' ') ? item.day.split(' ')[1] : item.day;
       times.push(timeStr.substring(0, 5));
       prices.push(Number(parseFloat(item.close).toFixed(2)));
+      const v = item.volume || item.vol || item.v;
+      volumes.push(v ? Number(parseFloat(v)) : 0);
     }
   });
 
-  return times.length > 0 ? { times, prices, source: 'sina_minute_api' } : null;
+  return times.length > 0 ? { times, prices, volumes, source: 'sina_minute_api' } : null;
 }
 
 function parseTencentKlineHistory(text, baseCode) {
