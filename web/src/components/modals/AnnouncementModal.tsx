@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Modal } from 'antd';
 import { BellOutlined, CloseOutlined } from '@ant-design/icons';
 import { announcementService, Announcement } from '../../services/announcementService';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 function getDismissKey(ann: { id: number; publish_version: number }): string {
   return `${ann.id}_v${ann.publish_version}`;
@@ -11,6 +12,7 @@ export default function AnnouncementModal() {
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
   const [dismissedKeys, setDismissedKeys] = useState<string[]>([]);
   const [visible, setVisible] = useState(false);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const stored = localStorage.getItem('dismissed_announcements');
@@ -43,8 +45,6 @@ export default function AnnouncementModal() {
   if (!announcement || dismissedKeys.includes(getDismissKey(announcement))) {
     return null;
   }
-
-  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
 
   return (
     <Modal

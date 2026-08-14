@@ -8,6 +8,7 @@ const dailyProfitService = require('../services/dailyProfitService');
 const globalCache = require('../services/globalCache');
 const UserSetting = require('../models/userSetting');
 const { createLogger } = require('../utils/logger');
+const { getLocalToday, normalizeDateStr } = require('../utils/date');
 
 const logger = createLogger('HoldingController');
 
@@ -94,6 +95,19 @@ async function settlePendingAsync(userId) {
           // 含费成本均价：总支付金额 / 实际份额
           const costPrice = actualShares > 0 ? parseFloat(tx.amount) / actualShares : confirmedNav;
 
+          // ★ 先尝试更新交易状态（乐观锁），防止并发重复结算
+          // updateToConfirmed 带 status='pending' 条件，返回 false 说明已被其他任务结算
+          const acquired = await Transaction.updateToConfirmed(tx.id, userId, {
+            shares: actualShares,
+            price: confirmedNav,
+            amount: parseFloat(tx.amount)
+          });
+          if (!acquired) {
+            // 已被其他任务结算，跳过持仓更新
+            logger.info(`[Settle] 买入 #${tx.id} 已被其他任务结算（乐观锁未获取），跳过持仓更新`);
+            continue;
+          }
+
           if (!holding) {
             // 无持仓（定投首笔等场景）→ 新建持仓
             await Holding.create({
@@ -132,12 +146,6 @@ async function settlePendingAsync(userId) {
             logger.info(`[Settle] 买入 #${tx.id}: 加仓(holding.id=${holding.id}), addedShares=${actualShares.toFixed(2)}, totalShares=${currentShares.toFixed(2)}, nav=${confirmedNav}`);
           }
 
-          await Transaction.updateToConfirmed(tx.id, userId, {
-            shares: actualShares,
-            price: confirmedNav,
-            amount: parseFloat(tx.amount)
-          });
-
           logger.info(`自动结算买入: #${tx.id}, actualShares=${actualShares.toFixed(2)}, nav=${confirmedNav}, feeRate=${feeRate}, fee=${feeAmount.toFixed(2)}, holdingCreated=${!holding}`);
         } else if (tx.type === 'sell') {
           // 卖出结算：用确认净值计算实际金额，此时才扣减持仓份额和成本
@@ -147,6 +155,19 @@ async function settlePendingAsync(userId) {
           const feeRate = parseFloat(tx.fee) || 0;
           const feeAmount = feeRate ? actualAmount * feeRate : 0;
           const actualNetAmount = actualAmount - feeAmount;
+
+          // ★ 先尝试更新交易状态（乐观锁），防止并发重复结算
+          // updateToConfirmed 带 status='pending' 条件，返回 false 说明已被其他任务结算
+          const acquired = await Transaction.updateToConfirmed(tx.id, userId, {
+            shares: sellShares,
+            price: confirmedNav,
+            amount: actualNetAmount
+          });
+          if (!acquired) {
+            // 已被其他任务结算，跳过持仓更新
+            logger.info(`[Settle] 卖出 #${tx.id} 已被其他任务结算（乐观锁未获取），跳过持仓更新`);
+            continue;
+          }
 
           // 结算时才扣减份额和成本
           const newShares = parseFloat(holding.shares) - sellShares;
@@ -163,7 +184,7 @@ async function settlePendingAsync(userId) {
               shares: 0,
               totalCost: 0,
               totalReturn: Math.round(realizedProfit * 100) / 100,
-              soldDate: new Date().toISOString().slice(0, 10)
+              soldDate: getLocalToday()
             });
           } else {
             // 部分卖出 → 累加 total_return
@@ -174,12 +195,6 @@ async function settlePendingAsync(userId) {
             });
           }
 
-          await Transaction.updateToConfirmed(tx.id, userId, {
-            shares: sellShares,
-            price: confirmedNav,
-            amount: actualNetAmount
-          });
-
           logger.info(`自动结算卖出: #${tx.id}, nav=${confirmedNav}, amount=${actualNetAmount.toFixed(2)}`);
         }
       } catch (err) {
@@ -189,20 +204,6 @@ async function settlePendingAsync(userId) {
   } catch (err) {
     logger.error('自动结算失败:', err.message);
   }
-}
-
-function normalizeDateStr(dateVal) {
-  if (dateVal instanceof Date) {
-    const year = dateVal.getFullYear();
-    const month = String(dateVal.getMonth() + 1).padStart(2, '0');
-    const day = String(dateVal.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-  if (typeof dateVal === 'string' && dateVal) {
-    let str = dateVal.split('T')[0].split(' ')[0];
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-  }
-  return '';
 }
 
 /**
@@ -243,8 +244,8 @@ exports.create = async (req, res, next) => {
     let confirmedNavDate = null;
     
     try {
-      const today = new Date().toISOString().slice(0, 10);
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const today = getLocalToday();
+      const thirtyDaysAgo = normalizeDateStr(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
       const historyCacheKey = `history_${fundCode}_30d_${today}`;
       
       try {
@@ -331,7 +332,7 @@ exports.create = async (req, res, next) => {
           price: netValue,
           amount,
           fee: 0,
-          transactionDate: confirmedNavDate || new Date().toISOString().slice(0, 10),
+          transactionDate: confirmedNavDate || getLocalToday(),
           metadata: JSON.stringify({ netValueSource })
         });
       }
@@ -362,7 +363,7 @@ exports.create = async (req, res, next) => {
         price: netValue,
         amount,
         fee: 0,
-        transactionDate: confirmedNavDate || new Date().toISOString().slice(0, 10),
+        transactionDate: confirmedNavDate || getLocalToday(),
         metadata: JSON.stringify({ netValueSource })
       });
     }

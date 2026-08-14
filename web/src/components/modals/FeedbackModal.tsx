@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Modal, App } from 'antd';
 import { MessageOutlined, CloseOutlined } from '@ant-design/icons';
 import { feedbackService } from '../../services/feedbackService';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 interface FeedbackModalProps {
   open: boolean;
@@ -12,6 +13,7 @@ export default function FeedbackModal({ open, onClose }: FeedbackModalProps) {
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const { message } = App.useApp();
+  const isMobile = useIsMobile();
 
   const handleSubmit = async () => {
     if (!content.trim()) {
@@ -35,8 +37,6 @@ export default function FeedbackModal({ open, onClose }: FeedbackModalProps) {
     setContent('');
     onClose();
   };
-
-  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
 
   return (
     <Modal

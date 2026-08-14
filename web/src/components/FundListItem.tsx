@@ -28,6 +28,269 @@ interface FundListItemProps {
   index?: number;
 }
 
+// 更新状态标记（估算中/待确认/已确认/休市/待开市/前一日/已清仓/待入库）
+interface UpdateIndicatorProps {
+  status?: string;
+  dayOfWeek?: string;
+}
+
+const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: UpdateIndicatorProps) {
+  const s = status || 'estimating';
+
+  switch (s) {
+    case 'pre_market':
+      // 🌅 待开市（蓝色）- 盘前等待开盘
+      return (
+        <span
+          data-label="待开市"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontSize: '10px',
+            fontWeight: 500,
+            color: 'var(--status-pre-market)',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            background: 'var(--status-pre-market-bg)',
+            letterSpacing: '0.02em',
+          }}
+        >
+          <span
+            style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: 'var(--status-pre-market)',
+              display: 'inline-block',
+            }}
+          />
+          待开市
+        </span>
+      );
+
+    case 'market_closed':
+      // 🏁 休市（灰色）- 非交易日（周末/节假日）
+      return (
+        <span
+          data-label={`休市${dayOfWeek ? `(${dayOfWeek})` : ''}`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontSize: '10px',
+            fontWeight: 500,
+            color: 'var(--status-standby)',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            background: 'var(--status-standby-bg)',
+            letterSpacing: '0.02em',
+          }}
+        >
+          <span
+            style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: 'var(--status-standby)',
+              display: 'inline-block',
+            }}
+          />
+          休市{dayOfWeek ? `(${dayOfWeek})` : ''}
+        </span>
+      );
+
+    case 'estimating':
+      // 📊 估算中（红色）- 盘中实时估算值，数据不确定
+      return (
+        <span
+          data-label="估算中"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontSize: '10px',
+            fontWeight: 500,
+            color: 'var(--status-estimating)',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            background: 'var(--status-estimating-bg)',
+            letterSpacing: '0.02em',
+          }}
+        >
+          <span
+            style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: 'var(--status-estimating)',
+              display: 'inline-block',
+              animation: 'pulse-red 3s ease-in-out infinite',
+            }}
+          />
+          估算中
+        </span>
+      );
+
+    case 'pending_confirm':
+      // ⏳ 待确认（橙色）- 收盘后等待正式净值
+      return (
+        <span
+          data-label="待确认"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontSize: '10px',
+            fontWeight: 500,
+            color: 'var(--status-pending)',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            background: 'var(--status-pending-bg)',
+            letterSpacing: '0.02em',
+          }}
+        >
+          <span
+            style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: 'var(--status-pending)',
+              display: 'inline-block',
+            }}
+          />
+          待确认
+        </span>
+      );
+
+    case 'no_estimate':
+      // 估算失败（灰色）- 显示前一日数据
+      return (
+        <span
+          data-label="前一日"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontSize: '10px',
+            fontWeight: 500,
+            color: 'var(--status-standby)',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            background: 'var(--status-standby-bg)',
+            letterSpacing: '0.02em',
+          }}
+        >
+          <span
+            style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: 'var(--status-standby)',
+              display: 'inline-block',
+            }}
+          />
+          前一日
+        </span>
+      );
+
+    case 'sold_out':
+      // 已清仓（灰色）- 基金全部卖出，持仓记录保留
+      return (
+        <span
+          data-label="已清仓"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontSize: '10px',
+            fontWeight: 500,
+            color: 'var(--status-standby)',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            background: 'var(--status-standby-bg)',
+            letterSpacing: '0.02em',
+          }}
+        >
+          <span
+            style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: 'var(--status-standby)',
+              display: 'inline-block',
+            }}
+          />
+          已清仓
+        </span>
+      );
+
+    case 'pending_purchase':
+      // 📋 待入库（紫色）- 新购基金等待净值确认
+      return (
+        <span
+          data-label="待入库"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontSize: '10px',
+            fontWeight: 500,
+            color: 'var(--status-pending-purchase)',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            background: 'var(--status-pending-purchase-bg)',
+            letterSpacing: '0.02em',
+          }}
+        >
+          <span
+            style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: 'var(--status-pending-purchase)',
+              display: 'inline-block',
+              animation: 'pulse-red 3s ease-in-out infinite',
+            }}
+          />
+          待入库
+        </span>
+      );
+
+    case 'confirmed':
+    default:
+      // ✅ 已确认（浅金黄色）- 基金公司确认的实际净值，数据准确
+      return (
+        <span
+          data-label="已确认"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontSize: '10px',
+            fontWeight: 500,
+            color: 'var(--status-confirmed)',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            background: 'var(--status-confirmed-bg)',
+            letterSpacing: '0.02em',
+          }}
+        >
+          <span
+            style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: 'var(--status-confirmed)',
+              display: 'inline-block',
+            }}
+          />
+          已确认
+        </span>
+      );
+  }
+});
+
 function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemProps) {
   const navigate = useNavigate();
   const isUp = (fund.estimated_change ?? 0) >= 0;
@@ -36,264 +299,6 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
   const isSoldOut = fund.update_status === 'sold_out';
   const isPendingPurchase = fund.update_status === 'pending_purchase';
   const isEvenRow = index % 2 === 0;
-
-  // 渲染更新状态标记（5种状态：估算中/待确认/已确认/休市/待开市）
-  const renderUpdateIndicator = () => {
-    const status = fund.update_status || 'estimating';
-
-    switch (status) {
-      case 'pre_market':
-        // 🌅 待开市（蓝色）- 盘前等待开盘
-        return (
-          <span
-            data-label="待开市"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '10px',
-              fontWeight: 500,
-              color: '#3B82F6',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              background: 'rgba(59, 130, 246, 0.1)',
-              letterSpacing: '0.02em',
-            }}
-          >
-            <span
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: '#3B82F6',
-                display: 'inline-block',
-              }}
-            />
-            待开市
-          </span>
-        );
-
-      case 'market_closed':
-        // 🏁 休市（灰色）- 非交易日（周末/节假日）
-        return (
-          <span
-            data-label={`休市${fund.day_of_week ? `(${fund.day_of_week})` : ''}`}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '10px',
-              fontWeight: 500,
-              color: '#6B7280',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              background: 'rgba(107, 114, 128, 0.1)',
-              letterSpacing: '0.02em',
-            }}
-          >
-            <span
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: '#6B7280',
-                display: 'inline-block',
-              }}
-            />
-            休市{fund.day_of_week ? `(${fund.day_of_week})` : ''}
-          </span>
-        );
-
-      case 'estimating':
-        // 📊 估算中（红色）- 盘中实时估算值，数据不确定
-        return (
-          <span
-            data-label="估算中"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '10px',
-              fontWeight: 500,
-              color: '#EF4444',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              background: 'rgba(239, 68, 68, 0.1)',
-              letterSpacing: '0.02em',
-            }}
-          >
-            <span
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: '#EF4444',
-                display: 'inline-block',
-                animation: 'pulse-red 3s ease-in-out infinite',
-              }}
-            />
-            估算中
-          </span>
-        );
-
-      case 'pending_confirm':
-        // ⏳ 待确认（橙色）- 收盘后等待正式净值
-        return (
-          <span
-            data-label="待确认"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '10px',
-              fontWeight: 500,
-              color: '#F97316',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              background: 'rgba(249, 115, 22, 0.1)',
-              letterSpacing: '0.02em',
-            }}
-          >
-            <span
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: '#F97316',
-                display: 'inline-block',
-              }}
-            />
-            待确认
-          </span>
-        );
-
-      case 'no_estimate':
-        // 估算失败（灰色）- 显示前一日数据
-        return (
-          <span
-            data-label="前一日"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '10px',
-              fontWeight: 500,
-              color: '#6B7280',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              background: 'rgba(107, 114, 128, 0.1)',
-              letterSpacing: '0.02em',
-            }}
-          >
-            <span
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: '#6B7280',
-                display: 'inline-block',
-              }}
-            />
-            前一日
-          </span>
-        );
-
-      case 'sold_out':
-        // 已清仓（灰色）- 基金全部卖出，持仓记录保留
-        return (
-          <span
-            data-label="已清仓"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '10px',
-              fontWeight: 500,
-              color: '#6B7280',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              background: 'rgba(107, 114, 128, 0.1)',
-              letterSpacing: '0.02em',
-            }}
-          >
-            <span
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: '#6B7280',
-                display: 'inline-block',
-              }}
-            />
-            已清仓
-          </span>
-        );
-
-      case 'pending_purchase':
-        // 📋 待入库（紫色）- 新购基金等待净值确认
-        return (
-          <span
-            data-label="待入库"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '10px',
-              fontWeight: 500,
-              color: '#8B5CF6',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              background: 'rgba(139, 92, 246, 0.1)',
-              letterSpacing: '0.02em',
-            }}
-          >
-            <span
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: '#8B5CF6',
-                display: 'inline-block',
-                animation: 'pulse-red 3s ease-in-out infinite',
-              }}
-            />
-            待入库
-          </span>
-        );
-
-      case 'confirmed':
-      default:
-        // ✅ 已确认（浅金黄色）- 基金公司确认的实际净值，数据准确
-        return (
-          <span
-            data-label="已确认"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '10px',
-              fontWeight: 500,
-              color: '#f5d584',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              background: 'rgba(245, 213, 132, 0.15)',
-              letterSpacing: '0.02em',
-            }}
-          >
-            <span
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: '#f5d584',
-                display: 'inline-block',
-              }}
-            />
-            已确认
-          </span>
-        );
-    }
-  };
 
   if (mode === 'watchlist') {
     return (
@@ -334,8 +339,8 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
             bottom: 0,
             width: 3,
             background: isUp
-              ? 'linear-gradient(180deg, var(--gain), rgba(220,38,38,0.2))'
-              : 'linear-gradient(180deg, var(--loss), rgba(22,163,74,0.2))',
+              ? 'linear-gradient(180deg, var(--gain), var(--gain-band-end))'
+              : 'linear-gradient(180deg, var(--loss), var(--loss-band-end))',
             opacity: 0.7,
           }} />
         )}
@@ -355,7 +360,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {fund.fund_name || fund.fund_code}
             </span>
-            {renderUpdateIndicator()}
+            <UpdateIndicator status={fund.update_status} dayOfWeek={fund.day_of_week} />
           </div>
           <div style={{ 
             display: 'flex', 
@@ -456,8 +461,8 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
             height: 36,
             borderRadius: 3,
             background: isUp
-              ? 'linear-gradient(180deg, rgba(239, 68, 68, 0.8), rgba(239, 68, 68, 0.1))'
-              : 'linear-gradient(180deg, rgba(34, 197, 94, 0.8), rgba(34, 197, 94, 0.1))',
+              ? 'var(--gain-bar)'
+              : 'var(--loss-bar)',
             marginLeft: 12,
             flexShrink: 0,
           }} />
@@ -514,8 +519,8 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           bottom: 0,
           width: 3,
           background: isUp
-            ? 'linear-gradient(180deg, var(--gain), rgba(220,38,38,0.3))'
-            : 'linear-gradient(180deg, var(--loss), rgba(22,163,74,0.3))',
+            ? 'linear-gradient(180deg, var(--gain), var(--gain-band-end))'
+            : 'linear-gradient(180deg, var(--loss), var(--loss-band-end))',
           opacity: 0.85,
         }} />
       )}
@@ -524,7 +529,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {fund.fund_name || fund.fund_code}
           </span>
-          {renderUpdateIndicator()}
+          <UpdateIndicator status={fund.update_status} dayOfWeek={fund.day_of_week} />
         </div>
         <div className="fund-code-type-row" style={{ display: 'flex', gap: 5, alignItems: 'center', marginTop: 3 }}>
           <span className="number-tabular" style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{fund.fund_code}</span>
@@ -539,7 +544,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           <span className="number-tabular" style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
             {hideAmount ? '****' : `¥${(fund.market_value ?? 0).toLocaleString()}`}
           </span>
-          {renderUpdateIndicator()}
+          <UpdateIndicator status={fund.update_status} dayOfWeek={fund.day_of_week} />
         </div>
       </div>
 

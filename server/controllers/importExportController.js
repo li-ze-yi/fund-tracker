@@ -1,12 +1,26 @@
 const XLSX = require('xlsx');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const Fund = require('../models/fund');
 const Holding = require('../models/holding');
 const Transaction = require('../models/transaction');
 const fundService = require('../services/fundService');
 
-const upload = multer({ dest: path.join(__dirname, '../uploads/') });
+// 仅允许 Excel 格式文件（同时校验 mimetype 与扩展名）
+const upload = multer({
+  dest: path.join(__dirname, '../uploads/'),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 限制 5MB，防止超大文件占用服务器资源
+  fileFilter: (req, file, cb) => {
+    const allowedMime = ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (allowedMime.includes(file.mimetype) && (ext === '.xlsx' || ext === '.xls')) {
+      cb(null, true);
+    } else {
+      cb(new Error('仅支持 .xlsx / .xls 格式的 Excel 文件'));
+    }
+  }
+});
 
 exports.importData = [upload.single('file'), async (req, res, next) => {
   try {
@@ -68,7 +82,7 @@ exports.importData = [upload.single('file'), async (req, res, next) => {
           price: netValue,
           amount,
           fee: 0,
-          transactionDate: (realTime?.updateTime?.split(' ')[0]) || new Date().toISOString().slice(0, 10)
+          transactionDate: (realTime?.updateTime?.split(' ')[0]) || getLocalToday()
         });
 
         results.success++;
@@ -81,6 +95,11 @@ exports.importData = [upload.single('file'), async (req, res, next) => {
     res.json(results);
   } catch (err) {
     next(err);
+  } finally {
+    // 处理完成后清理上传的临时文件（无论成功失败），避免临时目录堆积
+    if (req.file && req.file.path) {
+      fs.unlink(req.file.path, () => {}); // 忽略删除失败
+    }
   }
 }];
 

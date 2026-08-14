@@ -42,7 +42,11 @@ export default function BottomTabBar() {
       }}
     >
       {tabs.map((tab) => {
-        const active = location.pathname === tab.path;
+        // 前缀匹配：进入 /fund/:code、/market/rotation 等子路由时保持对应 tab 高亮。
+        // 根路径 '/' 需精确匹配，避免吞掉其它所有路径。
+        const active = tab.path === '/'
+          ? location.pathname === '/'
+          : location.pathname.startsWith(tab.path);
         return (
           <div
             key={tab.path}

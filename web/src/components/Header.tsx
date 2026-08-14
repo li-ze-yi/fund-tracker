@@ -4,6 +4,7 @@ import { Input, Dropdown, Space, Button, Tag, App, Tooltip } from 'antd';
 import { LogoutOutlined, UserOutlined, SearchOutlined, PlusOutlined, StarOutlined, StarFilled, CameraOutlined, SunOutlined, MoonOutlined } from '@ant-design/icons';
 import { useAuthStore } from '@/store/authStore';
 import { useThemeStore } from '@/store/themeStore';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { fundService } from '@/services/fundService';
 import { favoriteService } from '@/services/favoriteService';
 import { settingService } from '@/services/settingService';
@@ -31,6 +32,7 @@ export default function Header() {
   const [countdown, setCountdown] = useState(30);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
   const countdownRef = useRef<ReturnType<typeof setInterval>>();
+  const countdownResetRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
     settingService.getSettings().then((data) => {
@@ -67,9 +69,11 @@ export default function Header() {
           window.dispatchEvent(new CustomEvent('manual-refresh', {
             detail: { forceRefresh: true, timestamp: Date.now() }
           }));
-          setTimeout(() => {
+          // 保存内部 setTimeout 句柄，组件卸载时一并清理，避免定时器泄漏
+          countdownResetRef.current = setTimeout(() => {
             setRefreshing(false);
             setBurstKey(k => k + 1);
+            countdownResetRef.current = undefined;
           }, 1000);
           return refreshFreq;
         }
@@ -79,6 +83,7 @@ export default function Header() {
 
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
+      if (countdownResetRef.current) clearTimeout(countdownResetRef.current);
     };
   }, [refreshFreq]);
 
@@ -157,7 +162,7 @@ export default function Header() {
     navigate('/login');
   };
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+  const isMobile = useIsMobile();
 
   const dropdownContent = (
     <div style={{

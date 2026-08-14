@@ -2,6 +2,7 @@ const Transaction = require('../models/transaction');
 const Holding = require('../models/holding');
 const fundService = require('./fundService');
 const { createLogger } = require('../utils/logger');
+const { getLocalToday, normalizeDateStr } = require('../utils/date');
 
 const logger = createLogger('PendingSettle');
 
@@ -172,7 +173,7 @@ class PendingSettleService {
                 shares: 0,
                 totalCost: 0,
                 totalReturn: Math.round(realizedProfit * 100) / 100,
-                soldDate: new Date().toISOString().slice(0, 10)
+                soldDate: getLocalToday()
               });
             } else {
               // 部分卖出 → 累加 total_return
@@ -298,20 +299,10 @@ class PendingSettleService {
   /**
    * 规范化日期字符串：Date 对象用本地时间（getFullYear/getMonth/getDate）格式化为 YYYY-MM-DD；
    * 字符串则取前 10 字符。mysql2 会把 DATE 列转成 UTC Date 对象，必须用本地时间提取。
-   * 与 dailyProfitService._normalizeDateStr 保持一致
+   * 复用公共 normalizeDateStr
    */
   _normalizeDateStr(dateVal) {
-    if (dateVal instanceof Date) {
-      const year = dateVal.getFullYear();
-      const month = String(dateVal.getMonth() + 1).padStart(2, '0');
-      const day = String(dateVal.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    }
-    if (typeof dateVal === 'string' && dateVal) {
-      const str = dateVal.split('T')[0].split(' ')[0];
-      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-    }
-    return '';
+    return normalizeDateStr(dateVal);
   }
 
   /**

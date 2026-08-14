@@ -57,7 +57,7 @@ exports.delete = async (req, res, next) => {
   try {
     const { id } = req.params;
     // 将分组的持仓移入默认分组
-    await Holding.update(id, req.user.id, { group_id: null });
+    await Holding.updateByGroupId(id, req.user.id, { group_id: null });
     await Group.delete(id, req.user.id);
     res.json({ message: '删除成功' });
   } catch (err) {

@@ -3,6 +3,7 @@ const globalCache = require('./globalCache');
 const Holding = require('../models/holding');
 const pool = require('../config/database');
 const { createLogger } = require('../utils/logger');
+const { getLocalToday, normalizeDateStr } = require('../utils/date');
 
 const logger = createLogger('HoldingService');
 
@@ -212,7 +213,7 @@ function resolveConfirmedNav(fundCode, holding, historyData, realTimeData) {
 
   const normalizeDate = (v) => {
     if (!v) return null;
-    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    if (v instanceof Date) return normalizeDateStr(v) || String(v).split('T')[0].split(' ')[0];
     return String(v).split('T')[0].split(' ')[0];
   };
 
@@ -375,7 +376,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     }
 
     // 批量获取历史净值
-    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
     // ★ 盘中（本地 9:00-15:00）跳过历史净值 API 拉取：仅复用已有缓存，未命中留空
     const nowHour = new Date().getHours();
     const isTradingHours = nowHour >= 9 && nowHour < 15;
@@ -438,7 +439,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     const yesterdayNav = historyData && historyData.length > 1 ? parseFloat(historyData[1].nav) || 0 : 0;
 
     const dbConfirmedNav = parseFloat(holding.confirmed_nav) || 0;
-    const dbConfirmedNavDate = holding.confirmed_nav_date ? holding.confirmed_nav_date.toISOString().slice(0, 10) : null;
+    const dbConfirmedNavDate = holding.confirmed_nav_date ? normalizeDateStr(holding.confirmed_nav_date) : null;
 
     // ★ 确认净值三级来源解析（缓存 → 数据库 → API），盘中估算以解析出的确认净值为基准
     const resolvedNav = resolveConfirmedNav(fundCode, holding, historyData, realTimeData);

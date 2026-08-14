@@ -4,6 +4,7 @@ import { InboxOutlined, DeleteOutlined, CameraOutlined, CloseOutlined, CheckOutl
 import { imageImportService } from '@/services/imageImportService';
 import { groupService } from '@/services/groupService';
 import { fundService } from '@/services/fundService';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 interface Props {
   open: boolean;
@@ -33,20 +34,12 @@ export default function ImageImportModal({ open, onClose, onSuccess }: Props) {
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [rawText, setRawText] = useState('');
   const [showRawText, setShowRawText] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const isMobile = useIsMobile();
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [searchDropdownKey, setSearchDropdownKey] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { message } = App.useApp();
-
-  // 响应式检测
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth <= 768);
-    check();
-    window.addEventListener('resize', check);
-    return () => window.removeEventListener('resize', check);
-  }, []);
 
   useEffect(() => {
     if (open) {

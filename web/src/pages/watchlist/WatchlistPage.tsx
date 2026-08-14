@@ -4,6 +4,7 @@ import { StarFilled } from '@ant-design/icons';
 import { favoriteService } from '@/services/favoriteService';
 import { fundService } from '@/services/fundService';
 import FundListItem from '@/components/FundListItem';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 interface FavoriteItem {
   id: number;
@@ -116,7 +117,8 @@ export default function WatchlistPage() {
             <Button
               size="small"
               type="text"
-              icon={<StarFilled style={{ color: '#D4A84B' }} />}
+              className="watchlist-remove-btn"
+              icon={<StarFilled style={{ color: 'var(--accent-gold)' }} />}
               onClick={() => removeFavorite(item.fund_code)}
               style={{
                 position: 'absolute',
@@ -126,9 +128,19 @@ export default function WatchlistPage() {
                 opacity: 0,
                 transition: 'opacity var(--transition-fast)',
                 zIndex: 10,
+                minWidth: 44,
+                minHeight: 44,
               }}
-              onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-              onMouseLeave={(e) => e.currentTarget.style.opacity = '0'}
+              onMouseEnter={(e) => {
+                if (window.innerWidth > 768) {
+                  e.currentTarget.style.opacity = '1';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (window.innerWidth > 768) {
+                  e.currentTarget.style.opacity = '0';
+                }
+              }}
             >
               取消
             </Button>

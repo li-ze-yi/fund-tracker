@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { normalizeDateStr } = require('../utils/date');
 
 const DailyProfit = {
   async findByUserIdAndDate(userId, date) {
@@ -20,7 +21,7 @@ const DailyProfit = {
   async findYesterdayByUserId(userId) {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const dateStr = yesterday.toISOString().slice(0, 10);
+    const dateStr = normalizeDateStr(yesterday);
 
     const [rows] = await pool.query(
       'SELECT * FROM daily_profits WHERE user_id = ? AND date = ?',

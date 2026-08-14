@@ -17,6 +17,7 @@
 const globalCache = require('./globalCache');
 const { fetchWithTimeout } = require('../utils/http');
 const { createLogger } = require('../utils/logger');
+const { getLocalToday, normalizeDateStr } = require('../utils/date');
 
 const logger = createLogger('Quotes');
 
@@ -390,37 +391,27 @@ async function getRotationData() {
     let styleMatrix = [];
     let northbound = { series: NB_BASELINE.slice(), top10: NB_TOP10_BASELINE.slice(), note: NOTES[2] };
 
-    try {
-      indices = await fetchIndices();
-    } catch (e) {
-      logger.error(`指数聚合失败: ${e.message}`);
-    }
-    try {
-      sectors = await fetchSectors();
-    } catch (e) {
-      logger.error(`行业板块聚合失败: ${e.message}`);
-    }
-    try {
-      breadth = await fetchBreadth(indices);
-    } catch (e) {
-      logger.error(`涨跌家数聚合失败: ${e.message}`);
-    }
-    try {
-      styleMatrix = await fetchStyleMatrix();
-    } catch (e) {
-      logger.error(`巨潮风格聚合失败: ${e.message}`);
-    }
-    try {
-      northbound = await fetchNorthbound();
-      northbound.top10 = await fetchNorthboundTop();
-    } catch (e) {
-      logger.error(`北向聚合失败: ${e.message}`);
-    }
+    // 并行聚合（各 fetch 内部已 try/catch，互不影响；均带兜底，单路失败不影响整页）
+    const [indicesRes, sectorsRes, styleMatrixRes, northboundRes, northboundTopRes] = await Promise.all([
+      fetchIndices().catch(() => []),
+      fetchSectors().catch(() => []),
+      fetchStyleMatrix().catch(() => []),
+      fetchNorthbound().catch(() => ({ series: NB_BASELINE.slice(), note: NOTES[2] })),
+      fetchNorthboundTop().catch(() => NB_TOP10_BASELINE.slice()),
+    ]);
+    indices = indicesRes;
+    sectors = sectorsRes;
+    styleMatrix = styleMatrixRes;
+    northbound = northboundRes;
+    northbound.top10 = northboundTopRes;
+
+    // breadth 依赖 indices（成交额），拿到 indices 后再取
+    breadth = await fetchBreadth(indices).catch(() => ({ up: 0, down: 0, flat: 0, amount: 0 }));
 
     const mainFlowTotal = sectors.reduce((s, x) => s + (x.mainflow || 0), 0);
 
     return {
-      date: new Date().toISOString().slice(0, 10),
+      date: getLocalToday(),
       asOf: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
       indices: indices || [],
       sectors: sectors || [],

@@ -1,6 +1,7 @@
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const compression = require('compression');
 const cron = require('node-cron');
 const { executeDuePlans } = require('./services/planService');
@@ -11,9 +12,35 @@ const { createLogger } = require('./utils/logger');
 
 const logger = createLogger('App');
 
+// 启动时校验必需环境变量，缺失时明确报错退出，避免用 undefined 静默签名
+const REQUIRED_ENV = ['JWT_SECRET', 'MYSQL_HOST', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'];
+const missingEnv = REQUIRED_ENV.filter(key => !process.env[key]);
+if (missingEnv.length > 0) {
+  logger.error(`缺少必需的环境变量: ${missingEnv.join(', ')}，请检查 .env 文件配置`);
+  process.exit(1);
+}
+
 const app = express();
 
-app.use(cors());
+app.use(helmet()); // 设置安全相关的 HTTP 响应头（默认隐藏 x-powered-by）
+app.disable('x-powered-by'); // 显式隐藏 x-powered-by，防止泄露框架信息
+
+// CORS 配置：从环境变量读取允许来源（CORS_ORIGIN，逗号分隔）
+// 未配置时回退为不限制（保持兼容，避免破坏现有使用）
+const corsWhitelist = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+app.use(cors({
+  origin: corsWhitelist.length > 0 ? (origin, callback) => {
+    // 无 origin 的请求（如同源/curl）直接放行
+    if (!origin) return callback(null, true);
+    if (corsWhitelist.includes('*') || corsWhitelist.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('不允许的跨域来源'));
+  } : true // 未配置 CORS_ORIGIN 时回退为不限制
+}));
 app.use(compression()); // 启用 gzip 压缩，API 响应体积可减少 60-80%
 app.use(express.json());
 
