@@ -455,6 +455,15 @@ class GlobalCache {
   }
 
   /**
+   * 仅清空缓存条目列表，保留命中率等统计信息
+   */
+  clearEntries() {
+    const size = this.cache.size;
+    this.cache.clear();
+    logger.info(`缓存条目已清空: 移除${size}个条目 (统计保留)`);
+  }
+
+  /**
    * 启动定时清理任务
    */
   startCleanup(intervalMs = 5 * 60 * 1000) {

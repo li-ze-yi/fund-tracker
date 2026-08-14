@@ -1285,11 +1285,6 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     padding: 12px 0 !important;
   }
 
-  /* 自选移除按钮：移动端始终可见（桌面端 hover 渐显） */
-  .watchlist-remove-btn {
-    opacity: 1 !important;
-  }
-
   .watchlist-title {
     font-size: clamp(18px, 5vw, 22px) !important;
     padding: 0 4px !important;
@@ -1337,6 +1332,12 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     max-width: calc(50% - 3px) !important;
     padding: 6px 10px !important;
   }
+}
+
+/* ========== WatchlistPage 滑动删除 ========== */
+.watchlist-page {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* ── 公告横幅动画 ── */

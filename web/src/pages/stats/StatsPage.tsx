@@ -75,10 +75,10 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
     // JetBrains Mono 等宽字体，单字符宽度约 0.62em（Bold 含字间距余量）
     const charWidthRatio = 0.62;
     // cellWidth 是 clientWidth（含 padding 不含 border）。扣除水平 padding + border + 安全余量
-    // day: .date-table-cell 无 padding；month/year: .year-grid-cell 移动 padding 6px×2、桌面 8px×2
+    // day: .date-table-cell 无 padding；month/year: .year-grid-cell 桌面/移动均 padding 4px×2
     const horizontalReserve = granularity === 'day'
       ? 4
-      : (isMobile ? 16 : 20);
+      : 12;
     const availablePx = Math.max(8, cellWidth - horizontalReserve);
     // 字号上限：让文本总宽度不超过可用宽度
     const sizeByWidth = Math.floor(availablePx / (text.length * charWidthRatio));
@@ -376,7 +376,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                   >
                     <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>{m} 月</span>
                     {hasData && (
-                      <span style={{ fontSize: getDynamicFontSize(mainText, isMobile ? 16 : 22, isMobile ? 6 : 7, 700), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
+                      <span style={{ fontSize: getDynamicFontSize(mainText, isMobile ? 18 : 24, isMobile ? 6 : 7, 700), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
                         {mainText}
                       </span>
                     )}
@@ -1386,7 +1386,7 @@ export default function StatsPage() {
 
           .year-grid-cell {
             min-height: 70px;
-            padding: 10px 6px;
+            padding: 8px 4px;
           }
 
           .date-table-legend {
@@ -1760,7 +1760,7 @@ export default function StatsPage() {
         }
         .year-grid-cell {
           border-radius: 8px;
-          padding: 12px 8px;
+          padding: 12px 4px;
           display: flex;
           flex-direction: column;
           align-items: center;

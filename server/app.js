@@ -12,6 +12,16 @@ const { createLogger } = require('./utils/logger');
 
 const logger = createLogger('App');
 
+// 全局异常兜底：防止单个请求/任务的未处理异常导致整个进程崩溃（服务不可用）
+// 记录日志后继续运行；若处理函数已损坏则优雅退出（由进程管理器重启）
+process.on('uncaughtException', (err) => {
+  logger.error(`[uncaughtException] ${err.message}`, err.stack);
+});
+process.on('unhandledRejection', (reason) => {
+  const msg = reason instanceof Error ? `${reason.message} | ${reason.stack}` : String(reason);
+  logger.error(`[unhandledRejection] ${msg}`);
+});
+
 // 启动时校验必需环境变量，缺失时明确报错退出，避免用 undefined 静默签名
 const REQUIRED_ENV = ['JWT_SECRET', 'MYSQL_HOST', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'];
 const missingEnv = REQUIRED_ENV.filter(key => !process.env[key]);

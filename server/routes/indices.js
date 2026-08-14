@@ -3,6 +3,7 @@ const router = express.Router();
 const globalCache = require('../services/globalCache');
 const { fetchWithTimeout } = require('../utils/http');
 const { createLogger } = require('../utils/logger');
+const { getLocalToday } = require('../utils/date');
 
 const logger = createLogger('Indices');
 
