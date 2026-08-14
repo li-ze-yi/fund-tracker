@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Empty, Alert, Button, Skeleton } from 'antd';
 import { SearchOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { holdingService } from '@/services/holdingService';
-import { settingService } from '@/services/settingService';
 import { useHideAmountStore } from '@/store/hideAmountStore';
 import MarketIndexStrip from '@/components/MarketIndexStrip';
 import GroupSwitcher from '@/components/GroupSwitcher';
@@ -44,7 +43,6 @@ export default function PortfolioPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeGroup, setActiveGroup] = useState<number | null>(null);
   const [groupManageOpen, setGroupManageOpen] = useState(false);
-  const [refreshFreq, setRefreshFreq] = useState(30);
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>(null);
   const isLoadingRef = useRef(false);
@@ -81,9 +79,6 @@ export default function PortfolioPage() {
 
   useEffect(() => {
     loadHoldings(true);
-    settingService.getSettings().then((data) => {
-      if (data?.refresh_frequency != null) setRefreshFreq(data.refresh_frequency);
-    }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -102,12 +97,6 @@ export default function PortfolioPage() {
       window.removeEventListener('data-changed', handleDataChanged);
     };
   }, [loadHoldings]);
-
-  useEffect(() => {
-    if (refreshFreq <= 0) return;
-    const timer = setInterval(() => loadHoldings(true), refreshFreq * 1000);
-    return () => clearInterval(timer);
-  }, [refreshFreq, loadHoldings]);
 
   const handleSort = (field: string) => {
     if (sortField === field) {
