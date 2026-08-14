@@ -568,9 +568,9 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
   // 注：不能单用 marketStatus.isMarketOpen——收盘后今日净值已确认时它仍为 true，会导致盘后误用估算值。
   if (confirmedNav > 0) {
     if (isTradingHours && estChange != null) {
-      // ★ 盘中估算：展示估算净值 = 确认净值 × (1 + 实时涨跌幅 / 100)
+      // ★ 盘中估算：净值展示用估算值，但持仓金额/累计收益保持稳定（基于确认净值，避免盘中波动）
       displayNav = confirmedNav * (1 + estChange / 100);
-      marketValue = shares * displayNav;
+      marketValue = shares * confirmedNav;   // 持仓金额稳定：基于确认净值
       usedEstimated = true;
       logger.info(`${holding.fund_code}: 盘中估算基准=解析确认净值 ${confirmedNav}, change=${estChange}%, estimatedValue=${displayNav.toFixed(4)}`);
     } else {
@@ -621,8 +621,9 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
   }
 
   let cumulativeReturn = marketValue - totalCost;
-  if (todayTxShares.buy > 0 && displayNav > 0 && costPrice > 0) {
-    const todayBuyProfit = todayTxShares.buy * (displayNav - costPrice);
+  // ★ 今日买入收益调整使用确认净值（而非盘中估算值），保证盘中累计收益稳定
+  if (todayTxShares.buy > 0 && confirmedNav > 0 && costPrice > 0) {
+    const todayBuyProfit = todayTxShares.buy * (confirmedNav - costPrice);
     cumulativeReturn -= todayBuyProfit;
   }
   // ★ 已清仓卖出当天（shares==0 && sold_date存在且==today）→ 累计收益应为实现盈亏（total_return），而非 marketValue - totalCost（均为0）

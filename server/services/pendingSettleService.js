@@ -65,9 +65,13 @@ class PendingSettleService {
           const holding = await Holding.findByUserAndFund(userId, tx.fund_code);
 
           if (tx.type === 'buy') {
-            // 买入结算：用确认净值计算实际份额
-            const actualShares = parseFloat(tx.amount) / confirmedNav;
-            logger.info(`订单 #${tx.id} 买入结算计算: amount=${tx.amount}, nav=${confirmedNav}, actualShares=${actualShares.toFixed(4)}`);
+            // 买入结算：用确认净值计算实际份额（扣除买入费率）
+            const feeRate = parseFloat(tx.fee) || 0;
+            const feeAmount = feeRate ? parseFloat(tx.amount) * feeRate : 0;
+            const actualInvestment = parseFloat(tx.amount) - feeAmount;
+            const actualShares = actualInvestment / confirmedNav;
+            const costPrice = actualShares > 0 ? parseFloat(tx.amount) / actualShares : confirmedNav;
+            logger.info(`订单 #${tx.id} 买入结算计算: amount=${tx.amount}, nav=${confirmedNav}, fee=${feeAmount.toFixed(4)}, actualShares=${actualShares.toFixed(4)}`);
 
             // ★ 先尝试更新交易状态（乐观锁），防止并发重复结算
             // updateToConfirmed 带 status='pending' 条件，返回 false 说明已被其他任务结算
@@ -85,16 +89,35 @@ class PendingSettleService {
 
             if (!holding) {
               // 无持仓（定投首笔等场景）→ 新建持仓
-              logger.info(`订单 #${tx.id} 无持仓记录，新建持仓: fund=${tx.fund_code}, shares=${actualShares.toFixed(4)}, costPrice=${confirmedNav}, totalCost=${tx.amount}`);
+              logger.info(`订单 #${tx.id} 无持仓记录，新建持仓: fund=${tx.fund_code}, shares=${actualShares.toFixed(4)}, costPrice=${costPrice.toFixed(4)}, totalCost=${tx.amount}, nav=${confirmedNav}, navDate=${navDate}`);
               await Holding.create({
                 userId,
                 fundCode: tx.fund_code,
                 shares: actualShares,
-                costPrice: confirmedNav,
+                costPrice,
+                confirmedNav,
+                confirmedNavDate: navDate,
                 totalCost: parseFloat(tx.amount)
               });
+            } else if (holding.confirmed_nav === null) {
+              // 占位持仓（pending 购买创建，totalCost 已预写）→ 替换为实际数据（不累加，避免 totalCost 翻倍）
+              const currentShares = actualShares;
+              const currentTotalCost = parseFloat(tx.amount);
+              const currentCostPrice = costPrice;
+
+              logger.info(`订单 #${tx.id} 替换占位持仓: oldShares=${parseFloat(holding.shares).toFixed(4)}, newShares=${currentShares.toFixed(4)}, oldCost=${parseFloat(holding.cost_price).toFixed(4)}, newCost=${currentCostPrice.toFixed(4)}, nav=${confirmedNav}, navDate=${navDate}`);
+
+              await Holding.update(holding.id, userId, {
+                shares: currentShares,
+                cost_price: currentCostPrice,
+                totalCost: currentTotalCost,
+                confirmedNav,
+                confirmedNavDate: navDate,
+                soldDate: null,
+                totalReturn: 0
+              });
             } else {
-              // 已有持仓 → 加仓
+              // 已有确认持仓 → 加仓
               const currentShares = parseFloat(holding.shares) + actualShares;
               const currentTotalCost = parseFloat(holding.total_cost) + parseFloat(tx.amount);
               const currentCostPrice = currentShares ? currentTotalCost / currentShares : 0;
