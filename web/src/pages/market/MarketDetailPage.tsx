@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Button, Skeleton, Segmented } from 'antd';
 import { ArrowLeftOutlined, RiseOutlined, FallOutlined, LineChartOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import EChart from '@/components/EChart';
 import { fetchIndexData, fetchIntradayData, ALL_INDEX_META, type IntradayData } from '@/services/indexService';
 import { useThemeStore } from '@/store/themeStore';
 
@@ -679,7 +679,7 @@ export default function MarketDetailPage() {
         {intradayLoading && !intradayData ? (
           <Skeleton active paragraph={{ rows: 6 }} />
         ) : intradayData && intradayData.prices && intradayData.prices.length > 0 ? (
-          <ReactECharts option={chartOption} style={{ height: hasVolume ? 'clamp(300px, 60vw, 480px)' : 'clamp(260px, 46vw, 380px)' }} opts={{ renderer: 'canvas' }} />
+          <EChart option={chartOption} style={{ height: hasVolume ? 'clamp(300px, 60vw, 480px)' : 'clamp(260px, 46vw, 380px)' }} opts={{ renderer: 'canvas' }} />
         ) : (
           <div style={{
             height: 'clamp(240px, 42vw, 360px)',

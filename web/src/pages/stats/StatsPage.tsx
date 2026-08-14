@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { Card, Segmented, Table, Skeleton, Empty, Tooltip } from 'antd';
 import { BarChartOutlined, CalendarOutlined, DollarOutlined, PercentageOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import EChart from '@/components/EChart';
 import { statsService } from '@/services/statsService';
 import { useThemeStore } from '@/store/themeStore';
 import { useHideAmountStore } from '@/store/hideAmountStore';
@@ -1582,7 +1582,7 @@ export default function StatsPage() {
                   body: { padding: '20px 16px' },
                 }}
               >
-                <ReactECharts option={chartOption} style={{ height: 'clamp(280px, 50vw, 380px)' }} className="stats-chart-container" opts={{ renderer: 'canvas' }} />
+                <EChart option={chartOption} style={{ height: 'clamp(280px, 50vw, 380px)' }} className="stats-chart-container" opts={{ renderer: 'canvas' }} />
               </Card>
 
               {/* 数据表格 */}

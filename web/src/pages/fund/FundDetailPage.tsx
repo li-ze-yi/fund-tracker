@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Button, Table, Tag, Segmented, Skeleton, App, Space, Dropdown } from 'antd';
 import { ArrowLeftOutlined, StarOutlined, StarFilled, PlusOutlined, MinusOutlined, ScheduleOutlined, DeleteOutlined, EditOutlined, ThunderboltOutlined, FundOutlined, AimOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import EChart from '@/components/EChart';
 import { fundService } from '@/services/fundService';
 import { transactionService } from '@/services/transactionService';
 import { favoriteService } from '@/services/favoriteService';
@@ -1140,7 +1140,7 @@ export default function FundDetailPage() {
             />
           </Space>
         </div>
-        <ReactECharts option={chartOption} style={{ height: 'clamp(260px, 45vw, 340px)' }} className="fund-detail-chart-container" opts={{ renderer: 'canvas' }} />
+        <EChart option={chartOption} style={{ height: 'clamp(260px, 45vw, 340px)' }} className="fund-detail-chart-container" opts={{ renderer: 'canvas' }} />
         {navHistory.length > 0 && (
           <div className="fund-detail-data-info" style={{
             marginTop: 12,
