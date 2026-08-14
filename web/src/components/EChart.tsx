@@ -50,5 +50,5 @@ export default function EChart({ option, style, className, opts, notMerge, lazyU
     chartRef.current?.setOption(option, notMerge ?? false, lazyUpdate ?? false);
   }, [option, notMerge, lazyUpdate]);
 
-  return <div ref={containerRef} className={className} style={{ width: '100%', ...style }} />;
+  return <div ref={containerRef} className={className} style={{ width: '100%', maxWidth: '100vw', overflow: 'hidden', ...style }} />;
 }
