@@ -228,7 +228,19 @@ function resolveConfirmedNav(fundCode, holding, historyData, realTimeData) {
   // ② 数据库值新鲜（占位持仓 confirmed_nav<=0 或日期不匹配则不命中）
   const dbNav = parseFloat(holding && holding.confirmed_nav) || 0;
   const dbNavDate = normalizeDate(holding && holding.confirmed_nav_date);
-  if (dbNav > 0 && latestHistoryDate && dbNavDate === latestHistoryDate) {
+  // 本地今日字符串（YYYY-MM-DD，用本地时间拼，避免 UTC 偏移）
+  const nowDate = new Date();
+  const todayStr = `${nowDate.getFullYear()}-${String(nowDate.getMonth() + 1).padStart(2, '0')}-${String(nowDate.getDate()).padStart(2, '0')}`;
+  let dbFresh = false;
+  if (latestHistoryDate) {
+    // 盘后正常拉取到历史：日期须与最近确认交易日一致
+    dbFresh = dbNavDate === latestHistoryDate;
+  } else {
+    // 盘中跳过拉取后无历史数据：改用日期启发式，覆盖周末/节假日（距今不超过 4 天视为新鲜）
+    dbFresh = dbNav > 0 && dbNavDate && dbNavDate < todayStr &&
+      (new Date(todayStr) - new Date(dbNavDate)) / (24 * 3600 * 1000) <= 4;
+  }
+  if (dbNav > 0 && dbFresh) {
     const data = { nav: dbNav, date: dbNavDate, source: 'db' };
     globalCache.set(cacheKey, data, cacheType);
     return data;
@@ -247,6 +259,16 @@ function resolveConfirmedNav(fundCode, holding, historyData, realTimeData) {
   if (apiNav > 0) {
     const data = { nav: apiNav, date: apiDate, source: 'api' };
     globalCache.set(cacheKey, data, cacheType);
+    // ★ 自愈：非占位持仓（confirmed_nav !== null）且拿到 API 日期时回写数据库，避免 DB 值长期滞后
+    if (apiDate && holding && holding.confirmed_nav !== null) {
+      Holding.update(holding.id, holding.user_id, {
+        confirmedNav: apiNav,
+        confirmedNavDate: apiDate
+      }).catch(err => {
+        logger.error(`确认净值回写数据库失败: fund=${fundCode}, holdingId=${holding.id}, err=${err.message}`);
+      });
+      logger.info(`盘中确认净值回写数据库: fund=${fundCode}, holdingId=${holding.id}, nav=${apiNav}, date=${apiDate}`);
+    }
     return data;
   }
 
@@ -354,17 +376,34 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
     // 批量获取历史净值
     const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    // ★ forceRefresh 时强制重新拉取历史净值（兜底任务依赖最新确认净值，旧缓存会导致 isConfirmed 误判）
-    const historyNeedFetch = forceRefresh ? codes : codes.filter(code => {
-      const cacheKey = `history_${code}_3d_${today}`;
-      // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
-      const result = globalCache.checkCache(cacheKey, 'history_recent');
-      if (result.hit) {
-        historyDataMap[code] = result.data;
-        return false;
+    // ★ 盘中（本地 9:00-15:00）跳过历史净值 API 拉取：仅复用已有缓存，未命中留空
+    const nowHour = new Date().getHours();
+    const isTradingHours = nowHour >= 9 && nowHour < 15;
+    let historyNeedFetch;
+    if (isTradingHours) {
+      // 交易时段（含 forceRefresh）跳过 API 拉取，只复用缓存命中项
+      for (const code of codes) {
+        const cacheKey = `history_${code}_3d_${today}`;
+        const result = globalCache.checkCache(cacheKey, 'history_recent');
+        if (result.hit) {
+          historyDataMap[code] = result.data;
+        }
       }
-      return true;
-    });
+      historyNeedFetch = [];
+      logger.info(`盘中（9:00-15:00）跳过 ${codes.length} 只基金的历史净值拉取`);
+    } else {
+      // 非交易时段：forceRefresh 时强制重新拉取历史净值（兜底任务依赖最新确认净值，旧缓存会导致 isConfirmed 误判）
+      historyNeedFetch = forceRefresh ? codes : codes.filter(code => {
+        const cacheKey = `history_${code}_3d_${today}`;
+        // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
+        const result = globalCache.checkCache(cacheKey, 'history_recent');
+        if (result.hit) {
+          historyDataMap[code] = result.data;
+          return false;
+        }
+        return true;
+      });
+    }
 
     if (historyNeedFetch.length > 0) {
       batchPromises.push(
