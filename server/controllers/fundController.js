@@ -6,6 +6,7 @@ const holdingService = require('../services/holdingService');
 const globalCache = require('../services/globalCache');
 const pool = require('../config/database');
 const UserSetting = require('../models/userSetting');
+const { getLocalToday, normalizeDateStr } = require('../utils/date');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('FundController');
@@ -86,12 +87,12 @@ exports.getByCode = async (req, res, next) => {
       let confirmedNav = null;
       let yesterdayNav = null;
       try {
-        const todayStr = now.toISOString().slice(0, 10);
-        const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const todayStr = getLocalToday();
+        const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
         const history = await fundService.getHistoryNetValues(code, threeDaysAgo, todayStr);
 
         if (history && history.length > 0) {
-          const todayStr2 = now.toISOString().slice(0, 10);
+          const todayStr2 = getLocalToday();
           // history 是从新到旧排列
           const latestRecord = history[0];
           if (latestRecord && latestRecord.date === todayStr2) {
@@ -182,7 +183,7 @@ exports.getByCode = async (req, res, next) => {
         // 昨日份额 = 当前份额 - 今日买入 + 今日卖出
         let todayBuyShares = 0, todaySellShares = 0;
         try {
-          const today = new Date().toISOString().slice(0, 10);
+          const today = getLocalToday();
           const [rows] = await pool.query(
             `SELECT type, SUM(shares) as total_shares FROM transactions
              WHERE user_id = ? AND fund_code = ? AND transaction_date = ? AND status = 'confirmed'
@@ -260,39 +261,27 @@ exports.batchGetInfo = async (req, res, next) => {
     const realtimeMap = await fundService.batchGetRealTimeValuesWithMethod(fundCodes, valuationMethod);
 
     // 批量获取历史净值
-    const today = new Date().toISOString().slice(0, 10);
-    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const today = getLocalToday();
+    const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
     const historyMap = await fundService.batchGetHistoryNetValues(fundCodes, threeDaysAgo, today);
 
     // 市场状态（用前3只基金检测）
     const marketStatus = await holdingService.checkMarketStatus(fundCodes.slice(0, 3).map(c => ({ fund_code: c })));
 
-    // 并行查询所有基金的基本信息和持仓
-    const fundInfoPromises = fundCodes.map(async (code) => {
-      const fund = await Fund.findByCode(code).catch(() => null);
-      return { code, fund };
-    });
-
-    const holdingPromises = userId
-      ? fundCodes.map(async (code) => {
-          const holding = await Holding.findByUserAndFund(userId, code).catch(() => null);
-          return { code, holding };
-        })
-      : [];
-
-    const [fundInfoResults, holdingResults] = await Promise.all([
-      Promise.allSettled(fundInfoPromises),
-      Promise.allSettled(holdingPromises),
+    // 批量查询所有基金基本信息与持仓（单次 WHERE IN，消除 N+1）
+    const [fundRows, holdingRows] = await Promise.all([
+      Fund.findByCodes(fundCodes).catch(() => []),
+      userId ? Holding.findByUserAndCodes(userId, fundCodes).catch(() => []) : Promise.resolve([]),
     ]);
 
     // 构建查找表
     const fundMap = {};
-    for (const r of fundInfoResults) {
-      if (r.status === 'fulfilled' && r.value.fund) fundMap[r.value.code] = r.value.fund;
+    for (const fund of fundRows) {
+      if (fund) fundMap[fund.code] = fund;
     }
     const holdingMap = {};
-    for (const r of holdingResults) {
-      if (r.status === 'fulfilled' && r.value.holding) holdingMap[r.value.code] = r.value.holding;
+    for (const holding of holdingRows) {
+      if (holding) holdingMap[holding.fund_code] = holding;
     }
 
     // 查询今日交易份额
@@ -456,8 +445,8 @@ exports.getNavHistory = async (req, res, next) => {
 
     // 走势图历史净值缓存（按日期范围区分，跨天自动 miss，外部 API：eastmoney/lsjz）
     const cacheKey = `history_${code}_${startDate || ''}_${endDate || ''}`; // 走势图历史净值缓存键
-    const today = new Date().toISOString().slice(0, 10);
-    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const today = getLocalToday();
+    const yesterday = normalizeDateStr(new Date(Date.now() - 24 * 60 * 60 * 1000));
     // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
     const cacheResult = globalCache.checkCache(cacheKey, 'history_chart');
 

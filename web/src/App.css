@@ -42,6 +42,10 @@
   --flat: #94A3B8;
   --flat-bg: rgba(148, 163, 184, 0.06);
 
+  /* 绿色涨/正常语义（浅色主题） */
+  --accent-green: #16A34A;
+  --accent-green-dim: rgba(22, 163, 74, 0.08);
+
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255,255,255,0.5);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06), 0 0 0 1px var(--border-subtle);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.08), 0 0 0 1px var(--border-subtle);
@@ -65,6 +69,26 @@
   --hero-border-light: rgba(184, 134, 11, 0.12);
   --hero-accent-glow: radial-gradient(ellipse at 100% 0%, rgba(184, 134, 11, 0.06), transparent 60%);
   --neon-glow-gold: rgba(184, 134, 11, 0.25);
+
+  /* 状态标记色（更新指示器） */
+  --status-pre-market: #3B82F6;
+  --status-pre-market-bg: rgba(59, 130, 246, 0.1);
+  --status-standby: #6B7280;
+  --status-standby-bg: rgba(107, 114, 128, 0.1);
+  --status-estimating: #EF4444;
+  --status-estimating-bg: rgba(239, 68, 68, 0.1);
+  --status-pending: #F97316;
+  --status-pending-bg: rgba(249, 115, 22, 0.1);
+  --status-confirmed: #f5d584;
+  --status-confirmed-bg: rgba(245, 213, 132, 0.15);
+  --status-pending-purchase: #8B5CF6;
+  --status-pending-purchase-bg: rgba(139, 92, 246, 0.1);
+
+  /* 涨跌渐变条 */
+  --gain-bar: linear-gradient(180deg, rgba(239, 68, 68, 0.8), rgba(239, 68, 68, 0.1));
+  --loss-bar: linear-gradient(180deg, rgba(34, 197, 94, 0.8), rgba(34, 197, 94, 0.1));
+  --gain-band-end: rgba(220, 38, 38, 0.3);
+  --loss-band-end: rgba(22, 163, 74, 0.3);
 }
 
 /* ========== 深色主题 ========== */
@@ -119,6 +143,20 @@
   --hero-border-light: rgba(212, 168, 75, 0.15);
   --hero-accent-glow: radial-gradient(ellipse at 100% 0%, rgba(212, 168, 75, 0.08), transparent 60%);
   --neon-glow-gold: rgba(212, 168, 75, 0.30);
+
+  /* 状态标记色（深色主题：提亮以增强对比） */
+  --status-pre-market: #60A5FA;
+  --status-pre-market-bg: rgba(96, 165, 250, 0.15);
+  --status-standby: #94A3B8;
+  --status-standby-bg: rgba(148, 163, 184, 0.12);
+  --status-estimating: #F87171;
+  --status-estimating-bg: rgba(248, 113, 113, 0.15);
+  --status-pending: #FB923C;
+  --status-pending-bg: rgba(251, 146, 60, 0.15);
+  --status-confirmed: #f5d584;
+  --status-confirmed-bg: rgba(245, 213, 132, 0.15);
+  --status-pending-purchase: #A78BFA;
+  --status-pending-purchase-bg: rgba(167, 139, 250, 0.15);
 }
 
 [data-theme="dark"] body {
@@ -1294,6 +1332,12 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     max-width: calc(50% - 3px) !important;
     padding: 6px 10px !important;
   }
+}
+
+/* ========== WatchlistPage 滑动删除 ========== */
+.watchlist-page {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* ── 公告横幅动画 ── */

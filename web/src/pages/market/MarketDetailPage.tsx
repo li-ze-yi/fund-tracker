@@ -5,6 +5,7 @@ import { ArrowLeftOutlined, RiseOutlined, FallOutlined, LineChartOutlined } from
 import EChart from '@/components/EChart';
 import { fetchIndexData, fetchIntradayData, ALL_INDEX_META, type IntradayData } from '@/services/indexService';
 import { useThemeStore } from '@/store/themeStore';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 interface IndexItem {
   code: string;
@@ -81,7 +82,9 @@ export default function MarketDetailPage() {
 
   useEffect(() => {
     if (selectedIndex) {
-      loadIntradayData(selectedIndex);
+      let cancelled = false;
+      loadIntradayData(selectedIndex, () => cancelled);
+      return () => { cancelled = true; };
     }
   }, [selectedIndex]);
 
@@ -96,15 +99,13 @@ export default function MarketDetailPage() {
     }
   };
 
-  const loadIntradayData = async (code: string) => {
+  const loadIntradayData = async (code: string, isCancelled?: () => boolean) => {
     setIntradayLoading(true);
     try {
-      console.log(`📡 Fetching intraday data for: ${code}`);
       const data = await fetchIntradayData(code);
-      console.log(`📊 Intraday data received:`, data);
+      if (isCancelled && isCancelled()) return;
       if (data && data.prices && data.prices.length > 0) {
         setIntradayData(data);
-        console.log(`✅ Intraday data set: ${data.prices.length} points from ${data.source}`);
       } else {
         console.warn(`⚠️ Invalid intraday data received:`, data);
         setIntradayData(null);
@@ -113,6 +114,7 @@ export default function MarketDetailPage() {
       console.error('❌ Failed to fetch intraday data:', e);
       setIntradayData(null);
     } finally {
+      if (isCancelled && isCancelled()) return;
       setIntradayLoading(false);
     }
   };
@@ -120,7 +122,7 @@ export default function MarketDetailPage() {
   const currentIndex = indices.find(i => i.code === selectedIndex) || indices[0];
   const isUp = currentIndex ? (currentIndex.change ?? 0) >= 0 : true;
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+  const isMobile = useIsMobile();
   const themeMode = useThemeStore((s) => s.mode);
   const isLight = themeMode === 'light';
 

@@ -65,10 +65,7 @@ export interface IntradayData {
 
 export async function fetchIntradayData(code: string): Promise<IntradayData | null> {
   try {
-    console.log(`🌐 API call: GET /api/indices/${code}/intraday`);
     const res = await api.get(`/indices/${code}/intraday`);
-    console.log(`📦 API response status:`, res.status);
-    console.log(`📦 API response data:`, res.data);
 
     if (res.status === 200 && res.data && res.data.data) {
       const result = {
@@ -78,7 +75,6 @@ export async function fetchIntradayData(code: string): Promise<IntradayData | nu
         source: res.data.source,
         pointCount: res.data.pointCount
       };
-      console.log(`✅ Parsed intraday data:`, result);
       return result;
     }
 

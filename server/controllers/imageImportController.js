@@ -8,6 +8,7 @@ const fundService = require('../services/fundService');
 const globalCache = require('../services/globalCache');
 const ocrService = require('../services/ocrService');
 const { createLogger } = require('../utils/logger');
+const { getLocalToday, normalizeDateStr } = require('../utils/date');
 
 const logger = createLogger('ImageImportController');
 
@@ -253,8 +254,8 @@ exports.confirmImport = async (req, res, next) => {
         let confirmedNavDate = null;
 
         try {
-          const today = new Date().toISOString().slice(0, 10);
-          const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+          const today = getLocalToday();
+          const thirtyDaysAgo = normalizeDateStr(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
           const historyCacheKey = `history_${fundCode}_30d_${today}`;
 
           try {
@@ -336,7 +337,7 @@ exports.confirmImport = async (req, res, next) => {
           price: netValue,
           amount,
           fee: 0,
-          transactionDate: confirmedNavDate || new Date().toISOString().slice(0, 10),
+          transactionDate: confirmedNavDate || getLocalToday(),
           metadata: JSON.stringify({ netValueSource, source: 'image_import' })
         });
 

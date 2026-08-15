@@ -50,6 +50,9 @@ class GlobalCache {
     // 最大缓存条目数（防止内存溢出）
     this.maxSize = 500;
 
+    // 在途请求去重（缓存击穿防护）：key -> Promise，命中时复用，完成后删除
+    this.inFlight = new Map();
+
     // 定时清理器
     this.cleanupInterval = null;
 
@@ -170,25 +173,40 @@ class GlobalCache {
       }
     }
 
-    // 3️⃣ 缓存未命中 → 发起实际请求
+    // 3️⃣ 缓存未命中 → 判断是否已有在途请求（缓存击穿防护）
     this.stats.misses++;
-    
+
+    // 命中在途请求：直接复用，避免相同 key 并发重复请求外部 API
+    const inFlightPromise = this.inFlight.get(key);
+    if (inFlightPromise) {
+      return inFlightPromise;
+    }
+
     if (typeof onMiss === 'function') {
       onMiss(key);  // 回调通知（可用于监控）
     }
 
-    try {
-      const data = await fetchFn();
-      
-      if (data !== null && data !== undefined) {
-        this.set(key, data, type);
+    const promise = (async () => {
+      try {
+        const data = await fetchFn();
+
+        if (data !== null && data !== undefined) {
+          this.set(key, data, type);
+        }
+
+        return data;
+      } catch (error) {
+        logger.error(`获取数据失败: ${key}, error=${error.message}`);
+        throw error;
+      } finally {
+        // 请求完成（成功或失败）后清除在途标记
+        this.inFlight.delete(key);
       }
-      
-      return data;
-    } catch (error) {
-      logger.error(`获取数据失败: ${key}, error=${error.message}`);
-      throw error;
-    }
+    })();
+
+    this.inFlight.set(key, promise);
+
+    return promise;
   }
 
   /**
@@ -434,6 +452,15 @@ class GlobalCache {
     
     // 重置统计
     this.stats = { hits: 0, misses: 0, evictions: 0, totalRequests: 0, forcedRefreshes: 0 };
+  }
+
+  /**
+   * 仅清空缓存条目列表，保留命中率等统计信息
+   */
+  clearEntries() {
+    const size = this.cache.size;
+    this.cache.clear();
+    logger.info(`缓存条目已清空: 移除${size}个条目 (统计保留)`);
   }
 
   /**

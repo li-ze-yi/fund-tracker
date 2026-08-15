@@ -37,39 +37,44 @@ export function useMarketData(opts: UseMarketDataOpts): MarketDataState {
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const alive = useRef(true);
   const hasData = useRef(false); // 跟踪是否曾成功拿到数据，避免 stale-closure 误置 error
+  const inFlight = useRef(false); // 防止轮询重叠：上一次 tick 未完成时跳过本次
 
   const tick = useCallback(async () => {
+    // 上一次轮询尚未完成则跳过本次，避免 async 请求重叠堆积
+    if (inFlight.current) return;
+    inFlight.current = true;
     const fetchers = [primary, fallback].filter(Boolean) as MarketDataFetcher[];
     let ok = false;
-    for (const f of fetchers) {
-      try {
-        const d = await f();
-        if (d && (d.indices?.length || d.sectors?.length)) {
-          setData(d);
-          hasData.current = true;
-          setLastUpdate(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
-          setError(null);
-          ok = true;
-          break;
+    try {
+      for (const f of fetchers) {
+        try {
+          const d = await f();
+          if (d && (d.indices?.length || d.sectors?.length)) {
+            setData(d);
+            hasData.current = true;
+            setLastUpdate(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
+            setError(null);
+            ok = true;
+            break;
+          }
+        } catch (e) {
+          // 试下一个数据源
         }
-      } catch (e) {
-        // 试下一个数据源
       }
+      if (!ok && !hasData.current) setError(new Error("所有数据源均不可用"));
+      setLoading(false);
+    } finally {
+      inFlight.current = false;
     }
-    if (!ok && !hasData.current) setError(new Error("所有数据源均不可用"));
-    setLoading(false);
   }, [primary, fallback]);
 
   useEffect(() => {
-    alive.current = true;
     let timer: ReturnType<typeof setInterval> | null = null;
 
     tick();
     timer = setInterval(tick, pollIntervalMs);
     return () => {
-      alive.current = false;
       if (timer) clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

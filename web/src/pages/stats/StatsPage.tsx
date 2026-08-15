@@ -1,49 +1,15 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { Card, Segmented, Table, Skeleton, Empty, Tooltip } from 'antd';
 import { BarChartOutlined, CalendarOutlined, DollarOutlined, PercentageOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import EChart from '@/components/EChart';
 import { statsService } from '@/services/statsService';
 import { useThemeStore } from '@/store/themeStore';
 import { useHideAmountStore } from '@/store/hideAmountStore';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 type Period = 'daily' | 'monthly' | 'yearly';
 type ViewMode = 'chart' | 'date_table';
-
-const MOCK_DAILY_DATA = [
-  { date: '2026-05-11', profit: 128.56, return_rate: 0.85 },
-  { date: '2026-05-10', profit: -45.23, return_rate: -0.30 },
-  { date: '2026-05-09', profit: 89.34, return_rate: 0.59 },
-  { date: '2026-05-08', profit: -12.78, return_rate: -0.08 },
-  { date: '2026-05-07', profit: 156.42, return_rate: 1.04 },
-  { date: '2026-05-06', profit: 67.89, return_rate: 0.45 },
-  { date: '2026-05-05', profit: -98.21, return_rate: -0.65 },
-  { date: '2026-05-04', profit: 203.15, return_rate: 1.35 },
-  { date: '2026-05-03', profit: 34.67, return_rate: 0.23 },
-  { date: '2026-05-02', profit: -56.43, return_rate: -0.37 },
-  { date: '2026-05-01', profit: 178.92, return_rate: 1.19 },
-  { date: '2026-04-30', profit: 245.68, return_rate: 1.63 },
-];
-
-const MOCK_MONTHLY_DATA = [
-  { month: '2026-05', profit: 895.32, return_rate: 5.96, accumulated_profit: 12580.50 },
-  { month: '2026-04', profit: 1234.78, return_rate: 8.22, accumulated_profit: 11685.18 },
-  { month: '2026-03', profit: -345.67, return_rate: -2.30, accumulated_profit: 10450.40 },
-  { month: '2026-02', profit: 678.90, return_rate: 4.52, accumulated_profit: 10796.07 },
-  { month: '2026-01', profit: 1122.34, return_rate: 7.47, accumulated_profit: 10117.17 },
-  { month: '2025-12', profit: 890.12, return_rate: 5.93, accumulated_profit: 8994.83 },
-  { month: '2025-11', profit: -234.56, return_rate: -1.56, accumulated_profit: 8104.71 },
-  { month: '2025-10', profit: 1567.89, return_rate: 10.44, accumulated_profit: 8339.27 },
-  { month: '2025-09', profit: 445.23, return_rate: 2.96, accumulated_profit: 6771.38 },
-  { month: '2025-08', profit: -123.45, return_rate: -0.82, accumulated_profit: 6326.15 },
-  { month: '2025-07', profit: 1890.67, return_rate: 12.58, accumulated_profit: 6449.60 },
-  { month: '2025-06', profit: 556.78, return_rate: 3.70, accumulated_profit: 4558.93 },
-];
-
-const MOCK_YEARLY_DATA = [
-  { year: '2026', profit: 895.32, return_rate: 5.96, accumulated_profit: 12580.50 },
-  { year: '2025', profit: 8543.21, return_rate: 57.00, accumulated_profit: 11685.18 },
-  { year: '2024', profit: 3245.67, return_rate: 21.64, accumulated_profit: 3141.97 },
-];
 
 // 日期表格视图粒度：日（日历网格）/ 月（12 月网格）/ 年（多年年度网格）
 type CalendarGranularity = 'day' | 'month' | 'year';
@@ -109,10 +75,10 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
     // JetBrains Mono 等宽字体，单字符宽度约 0.62em（Bold 含字间距余量）
     const charWidthRatio = 0.62;
     // cellWidth 是 clientWidth（含 padding 不含 border）。扣除水平 padding + border + 安全余量
-    // day: .date-table-cell 无 padding；month/year: .year-grid-cell 移动 padding 6px×2、桌面 8px×2
+    // day: .date-table-cell 无 padding；month/year: .year-grid-cell 桌面/移动均 padding 4px×2
     const horizontalReserve = granularity === 'day'
       ? 4
-      : (isMobile ? 16 : 20);
+      : 12;
     const availablePx = Math.max(8, cellWidth - horizontalReserve);
     // 字号上限：让文本总宽度不超过可用宽度
     const sizeByWidth = Math.floor(availablePx / (text.length * charWidthRatio));
@@ -410,7 +376,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                   >
                     <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>{m} 月</span>
                     {hasData && (
-                      <span style={{ fontSize: getDynamicFontSize(mainText, isMobile ? 16 : 22, isMobile ? 6 : 7, 700), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
+                      <span style={{ fontSize: getDynamicFontSize(mainText, isMobile ? 18 : 24, isMobile ? 6 : 7, 700), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
                         {mainText}
                       </span>
                     )}
@@ -718,7 +684,7 @@ export default function StatsPage() {
     if (viewMode !== 'date_table') return;
     const now = new Date();
     if (calendarGranularity === 'day' && !selectedDay) {
-      setSelectedDay(now.toISOString().slice(0, 10));
+      setSelectedDay(dayjs().format('YYYY-MM-DD'));
     } else if (calendarGranularity === 'month' && !selectedMonth) {
       setSelectedMonth(now.getMonth() + 1);
     } else if (calendarGranularity === 'year' && !selectedYear) {
@@ -777,7 +743,7 @@ export default function StatsPage() {
     // 重置选中状态为默认值
     const now = new Date();
     if (g === 'day') {
-      setSelectedDay(now.toISOString().slice(0, 10));
+      setSelectedDay(dayjs().format('YYYY-MM-DD'));
     } else if (g === 'month') {
       setSelectedMonth(now.getMonth() + 1);
     } else if (g === 'year') {
@@ -788,19 +754,6 @@ export default function StatsPage() {
   const handleSelectDay = (date: string) => setSelectedDay(date);
   const handleSelectMonth = (month: number) => setSelectedMonth(month);
   const handleSelectYear = (year: number) => setSelectedYear(year);
-
-  const useMockData = () => {
-    if (period === 'daily') {
-      setData(MOCK_DAILY_DATA);
-      calculateSummary(MOCK_DAILY_DATA);
-    } else if (period === 'monthly') {
-      setData(MOCK_MONTHLY_DATA);
-      calculateSummary(MOCK_MONTHLY_DATA);
-    } else {
-      setData(MOCK_YEARLY_DATA);
-      calculateSummary(MOCK_YEARLY_DATA);
-    }
-  };
 
   const calculateSummary = (list: any[]) => {
     if (list.length === 0) {
@@ -862,7 +815,7 @@ export default function StatsPage() {
     };
   };
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+  const isMobile = useIsMobile();
   const themeMode = useThemeStore((s) => s.mode);
   const isLight = themeMode === 'light';
   const hideAmount = useHideAmountStore((s) => s.hidden);
@@ -1433,7 +1386,7 @@ export default function StatsPage() {
 
           .year-grid-cell {
             min-height: 70px;
-            padding: 10px 6px;
+            padding: 8px 4px;
           }
 
           .date-table-legend {
@@ -1807,7 +1760,7 @@ export default function StatsPage() {
         }
         .year-grid-cell {
           border-radius: 8px;
-          padding: 12px 8px;
+          padding: 12px 4px;
           display: flex;
           flex-direction: column;
           align-items: center;

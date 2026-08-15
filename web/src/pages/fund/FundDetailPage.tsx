@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
+import dayjs from 'dayjs';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Button, Table, Tag, Segmented, Skeleton, App, Space, Dropdown } from 'antd';
 import { ArrowLeftOutlined, StarOutlined, StarFilled, PlusOutlined, MinusOutlined, ScheduleOutlined, DeleteOutlined, EditOutlined, ThunderboltOutlined, FundOutlined, AimOutlined } from '@ant-design/icons';
 import EChart from '@/components/EChart';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { fundService } from '@/services/fundService';
 import { transactionService } from '@/services/transactionService';
 import { favoriteService } from '@/services/favoriteService';
@@ -38,7 +40,7 @@ export default function FundDetailPage() {
   const [fundValuationMethod, setFundValuationMethod] = useState<ValuationMethod | null>(null);
   const [globalValuationMethod, setGlobalValuationMethod] = useState<ValuationMethod>('sina');
 
-  const loadNavHistory = async (p: Period, fundCode: string) => {
+  const loadNavHistory = async (p: Period, fundCode: string, isCancelled?: () => boolean) => {
     const now = new Date();
     let start = new Date();
     switch (p) {
@@ -49,45 +51,52 @@ export default function FundDetailPage() {
       case '1y': start.setFullYear(now.getFullYear() - 1); break;
       case 'all': start = new Date('2000-01-01'); break;
     }
-    const s = start.toISOString().slice(0, 10);
-    const e = now.toISOString().slice(0, 10);
+    // 使用 dayjs 本地日期，避免 toISOString 的 UTC 偏移导致日期跨天错误
+    const s = dayjs(start).format('YYYY-MM-DD');
+    const e = dayjs(now).format('YYYY-MM-DD');
     try {
       const timestamp = Date.now();
       const data = await fundService.getHistoryNav(fundCode, s, e, timestamp);
+      if (isCancelled && isCancelled()) return;
       setNavHistory(data.records || data || []);
       setDataUpdateTime(now.toLocaleString('zh-CN'));
     } catch (error) {
+      if (isCancelled && isCancelled()) return;
       console.error('获取历史净值失败:', error);
       setNavHistory([]);
     }
   };
 
-  const loadData = async () => {
+  const loadData = async (isCancelled?: () => boolean) => {
     if (!code) return;
     setLoading(true);
     try {
       const fundData = await fundService.getFundInfo(code);
+      if (isCancelled && isCancelled()) return;
       setFund(fundData);
       setIsFavorite(!!fundData.is_favorite);
 
       try {
         const txData = await transactionService.getTransactions(code);
-        console.log('[DEBUG] 原始交易数据:', JSON.stringify(txData, null, 2));
-        if (txData.transactions && txData.transactions.length > 0) {
-          console.log('[DEBUG] 第一条交易的日期:', txData.transactions[0].transaction_date);
-        }
+        if (isCancelled && isCancelled()) return;
         setTransactions(txData.transactions || txData || []);
       } catch {}
-
-      await loadNavHistory(period, code);
     } catch {
+      if (isCancelled && isCancelled()) return;
       message.error('获取基金信息失败');
     } finally {
+      if (isCancelled && isCancelled()) return;
       setLoading(false);
     }
   };
 
-  useEffect(() => { loadData(); }, [code]);
+  // 基金信息/交易（code 变化时加载）；净值历史由下方 [period, code] effect 统一加载，避免重复请求
+  useEffect(() => {
+    if (!code) return;
+    let cancelled = false;
+    loadData(() => cancelled);
+    return () => { cancelled = true; };
+  }, [code]);
 
   // 加载用户估值设置
   useEffect(() => {
@@ -102,7 +111,10 @@ export default function FundDetailPage() {
   }, [code]);
 
   useEffect(() => {
-    if (code) loadNavHistory(period, code);
+    if (!code) return;
+    let cancelled = false;
+    loadNavHistory(period, code, () => cancelled);
+    return () => { cancelled = true; };
   }, [period, code]);
 
   const toggleFavorite = async () => {
@@ -298,7 +310,7 @@ export default function FundDetailPage() {
 
   const xAxisConfig = getXAxisConfig();
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+  const isMobile = useIsMobile();
   const themeMode = useThemeStore((s) => s.mode);
   const isLight = themeMode === 'light';
 

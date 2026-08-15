@@ -5,13 +5,14 @@ const fundService = require('./fundService');
 const globalCache = require('./globalCache');
 const pool = require('../config/database');
 const holidayService = require('./holidayService');
+const { getLocalToday, normalizeDateStr } = require('../utils/date');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('PlanService');
 
 async function executeDuePlans() {
   const startTime = Date.now();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalToday();
   logger.info(`===== 定投计划调度开始 | 日期: ${today} | 时间: ${new Date().toLocaleString('zh-CN')} =====`);
 
   const plans = await InvestmentPlan.findActiveDueToday();
@@ -312,7 +313,7 @@ async function calcNextRunDate(today, frequency, dayOfWeek, dayOfMonth) {
   // 调用 holidayService 确保日期为交易日（跳过周末和法定节假日）
   // 非交易日无净值，创建 pending 也无意义，因此顺延到下一个交易日
   // 使用 ensureTradingDay 而非 nextTradingDay：若计算出的日期已是交易日则直接返回当天
-  const dateStr = d.toISOString().slice(0, 10);
+  const dateStr = normalizeDateStr(d);
   const result = await holidayService.ensureTradingDay(dateStr);
   if (result !== dateStr) {
     logger.info(`calcNextRunDate: rawDate=${dateStr} 非交易日，顺延到 ${result} (freq=${frequency}, dayOfWeek=${dayOfWeek ?? '-'}, dayOfMonth=${dayOfMonth ?? '-'})`);

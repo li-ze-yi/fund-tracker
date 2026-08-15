@@ -6,6 +6,7 @@ const globalCache = require('./globalCache');
 const holdingService = require('./holdingService');
 const fundService = require('./fundService');
 const holidayService = require('./holidayService');
+const { getLocalToday, normalizeDateStr } = require('../utils/date');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('DailyProfit');
@@ -53,7 +54,7 @@ class DailyProfitService {
       }
 
       const now = new Date();
-      const today = now.toISOString().slice(0, 10);
+      const today = getLocalToday();
       const cacheKey = `${userId}_${today}`;
 
       const lastUpdate = this.lastUpdateCache.get(cacheKey);
@@ -176,7 +177,7 @@ class DailyProfitService {
       }
 
       const now = new Date();
-      const today = now.toISOString().slice(0, 10);
+      const today = getLocalToday();
       const cacheKey = `${userId}_${today}`;
 
       const lastUpdate = this.lastUpdateCache.get(cacheKey);
@@ -193,7 +194,7 @@ class DailyProfitService {
       // 优先使用缓存：命中且缓存中最新净值日期 === today 才直接复用（避免白天未含今日净值的旧缓存导致 isConfirmed 误判）
       // 未命中或缓存中无今日净值 → 调 API 拉取并回写缓存（与 enrichHoldingsWithRealTimeData 共享同一 cacheKey，盘中已缓存的兜底可直接复用）
       const fundCodes = holdings.map(h => h.fund_code);
-      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
       const historyMap = {};
       const needFetch = [];
       for (const code of fundCodes) {
@@ -271,9 +272,7 @@ class DailyProfitService {
             logger.info(`[回写确认净值] 跳过占位持仓: fund=${fundCode}, holdingId=${holding.id}`);
           } else {
             const dbNavDate = holding.confirmed_nav_date
-              ? (holding.confirmed_nav_date instanceof Date
-                  ? holding.confirmed_nav_date.toISOString().slice(0, 10)
-                  : this._normalizeDateStr(holding.confirmed_nav_date))
+              ? this._normalizeDateStr(holding.confirmed_nav_date)
               : null;
             if (!dbNavDate || dbNavDate < latestHistoryDate) {
               logger.info(`[回写确认净值] fund=${fundCode}, nav=${todayNav}, date=${latestHistoryDate}, 回写 holdings`);
@@ -484,7 +483,7 @@ class DailyProfitService {
    *       修复"部分记录"用户漏算问题（早打开 App 时部分基金未确认 → 后续确认后补全）
    */
   async backfillDailyProfit() {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getLocalToday();
     logger.info(`===== 定时兜底任务启动 (${today} 23:55) =====`);
 
     try {
@@ -707,7 +706,7 @@ class DailyProfitService {
                 shares: 0,
                 totalCost: 0,
                 totalReturn: Math.round(realizedProfit * 100) / 100,
-                soldDate: new Date().toISOString().slice(0, 10)
+                soldDate: getLocalToday()
               });
             } else {
               // 部分卖出 → 累加 total_return
@@ -736,21 +735,11 @@ class DailyProfitService {
   }
 
   /**
-   * 规范化日期字符串：Date 对象用本地时间（getFullYear/getMonth/getDate）格式化为 YYYY-MM-DD；
-   * 字符串则取前 10 字符。mysql2 会把 DATE 列转成 UTC Date 对象，必须用本地时间提取。
+   * 规范化日期字符串：复用公共 normalizeDateStr（Date 对象用本地时间，字符串取前 10 字符）
+   * mysql2 会把 DATE 列转成 UTC Date 对象，必须用本地时间提取。
    */
   _normalizeDateStr(dateVal) {
-    if (dateVal instanceof Date) {
-      const year = dateVal.getFullYear();
-      const month = String(dateVal.getMonth() + 1).padStart(2, '0');
-      const day = String(dateVal.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    }
-    if (typeof dateVal === 'string' && dateVal) {
-      const str = dateVal.split('T')[0].split(' ')[0];
-      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-    }
-    return '';
+    return normalizeDateStr(dateVal);
   }
 
   clearCache() {
