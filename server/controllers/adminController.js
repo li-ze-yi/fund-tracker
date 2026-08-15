@@ -215,7 +215,7 @@ exports.cacheStats = async (req, res, next) => {
       });
     }
     entries.sort((a, b) => a.remainingSeconds - b.remainingSeconds);
-    res.json({ stats, entries });
+    res.json({ stats, entries, recentMisses: stats.recentMisses || [] });
   } catch (err) {
     next(err);
   }

@@ -196,19 +196,20 @@ async function checkMarketStatus(holdings) {
 }
 
 /**
- * ★ 确认净值三级来源解析：缓存 → 数据库 → API
+ * ★ 确认净值来源解析：缓存 → 数据库 → API（需要的数据按此链获取，DB 不可用时同步拉 API 并回写缓存+DB）
  * 盘中估算以解析出的确认净值为基准，减少对外部 API 基准确认净值的依赖。
  * 解析优先级：
  *   ① 缓存命中（confirmed_nav_{code}，复用 history_recent 动态TTL）→ 直接返回
- *   ② 数据库值新鲜（holdings.confirmed_nav > 0 且 confirmed_nav_date === 最近确认交易日）→ 使用并写回缓存
- *   ③ API（fundmobapi 确认净值 / lsjz 历史最新值）→ 使用并写回缓存
+ *   ② 数据库值新鲜（holdings.confirmed_nav > 0 且 confirmed_nav_date 新鲜）→ 使用并写回缓存
+ *   ③ API（fundmobapi 确认净值 / lsjz 历史最新值，含 3d 历史缓存）→ 使用并写回缓存
+ *   ④ 缓存/DB 均不可用 → 同步拉取历史净值 API → 回写 history_3d + confirmed_nav + DB
  * @param {string} fundCode 基金代码
  * @param {object|null} holding 持仓记录（用于 DB confirmed_nav）
  * @param {Array|null} historyData 最近历史净值（判定 DB 新鲜度 / API 兜底）
  * @param {object|null} realTimeData 实时数据（fundmobapi 确认净值，API 兜底源）
- * @returns {{ nav: number, date: string|null, source: 'cache'|'db'|'api'|'none' }} nav<=0 表示解析失败
+ * @returns {Promise<{ nav: number, date: string|null, source: 'cache'|'db'|'api'|'none' }>} nav<=0 表示解析失败
  */
-function resolveConfirmedNav(fundCode, holding, historyData, realTimeData) {
+async function resolveConfirmedNav(fundCode, holding, historyData, realTimeData) {
   const cacheKey = `confirmed_nav_${fundCode}`;
   const cacheType = 'history_recent'; // 确认净值复用历史近期动态TTL（收盘后快速刷新）
 
@@ -248,6 +249,16 @@ function resolveConfirmedNav(fundCode, holding, historyData, realTimeData) {
     return data;
   }
 
+  // ②.5 DB 确认净值缺失/不新鲜 → 按需查 3d 历史缓存（真实请求：确认净值兜底来源，仅此场景才查，避免无意义 miss）
+  if (!latestHistory) {
+    const todayStr3 = getLocalToday();
+    const h3 = globalCache.checkCache(`history_${fundCode}_3d_${todayStr3}`, 'history_recent');
+    if (h3.hit && h3.data && h3.data.length > 0 && parseFloat(h3.data[0].nav) > 0) {
+      latestHistory = h3.data[0];
+      latestHistoryDate = latestHistory.date;
+    }
+  }
+
   // ③ API：优先复用 fundmobapi 确认净值，其次 lsjz 历史最新值
   let apiNav = 0;
   let apiDate = null;
@@ -258,6 +269,26 @@ function resolveConfirmedNav(fundCode, holding, historyData, realTimeData) {
     apiNav = parseFloat(latestHistory.nav);
     apiDate = latestHistoryDate;
   }
+
+  // ④ 缓存/DB 均不可用（apiNav 仍为 0）→ 同步拉取历史净值 API（需要的数据），回写 history_3d 缓存（confirmed_nav 缓存与 DB 由下方③写回）
+  if (apiNav <= 0) {
+    try {
+      const todayStr4 = getLocalToday();
+      const threeDaysAgo4 = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+      const fetched = await fundService.getHistoryNetValues(fundCode, threeDaysAgo4, todayStr4);
+      if (fetched && fetched.length > 0) {
+        const first = fetched[0];
+        if (parseFloat(first.nav) > 0) {
+          apiNav = parseFloat(first.nav);
+          apiDate = first.date || null;
+          globalCache.set(`history_${fundCode}_3d_${todayStr4}`, fetched, 'history_recent');
+        }
+      }
+    } catch (e) {
+      logger.error(`确认净值同步 API 兜底失败: fund=${fundCode}, err=${e.message}`);
+    }
+  }
+
   if (apiNav > 0) {
     const data = { nav: apiNav, date: apiDate, source: 'api' };
     globalCache.set(cacheKey, data, cacheType);
@@ -364,18 +395,10 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     // 检查哪些需要从外部获取（缓存未命中或强制刷新）
     let needFetch;
     if (isFullDayClosed || isPreMarket) {
-      // ★ 全天休市或待开市：跳过实时估值外部拉取，仅复用缓存命中项，未命中留空
-      // 真实请求按 checkCache 统计（命中 hit / 未命中 miss）
-      for (const code of codes) {
-        const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
-        const cacheKey = `realtime_${code}_${effectiveMethod}`;
-        const result = globalCache.checkCache(cacheKey, 'realtime');
-        if (result.hit) {
-          realtimeDataMap[code] = result.data;
-        }
-      }
+      // ★ 休市/待开市：实时估值无用，不查询 realtime 缓存（避免无意义 miss）；
+      // 展示净值走确认净值链（resolveConfirmedNav：confirmed_nav 缓存 → DB → history_3d 缓存 → API）
       needFetch = [];
-      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值外部拉取 (${codes.length} 只)`);
+      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值（不查询缓存）(${codes.length} 只)`);
     } else {
       needFetch = forceRefresh ? codes : codes.filter(code => {
         const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
@@ -412,18 +435,12 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     const nowHour = new Date().getHours();
     const isTradingHours = nowHour >= 9 && nowHour < 15;
     let historyNeedFetch;
-    if (isFullDayClosed) {
-      // ★ 全天休市（周末/法定节假日）：跳过历史净值外部拉取，仅复用缓存命中项，未命中留空
-      // 真实请求按 checkCache 统计（命中 hit / 未命中 miss）
-      for (const code of codes) {
-        const cacheKey = `history_${code}_3d_${today}`;
-        const result = globalCache.checkCache(cacheKey, 'history_recent');
-        if (result.hit) {
-          historyDataMap[code] = result.data;
-        }
-      }
+    if (isFullDayClosed || isPreMarket) {
+      // ★ 全天休市或待开市：不预查 3d 历史（避免无意义 miss）；
+      // 确认净值优先用 confirmed_nav 缓存 / DB，仅当 DB 确认净值缺失或不新鲜时，
+      // 由 resolveConfirmedNav 按需查 history_3d 缓存 / API 兜底并回写 DB+缓存
       historyNeedFetch = [];
-      logger.info(`全天休市，跳过历史净值外部拉取 (${codes.length} 只)`);
+      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过历史净值预取（按需兜底）(${codes.length} 只)`);
     } else if (isTradingHours) {
       // 交易时段（含 forceRefresh）跳过 API 拉取，只复用缓存命中项
       for (const code of codes) {
@@ -471,7 +488,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
   // 合并数据并计算指标
   // ═══════════════════════════════════════════
 
-  const result = holdings.map(holding => {
+  const result = await Promise.all(holdings.map(async holding => {
     const fundCode = holding.fund_code;
     const realTimeData = realtimeDataMap[fundCode] || null;
     const historyData = historyDataMap[fundCode] || null;
@@ -484,12 +501,12 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     const dbConfirmedNav = parseFloat(holding.confirmed_nav) || 0;
     const dbConfirmedNavDate = holding.confirmed_nav_date ? normalizeDateStr(holding.confirmed_nav_date) : null;
 
-    // ★ 确认净值三级来源解析（缓存 → 数据库 → API），盘中估算以解析出的确认净值为基准
+    // ★ 确认净值来源解析（缓存 → 数据库 → API），盘中估算以解析出的确认净值为基准
     // 真实请求按 checkCache 统计（命中 hit / 未命中 miss），获取后由 resolveConfirmedNav 写回缓存
-    const resolvedNav = resolveConfirmedNav(fundCode, holding, historyData, realTimeData);
+    const resolvedNav = await resolveConfirmedNav(fundCode, holding, historyData, realTimeData);
     const effectiveNav = resolvedNav.nav > 0 ? resolvedNav.nav : dbConfirmedNav;
 
-    // ★ 全天休市（周末/节假日）+ 确认净值无法解析（缓存未命中且 DB confirmed_nav 缺失/过期）
+    // ★ 全天休市（周末/节假日）+ 确认净值同步兜底失败（缓存/DB/API 均不可用）
     // → 仅对该基金做定向修复拉取：写回 DB confirmed_nav 并填充 3d 历史缓存。
     // 不阻塞响应（fire-and-forget），不抛错。
     if (isFullDayClosed && resolvedNav.source === 'none') {
@@ -545,7 +562,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
         isPendingPurchase
       )
     };
-  });
+  }));
 
   const endTime = Date.now();
   const duration = endTime - startTime;

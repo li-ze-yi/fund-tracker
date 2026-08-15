@@ -46,6 +46,10 @@ class GlobalCache {
       totalRequests: 0,  // 总请求数
       forcedRefreshes: 0 // 强制刷新次数（getOrFetch forceRefresh 路径）
     };
+
+    // 最近未命中明细（记录未命中的缓存 key + 类型 + 时间，用于排查"是哪些缓存未命中"）
+    this.recentMisses = [];  // [{ key, type, at }]
+    this.maxMissLog = 100;   // 最多保留最近 100 条
     
     // 最大缓存条目数（防止内存溢出）
     this.maxSize = 500;
@@ -175,6 +179,7 @@ class GlobalCache {
 
     // 3️⃣ 缓存未命中 → 判断是否已有在途请求（缓存击穿防护）
     this.stats.misses++;
+    this.recordMiss(key, type);
 
     // 命中在途请求：直接复用，避免相同 key 并发重复请求外部 API
     const inFlightPromise = this.inFlight.get(key);
@@ -207,6 +212,18 @@ class GlobalCache {
     this.inFlight.set(key, promise);
 
     return promise;
+  }
+
+  /**
+   * 记录一次缓存未命中明细（供管理后台排查"是哪些缓存未命中"）
+   * @param {string} key - 未命中的缓存键
+   * @param {string} type - 缓存类型
+   */
+  recordMiss(key, type) {
+    this.recentMisses.push({ key, type, at: new Date().toISOString() });
+    if (this.recentMisses.length > this.maxMissLog) {
+      this.recentMisses.shift();
+    }
   }
 
   /**
@@ -243,6 +260,7 @@ class GlobalCache {
     }
     // ❌ 未命中（或已过期删除后）
     this.stats.misses++;
+    this.recordMiss(key, type);
     return { hit: false, data: null };
   }
 
@@ -461,7 +479,8 @@ class GlobalCache {
       size: this.cache.size,
       maxSize: this.maxSize,
       tradingStatus: this.getTradingStatus(),
-      realtimeTTL: `${(this.getRealtimeTTL() / 1000)}s`
+      realtimeTTL: `${(this.getRealtimeTTL() / 1000)}s`,
+      recentMisses: this.recentMisses.slice(-this.maxMissLog) // 最近未命中明细（倒序：最新在前）
     };
   }
 
@@ -475,6 +494,7 @@ class GlobalCache {
     
     // 重置统计
     this.stats = { hits: 0, misses: 0, evictions: 0, totalRequests: 0, forcedRefreshes: 0 };
+    this.recentMisses = [];
   }
 
   /**
@@ -572,6 +592,7 @@ class GlobalCache {
         v: 1,
         savedAt: now,
         stats: this.stats, // 请求次数 / 命中 / 淘汰等计数器一并持久化
+        recentMisses: this.recentMisses.slice(-this.maxMissLog), // 最近未命中明细一并持久化
         entries
       };
       const dir = path.dirname(this.cacheFilePath);
@@ -601,6 +622,7 @@ class GlobalCache {
         v: 1,
         savedAt: now,
         stats: this.stats,
+        recentMisses: this.recentMisses.slice(-this.maxMissLog),
         entries
       };
       const dir = path.dirname(this.cacheFilePath);
@@ -640,6 +662,11 @@ class GlobalCache {
       s.evictions = Number(src.evictions) || 0;
       s.totalRequests = Number(src.totalRequests) || 0;
       s.forcedRefreshes = Number(src.forcedRefreshes) || 0;
+
+      // 恢复最近未命中明细
+      if (Array.isArray(payload.recentMisses)) {
+        this.recentMisses = payload.recentMisses.slice(-this.maxMissLog);
+      }
 
       // 重建 Map，丢弃已过期条目
       const now = Date.now();

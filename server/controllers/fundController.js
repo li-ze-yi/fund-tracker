@@ -71,47 +71,42 @@ exports.getByCode = async (req, res, next) => {
       holding = await Holding.findByUserAndFund(req.user.id, code).catch(() => null);
     }
 
-    // ★ 实时估值：全天休市或待开市时跳过外部拉取，仅复用缓存命中项
-    // 统计口径：真实数据请求按 checkCache 统计（命中 hit / 未命中 miss）；获取到数据后写回缓存下次命中
+    // ★ 实时估值：全天休市或待开市时不查询实时估值（实时估值无用）
+    // 展示净值直接走确认净值链：confirmed_nav 缓存 → history_3d 缓存 → 持仓 DB；取到后写回 confirmed_nav 缓存下次命中
     let realTime = null;
     if (isFullDayClosed || isPreMarket) {
-      // ① 真实请求：实时估值缓存（统计 hit/miss）
-      const cacheKey = `realtime_${code}_${valuationMethod}`;
-      const cached = globalCache.checkCache(cacheKey, 'realtime');
-      if (cached.hit) realTime = cached.data;
-      // ② 实时估值缓存未命中 → 回退到确认净值（获取后写回 realtime 缓存）
-      if (!realTime) {
-        // 回退来源探测用 peekCache（非真实请求，不重复计入统计）
-        const confirmedCache = globalCache.peekCache(`confirmed_nav_${code}`, 'history_recent');
-        if (confirmedCache.hit && confirmedCache.data && parseFloat(confirmedCache.data.nav) > 0) {
-          realTime = {
-            netValue: parseFloat(confirmedCache.data.nav),
-            gainPercent: null,
-            updateTime: confirmedCache.data.date || null,
-            estimatedValue: null,
-            estimatedChange: null,
-            estimationMethod: null,
-            estimationCoverage: null,
-          };
-        } else {
-          const historyCache = globalCache.peekCache(`history_${code}_3d_${today}`, 'history_recent');
-          if (historyCache.hit && historyCache.data && historyCache.data.length > 0) {
-            const latest = historyCache.data[0];
-            const nav = parseFloat(latest.nav);
-            if (nav > 0) {
-              realTime = {
-                netValue: nav,
-                gainPercent: null,
-                updateTime: latest.date || null,
-                estimatedValue: null,
-                estimatedChange: null,
-                estimationMethod: null,
-                estimationCoverage: null,
-              };
-            }
+      // ① 真实请求：confirmed_nav 缓存（统计 hit/miss）
+      const confirmedCache = globalCache.checkCache(`confirmed_nav_${code}`, 'history_recent');
+      if (confirmedCache.hit && confirmedCache.data && parseFloat(confirmedCache.data.nav) > 0) {
+        realTime = {
+          netValue: parseFloat(confirmedCache.data.nav),
+          gainPercent: null,
+          updateTime: confirmedCache.data.date || null,
+          estimatedValue: null,
+          estimatedChange: null,
+          estimationMethod: null,
+          estimationCoverage: null,
+        };
+      } else {
+        // ② confirmed_nav 缓存未命中 → 3d 历史缓存（真实请求：确认净值兜底来源）
+        const historyCache = globalCache.checkCache(`history_${code}_3d_${today}`, 'history_recent');
+        if (historyCache.hit && historyCache.data && historyCache.data.length > 0) {
+          const latest = historyCache.data[0];
+          const nav = parseFloat(latest.nav);
+          if (nav > 0) {
+            realTime = {
+              netValue: nav,
+              gainPercent: null,
+              updateTime: latest.date || null,
+              estimatedValue: null,
+              estimatedChange: null,
+              estimationMethod: null,
+              estimationCoverage: null,
+            };
+            globalCache.set(`confirmed_nav_${code}`, { nav, date: latest.date || null, source: 'cache' }, 'history_recent');
           }
         }
-        // ★ 缓存均未命中 → 持仓 DB 兜底（confirmed_nav 为最近确认净值，休市/待开市不失效）
+        // ③ 缓存均未命中 → 持仓 DB 兜底（confirmed_nav 为最近确认净值，休市/待开市不失效）
         if (!realTime && holding && parseFloat(holding.confirmed_nav) > 0) {
           realTime = {
             netValue: parseFloat(holding.confirmed_nav),
@@ -122,13 +117,32 @@ exports.getByCode = async (req, res, next) => {
             estimationMethod: null,
             estimationCoverage: null,
           };
+          globalCache.set(`confirmed_nav_${code}`, { nav: parseFloat(holding.confirmed_nav), date: (holding.confirmed_nav_date ? String(holding.confirmed_nav_date).split('T')[0] : null), source: 'db' }, 'history_recent');
         }
-        // ★ 获取到数据后写回 realtime 缓存（下次命中，无需重复回退）
-        if (realTime) {
-          globalCache.set(cacheKey, realTime, 'realtime');
+        // ④ 缓存/DB 均不可用 → 同步拉取历史净值 API（需要的数据），回写 history_3d + confirmed_nav
+        if (!realTime) {
+          try {
+            const threeDaysAgo4 = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+            const fetched = await fundService.getHistoryNetValues(code, threeDaysAgo4, today);
+            if (fetched && fetched.length > 0 && parseFloat(fetched[0].nav) > 0) {
+              realTime = {
+                netValue: parseFloat(fetched[0].nav),
+                gainPercent: null,
+                updateTime: fetched[0].date || null,
+                estimatedValue: null,
+                estimatedChange: null,
+                estimationMethod: null,
+                estimationCoverage: null,
+              };
+              globalCache.set(`history_${code}_3d_${today}`, fetched, 'history_recent');
+              globalCache.set(`confirmed_nav_${code}`, { nav: parseFloat(fetched[0].nav), date: fetched[0].date || null, source: 'api' }, 'history_recent');
+            }
+          } catch (e) {
+            logger.error(`确认净值同步 API 兜底失败: fund=${code}, err=${e.message}`);
+          }
         }
       }
-      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值外部拉取 (${code})`);
+      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值（不查询缓存）(${code})`);
     } else {
       // ★ 开市：真实请求按 checkCache 统计（命中 hit / 未命中 miss），未命中才外部拉取，拉取后写回缓存下次命中
       const cacheKey = `realtime_${code}_${valuationMethod}`;
@@ -375,17 +389,11 @@ exports.batchGetInfo = async (req, res, next) => {
     const nowHour = new Date().getHours();
     const isPreMarket = !isFullDayClosed && nowHour < 9;
 
-    // 实时估值：全天休市或待开市时跳过外部拉取，仅复用缓存命中项
-    // 统计口径：真实数据请求按 checkCache 统计（命中 hit / 未命中 miss）；未命中才外部拉取，拉取后写回缓存下次命中
+    // 实时估值：全天休市或待开市时不查询实时估值（实时估值无用），展示走确认净值链（组装阶段兜底）
+    // 开市：真实数据请求按 checkCache 统计（命中 hit / 未命中 miss）；未命中才外部拉取，拉取后写回缓存下次命中
     let realtimeMap = {};
     if (isFullDayClosed || isPreMarket) {
-      for (const code of fundCodes) {
-        const effectiveMethod = valuationOverrides[code] || valuationMethod || 'holdings';
-        const cacheKey = `realtime_${code}_${effectiveMethod}`;
-        const result = globalCache.checkCache(cacheKey, 'realtime');
-        if (result.hit) realtimeMap[code] = result.data;
-      }
-      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值外部拉取 (${fundCodes.length} 只)`);
+      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值（不查询缓存）(${fundCodes.length} 只)`);
     } else {
       // 开市：逐只查缓存，未命中才批量拉取，拉取后写回
       const needFetch = [];
@@ -413,16 +421,11 @@ exports.batchGetInfo = async (req, res, next) => {
       logger.info(`实时估值: 缓存命中 ${fundCodes.length - needFetch.length}/${fundCodes.length}, 拉取 ${needFetch.length} 只`);
     }
 
-    // 历史净值：全天休市时跳过外部拉取，仅复用缓存命中项
-    // 开市/待开市：真实请求按 checkCache 统计，未命中才批量拉取，拉取后写回缓存下次命中
+    // 历史净值：全天休市或待开市时不预查 3d 历史（确认净值优先走 confirmed_nav/DB，仅组装阶段按需兜底）
+    // 开市：真实请求按 checkCache 统计，未命中才批量拉取，拉取后写回缓存下次命中
     let historyMap = {};
-    if (isFullDayClosed) {
-      for (const code of fundCodes) {
-        const cacheKey = `history_${code}_3d_${today}`;
-        const result = globalCache.checkCache(cacheKey, 'history_recent');
-        if (result.hit) historyMap[code] = result.data;
-      }
-      logger.info(`全天休市，跳过历史净值外部拉取 (${fundCodes.length} 只)`);
+    if (isFullDayClosed || isPreMarket) {
+      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过历史净值预取（按需兜底）(${fundCodes.length} 只)`);
     } else {
       // 开市/待开市：逐只查缓存，未命中才批量拉取，拉取后写回
       const needFetch = [];
@@ -467,6 +470,44 @@ exports.batchGetInfo = async (req, res, next) => {
       if (holding) holdingMap[holding.fund_code] = holding;
     }
 
+    // ★ 休市/待开市：展示净值走确认净值链（confirmed_nav 缓存 → 持仓 DB → 批量拉 history_3d），取到后写回 confirmed_nav 缓存
+    // 只在组装前解析一次，避免组装阶段重复查缓存导致统计翻倍
+    const displayNavMap = {}; // code -> { nav, date }
+    if (isFullDayClosed || isPreMarket) {
+      const needConfirm = [];
+      for (const code of fundCodes) {
+        // ① 真实请求：confirmed_nav 缓存（统计 hit/miss）
+        const c1 = globalCache.checkCache(`confirmed_nav_${code}`, 'history_recent');
+        if (c1.hit && c1.data && parseFloat(c1.data.nav) > 0) {
+          displayNavMap[code] = { nav: parseFloat(c1.data.nav), date: c1.data.date || null };
+          continue;
+        }
+        // ② 持仓 DB 兜底（confirmed_nav 为最近确认净值，休市/待开市不失效）
+        const holding = holdingMap[code] || null;
+        if (holding && parseFloat(holding.confirmed_nav) > 0) {
+          const date = holding.confirmed_nav_date ? String(holding.confirmed_nav_date).split('T')[0] : null;
+          displayNavMap[code] = { nav: parseFloat(holding.confirmed_nav), date };
+          globalCache.set(`confirmed_nav_${code}`, { nav: displayNavMap[code].nav, date, source: 'db' }, 'history_recent');
+          continue;
+        }
+        // ③ 缓存/DB 均不可用 → 收集，批量拉取确认净值
+        needConfirm.push(code);
+      }
+      // ④ 批量拉取缺失确认净值（需要的数据），回写 history_3d + confirmed_nav
+      if (needConfirm.length > 0) {
+        logger.info(`休市/待开市确认净值批量拉取: ${needConfirm.join(',')}`);
+        const freshMap = await fundService.batchGetHistoryNetValues(needConfirm, threeDaysAgo, today);
+        for (const code of needConfirm) {
+          const data = freshMap[code];
+          if (data && data.length > 0 && parseFloat(data[0].nav) > 0) {
+            displayNavMap[code] = { nav: parseFloat(data[0].nav), date: data[0].date || null };
+            globalCache.set(`history_${code}_3d_${today}`, data, 'history_recent');
+            globalCache.set(`confirmed_nav_${code}`, { nav: displayNavMap[code].nav, date: displayNavMap[code].date, source: 'api' }, 'history_recent');
+          }
+        }
+      }
+    }
+
     // 查询今日交易份额
     let todayTxSharesMap = {};
     if (userId) {
@@ -493,23 +534,9 @@ exports.batchGetInfo = async (req, res, next) => {
       const holding = holdingMap[code] || null;
       const txShares = todayTxSharesMap[code] || { buy: 0, sell: 0 };
 
-      // ★ 休市/待开市时实时估值缺失 → 用最近确认净值兜底（confirmed_nav 缓存 → 3d 历史缓存 → 持仓 DB），
-      // 避免"最新净值"显示为空（净值休市不变，无需外部拉取）
-      if ((isFullDayClosed || isPreMarket) && !realTime) {
-        // 回退来源探测用 peekCache（非真实请求，不重复计入统计）
-        const c1 = globalCache.peekCache(`confirmed_nav_${code}`, 'history_recent');
-        if (c1.hit && c1.data && parseFloat(c1.data.nav) > 0) {
-          realTime = { netValue: parseFloat(c1.data.nav), gainPercent: null, updateTime: c1.data.date || null, estimatedValue: null, estimatedChange: null, estimationMethod: null, estimationCoverage: null };
-        } else if (history.length > 0 && parseFloat(history[0].nav) > 0) {
-          realTime = { netValue: parseFloat(history[0].nav), gainPercent: null, updateTime: history[0].date || null, estimatedValue: null, estimatedChange: null, estimationMethod: null, estimationCoverage: null };
-        } else if (holding && parseFloat(holding.confirmed_nav) > 0) {
-          realTime = { netValue: parseFloat(holding.confirmed_nav), gainPercent: null, updateTime: holding.confirmed_nav_date ? String(holding.confirmed_nav_date).split('T')[0] : null, estimatedValue: null, estimatedChange: null, estimationMethod: null, estimationCoverage: null };
-        }
-        // ★ 获取到数据后写回 realtime 缓存（下次命中，无需重复回退）
-        if (realTime) {
-          const effectiveMethod = valuationOverrides[code] || valuationMethod || 'holdings';
-          globalCache.set(`realtime_${code}_${effectiveMethod}`, realTime, 'realtime');
-        }
+      // ★ 休市/待开市：展示净值直接用确认净值链结果（组装前已解析并写回缓存，避免重复查缓存导致统计翻倍）
+      if ((isFullDayClosed || isPreMarket) && !realTime && displayNavMap[code]) {
+        realTime = { netValue: displayNavMap[code].nav, gainPercent: null, updateTime: displayNavMap[code].date || null, estimatedValue: null, estimatedChange: null, estimationMethod: null, estimationCoverage: null };
       }
 
       const latestHistoryNav = history.length > 0 ? parseFloat(history[0].nav) || 0 : 0;
