@@ -247,6 +247,29 @@ class GlobalCache {
   }
 
   /**
+   * 仅探测缓存是否存在且未过期（不修改统计计数器）
+   *
+   * 与 checkCache 的区别：checkCache 每次调用都会计入 totalRequests/hits/misses/evictions，
+   * 用于衡量真实缓存利用率；peekCache 用于"多来源回退探测"场景（如休市时依次探测
+   * confirmed_nav / 3d 历史净值等缓存），这些探测不应拉低命中率。
+   *
+   * @param {string} key - 缓存键
+   * @param {string} type - 缓存类型（用于计算 TTL）
+   * @returns {{ hit: boolean, data: any|null }} - hit=true 时 data 为缓存数据（与 checkCache 一致）
+   */
+  peekCache(key, type = 'realtime') {
+    const cached = this.cache.get(key);
+    if (cached) {
+      const ttl = this.getTTL(type);
+      const age = Date.now() - cached.timestamp;
+      if (age < ttl) {
+        return { hit: true, data: cached.data };
+      }
+    }
+    return { hit: false, data: null };
+  }
+
+  /**
    * 设置缓存
    */
   set(key, data, type = 'realtime') {

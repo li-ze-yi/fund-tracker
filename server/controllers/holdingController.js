@@ -82,9 +82,17 @@ async function getSettleConfirmedNav(fundCode, navDate) {
     return { nav: parseFloat(navCache.data.nav), source: 'cache_confirmed_nav' };
   }
 
-  // ③ 兜底：外部拉取
+  // ③ 兜底：外部拉取（真实请求，未命中后拉取并写回 confirmed_nav 缓存，下次命中不再重复拉取）
   const history = await fundService.getHistoryNetValues(fundCode, navDate, navDate);
   const nav = history && history.length ? parseFloat(history[0].nav) || 0 : 0;
+  if (nav > 0 && history.length) {
+    const newDate = history[0].date || navDate;
+    // 仅当缓存中无更新净值时写回，避免旧交易日的净值覆盖较新的已确认净值
+    const existing = globalCache.peekCache(`confirmed_nav_${fundCode}`, 'history_recent');
+    if (!existing.hit || !existing.data || !existing.data.date || existing.data.date <= newDate) {
+      globalCache.set(`confirmed_nav_${fundCode}`, { nav, date: newDate, source: 'api' }, 'history_recent');
+    }
+  }
   return { nav, source: 'api' };
 }
 

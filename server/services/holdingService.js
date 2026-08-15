@@ -218,7 +218,7 @@ function resolveConfirmedNav(fundCode, holding, historyData, realTimeData) {
     return String(v).split('T')[0].split(' ')[0];
   };
 
-  // ① 缓存命中 → 不再访问 DB/API
+  // ① 缓存命中 → 不再访问 DB/API（真实请求按 checkCache 统计：命中 hit / 未命中 miss）
   const cached = globalCache.checkCache(cacheKey, cacheType);
   if (cached.hit && cached.data && parseFloat(cached.data.nav) > 0) {
     return cached.data;
@@ -365,6 +365,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     let needFetch;
     if (isFullDayClosed || isPreMarket) {
       // ★ 全天休市或待开市：跳过实时估值外部拉取，仅复用缓存命中项，未命中留空
+      // 真实请求按 checkCache 统计（命中 hit / 未命中 miss）
       for (const code of codes) {
         const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
         const cacheKey = `realtime_${code}_${effectiveMethod}`;
@@ -413,6 +414,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     let historyNeedFetch;
     if (isFullDayClosed) {
       // ★ 全天休市（周末/法定节假日）：跳过历史净值外部拉取，仅复用缓存命中项，未命中留空
+      // 真实请求按 checkCache 统计（命中 hit / 未命中 miss）
       for (const code of codes) {
         const cacheKey = `history_${code}_3d_${today}`;
         const result = globalCache.checkCache(cacheKey, 'history_recent');
@@ -483,6 +485,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     const dbConfirmedNavDate = holding.confirmed_nav_date ? normalizeDateStr(holding.confirmed_nav_date) : null;
 
     // ★ 确认净值三级来源解析（缓存 → 数据库 → API），盘中估算以解析出的确认净值为基准
+    // 真实请求按 checkCache 统计（命中 hit / 未命中 miss），获取后由 resolveConfirmedNav 写回缓存
     const resolvedNav = resolveConfirmedNav(fundCode, holding, historyData, realTimeData);
     const effectiveNav = resolvedNav.nav > 0 ? resolvedNav.nav : dbConfirmedNav;
 

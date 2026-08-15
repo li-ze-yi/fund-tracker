@@ -72,14 +72,17 @@ exports.getByCode = async (req, res, next) => {
     }
 
     // ★ 实时估值：全天休市或待开市时跳过外部拉取，仅复用缓存命中项
+    // 统计口径：真实数据请求按 checkCache 统计（命中 hit / 未命中 miss）；获取到数据后写回缓存下次命中
     let realTime = null;
     if (isFullDayClosed || isPreMarket) {
+      // ① 真实请求：实时估值缓存（统计 hit/miss）
       const cacheKey = `realtime_${code}_${valuationMethod}`;
       const cached = globalCache.checkCache(cacheKey, 'realtime');
       if (cached.hit) realTime = cached.data;
-      // ★ 即使实时估值缓存未命中，也从其他缓存补充最近确认净值（休市/待开市时净值不变）
+      // ② 实时估值缓存未命中 → 回退到确认净值（获取后写回 realtime 缓存）
       if (!realTime) {
-        const confirmedCache = globalCache.checkCache(`confirmed_nav_${code}`, 'history_recent');
+        // 回退来源探测用 peekCache（非真实请求，不重复计入统计）
+        const confirmedCache = globalCache.peekCache(`confirmed_nav_${code}`, 'history_recent');
         if (confirmedCache.hit && confirmedCache.data && parseFloat(confirmedCache.data.nav) > 0) {
           realTime = {
             netValue: parseFloat(confirmedCache.data.nav),
@@ -91,7 +94,7 @@ exports.getByCode = async (req, res, next) => {
             estimationCoverage: null,
           };
         } else {
-          const historyCache = globalCache.checkCache(`history_${code}_3d_${today}`, 'history_recent');
+          const historyCache = globalCache.peekCache(`history_${code}_3d_${today}`, 'history_recent');
           if (historyCache.hit && historyCache.data && historyCache.data.length > 0) {
             const latest = historyCache.data[0];
             const nav = parseFloat(latest.nav);
@@ -120,10 +123,24 @@ exports.getByCode = async (req, res, next) => {
             estimationCoverage: null,
           };
         }
+        // ★ 获取到数据后写回 realtime 缓存（下次命中，无需重复回退）
+        if (realTime) {
+          globalCache.set(cacheKey, realTime, 'realtime');
+        }
       }
       logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值外部拉取 (${code})`);
     } else {
-      realTime = await fundService.getRealTimeValueWithMethod(code, valuationMethod).catch(() => null);
+      // ★ 开市：真实请求按 checkCache 统计（命中 hit / 未命中 miss），未命中才外部拉取，拉取后写回缓存下次命中
+      const cacheKey = `realtime_${code}_${valuationMethod}`;
+      const cached = globalCache.checkCache(cacheKey, 'realtime');
+      if (cached.hit) {
+        realTime = cached.data;
+      } else {
+        realTime = await fundService.getRealTimeValueWithMethod(code, valuationMethod).catch(() => null);
+        if (realTime) {
+          globalCache.set(cacheKey, realTime, 'realtime');
+        }
+      }
     }
 
     const result = {
@@ -164,7 +181,18 @@ exports.getByCode = async (req, res, next) => {
       try {
         const todayStr = getLocalToday();
         const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
-        const history = await fundService.getHistoryNetValues(code, threeDaysAgo, todayStr);
+        // ★ 统一缓存统计：真实请求按 checkCache 统计（命中 hit / 未命中 miss），未命中才外部拉取，拉取后写回 3d 历史缓存
+        const historyCacheKey = `history_${code}_3d_${todayStr}`;
+        let history = null;
+        const historyCached = globalCache.checkCache(historyCacheKey, 'history_recent');
+        if (historyCached.hit) {
+          history = historyCached.data;
+        } else {
+          history = await fundService.getHistoryNetValues(code, threeDaysAgo, todayStr);
+          if (history && history.length > 0) {
+            globalCache.set(historyCacheKey, history, 'history_recent');
+          }
+        }
 
         if (history && history.length > 0) {
           const todayStr2 = getLocalToday();
@@ -348,6 +376,7 @@ exports.batchGetInfo = async (req, res, next) => {
     const isPreMarket = !isFullDayClosed && nowHour < 9;
 
     // 实时估值：全天休市或待开市时跳过外部拉取，仅复用缓存命中项
+    // 统计口径：真实数据请求按 checkCache 统计（命中 hit / 未命中 miss）；未命中才外部拉取，拉取后写回缓存下次命中
     let realtimeMap = {};
     if (isFullDayClosed || isPreMarket) {
       for (const code of fundCodes) {
@@ -358,10 +387,34 @@ exports.batchGetInfo = async (req, res, next) => {
       }
       logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值外部拉取 (${fundCodes.length} 只)`);
     } else {
-      realtimeMap = await fundService.batchGetRealTimeValuesWithMethod(fundCodes, valuationMethod);
+      // 开市：逐只查缓存，未命中才批量拉取，拉取后写回
+      const needFetch = [];
+      for (const code of fundCodes) {
+        const effectiveMethod = valuationOverrides[code] || valuationMethod || 'holdings';
+        const cacheKey = `realtime_${code}_${effectiveMethod}`;
+        const result = globalCache.checkCache(cacheKey, 'realtime');
+        if (result.hit) {
+          realtimeMap[code] = result.data;
+        } else {
+          needFetch.push(code);
+        }
+      }
+      if (needFetch.length > 0) {
+        const freshMap = await fundService.batchGetRealTimeValuesWithMethod(needFetch, valuationMethod);
+        for (const code of needFetch) {
+          const data = freshMap[code];
+          if (data) {
+            const effectiveMethod = valuationOverrides[code] || valuationMethod || 'holdings';
+            globalCache.set(`realtime_${code}_${effectiveMethod}`, data, 'realtime');
+          }
+          realtimeMap[code] = data;
+        }
+      }
+      logger.info(`实时估值: 缓存命中 ${fundCodes.length - needFetch.length}/${fundCodes.length}, 拉取 ${needFetch.length} 只`);
     }
 
     // 历史净值：全天休市时跳过外部拉取，仅复用缓存命中项
+    // 开市/待开市：真实请求按 checkCache 统计，未命中才批量拉取，拉取后写回缓存下次命中
     let historyMap = {};
     if (isFullDayClosed) {
       for (const code of fundCodes) {
@@ -371,7 +424,28 @@ exports.batchGetInfo = async (req, res, next) => {
       }
       logger.info(`全天休市，跳过历史净值外部拉取 (${fundCodes.length} 只)`);
     } else {
-      historyMap = await fundService.batchGetHistoryNetValues(fundCodes, threeDaysAgo, today);
+      // 开市/待开市：逐只查缓存，未命中才批量拉取，拉取后写回
+      const needFetch = [];
+      for (const code of fundCodes) {
+        const cacheKey = `history_${code}_3d_${today}`;
+        const result = globalCache.checkCache(cacheKey, 'history_recent');
+        if (result.hit) {
+          historyMap[code] = result.data;
+        } else {
+          needFetch.push(code);
+        }
+      }
+      if (needFetch.length > 0) {
+        const freshMap = await fundService.batchGetHistoryNetValues(needFetch, threeDaysAgo, today);
+        for (const code of needFetch) {
+          const data = freshMap[code];
+          if (data && data.length > 0) {
+            globalCache.set(`history_${code}_3d_${today}`, data, 'history_recent');
+          }
+          historyMap[code] = data;
+        }
+      }
+      logger.info(`历史净值: 缓存命中 ${fundCodes.length - needFetch.length}/${fundCodes.length}, 拉取 ${needFetch.length} 只`);
     }
 
     // 市场状态（用前3只基金检测）
@@ -422,13 +496,19 @@ exports.batchGetInfo = async (req, res, next) => {
       // ★ 休市/待开市时实时估值缺失 → 用最近确认净值兜底（confirmed_nav 缓存 → 3d 历史缓存 → 持仓 DB），
       // 避免"最新净值"显示为空（净值休市不变，无需外部拉取）
       if ((isFullDayClosed || isPreMarket) && !realTime) {
-        const c1 = globalCache.checkCache(`confirmed_nav_${code}`, 'history_recent');
+        // 回退来源探测用 peekCache（非真实请求，不重复计入统计）
+        const c1 = globalCache.peekCache(`confirmed_nav_${code}`, 'history_recent');
         if (c1.hit && c1.data && parseFloat(c1.data.nav) > 0) {
           realTime = { netValue: parseFloat(c1.data.nav), gainPercent: null, updateTime: c1.data.date || null, estimatedValue: null, estimatedChange: null, estimationMethod: null, estimationCoverage: null };
         } else if (history.length > 0 && parseFloat(history[0].nav) > 0) {
           realTime = { netValue: parseFloat(history[0].nav), gainPercent: null, updateTime: history[0].date || null, estimatedValue: null, estimatedChange: null, estimationMethod: null, estimationCoverage: null };
         } else if (holding && parseFloat(holding.confirmed_nav) > 0) {
           realTime = { netValue: parseFloat(holding.confirmed_nav), gainPercent: null, updateTime: holding.confirmed_nav_date ? String(holding.confirmed_nav_date).split('T')[0] : null, estimatedValue: null, estimatedChange: null, estimationMethod: null, estimationCoverage: null };
+        }
+        // ★ 获取到数据后写回 realtime 缓存（下次命中，无需重复回退）
+        if (realTime) {
+          const effectiveMethod = valuationOverrides[code] || valuationMethod || 'holdings';
+          globalCache.set(`realtime_${code}_${effectiveMethod}`, realTime, 'realtime');
         }
       }
 
