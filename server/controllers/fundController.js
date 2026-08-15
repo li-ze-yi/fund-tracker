@@ -49,7 +49,32 @@ exports.getByCode = async (req, res, next) => {
 
     // 获取用户设置的估值方法
     const valuationMethod = req.user ? await getUserValuationMethod(req.user.id, code) : 'holdings';
-    const realTime = await fundService.getRealTimeValueWithMethod(code, valuationMethod).catch(() => null);
+
+    // ★ 全天休市检测（周末/法定节假日）：权威信号为 isTradingDay === false，
+    // 不能以 marketStatus.reason==='holiday' 判定（交易日盘后也会返回该值）
+    const today = getLocalToday();
+    let isFullDayClosed = false;
+    try {
+      isFullDayClosed = !(await holidayService.isTradingDay(today));
+    } catch (e) {
+      isFullDayClosed = false; // 节假日 API 失败 → 按非休市处理（fail-safe）
+    }
+
+    // ★ 待开市判断：交易日盘前 9 点前实时估值尚未更新，同样无需外部拉取
+    const now = new Date();
+    const hour = now.getHours();
+    const isPreMarket = !isFullDayClosed && hour < 9;
+
+    // ★ 实时估值：全天休市或待开市时跳过外部拉取，仅复用缓存命中项
+    let realTime = null;
+    if (isFullDayClosed || isPreMarket) {
+      const cacheKey = `realtime_${code}_${valuationMethod}`;
+      const cached = globalCache.checkCache(cacheKey, 'realtime');
+      if (cached.hit) realTime = cached.data;
+      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值外部拉取 (${code})`);
+    } else {
+      realTime = await fundService.getRealTimeValueWithMethod(code, valuationMethod).catch(() => null);
+    }
 
     const result = {
       code: fund.code,
@@ -66,7 +91,6 @@ exports.getByCode = async (req, res, next) => {
     };
 
     // ★ 计算更新状态（与holdingService统一使用checkMarketStatus）
-    const now = new Date();
     const updateTime = realTime ? realTime.updateTime : null;
     const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
@@ -112,7 +136,6 @@ exports.getByCode = async (req, res, next) => {
 
       result.last_updated = updateTime || null;
 
-      const hour = now.getHours();
       if (hour < 9) {
         // 盘前待开市：无论是否已确认，都显示待开市，清空涨幅
         result.update_status = 'pre_market';
@@ -271,16 +294,20 @@ exports.batchGetInfo = async (req, res, next) => {
       isFullDayClosed = false; // 节假日 API 失败 → 按非休市处理（fail-safe）
     }
 
-    // 实时估值：全天休市时跳过外部拉取，仅复用缓存命中项
+    // ★ 待开市判断：交易日盘前 9 点前实时估值尚未更新，同样无需外部拉取
+    const nowHour = new Date().getHours();
+    const isPreMarket = !isFullDayClosed && nowHour < 9;
+
+    // 实时估值：全天休市或待开市时跳过外部拉取，仅复用缓存命中项
     let realtimeMap = {};
-    if (isFullDayClosed) {
+    if (isFullDayClosed || isPreMarket) {
       for (const code of fundCodes) {
         const effectiveMethod = valuationOverrides[code] || valuationMethod || 'holdings';
         const cacheKey = `realtime_${code}_${effectiveMethod}`;
         const result = globalCache.checkCache(cacheKey, 'realtime');
         if (result.hit) realtimeMap[code] = result.data;
       }
-      logger.info(`全天休市，跳过实时估值外部拉取 (${fundCodes.length} 只)`);
+      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值外部拉取 (${fundCodes.length} 只)`);
     } else {
       realtimeMap = await fundService.batchGetRealTimeValuesWithMethod(fundCodes, valuationMethod);
     }

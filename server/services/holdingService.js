@@ -303,6 +303,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     logger.warn(`全天休市检测失败，按非休市处理: ${e.message}`);
     isFullDayClosed = false;
   }
+  // ★ 待开市判断：交易日盘前 9 点前实时估值尚未更新，同样无需外部拉取
+  const isPreMarket = !isFullDayClosed && new Date().getHours() < 9;
   const userId = holdings[0].user_id;
   let todayTxSharesMap = {};
   try {
@@ -361,8 +363,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
     // 检查哪些需要从外部获取（缓存未命中或强制刷新）
     let needFetch;
-    if (isFullDayClosed) {
-      // ★ 全天休市（周末/法定节假日）：跳过实时估值外部拉取，仅复用缓存命中项，未命中留空
+    if (isFullDayClosed || isPreMarket) {
+      // ★ 全天休市或待开市：跳过实时估值外部拉取，仅复用缓存命中项，未命中留空
       for (const code of codes) {
         const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
         const cacheKey = `realtime_${code}_${effectiveMethod}`;
@@ -372,7 +374,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
         }
       }
       needFetch = [];
-      logger.info(`全天休市，跳过实时估值外部拉取 (${codes.length} 只)`);
+      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值外部拉取 (${codes.length} 只)`);
     } else {
       needFetch = forceRefresh ? codes : codes.filter(code => {
         const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
