@@ -3,6 +3,7 @@ const Holding = require('../models/holding');
 const Favorite = require('../models/favorite');
 const fundService = require('../services/fundService');
 const holdingService = require('../services/holdingService');
+const holidayService = require('../services/holidayService');
 const globalCache = require('../services/globalCache');
 const pool = require('../config/database');
 const UserSetting = require('../models/userSetting');
@@ -258,12 +259,44 @@ exports.batchGetInfo = async (req, res, next) => {
     }
 
     // ★ 批量获取实时数据（核心优化：1次新浪请求 + 并行确认净值）
-    const realtimeMap = await fundService.batchGetRealTimeValuesWithMethod(fundCodes, valuationMethod);
-
-    // 批量获取历史净值
     const today = getLocalToday();
     const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
-    const historyMap = await fundService.batchGetHistoryNetValues(fundCodes, threeDaysAgo, today);
+
+    // ★ 全天休市检测（周末/法定节假日）：权威信号为 isTradingDay === false，
+    // 不能以 marketStatus.reason==='holiday' 判定（交易日盘后也会返回该值）
+    let isFullDayClosed = false;
+    try {
+      isFullDayClosed = !(await holidayService.isTradingDay(today));
+    } catch (e) {
+      isFullDayClosed = false; // 节假日 API 失败 → 按非休市处理（fail-safe）
+    }
+
+    // 实时估值：全天休市时跳过外部拉取，仅复用缓存命中项
+    let realtimeMap = {};
+    if (isFullDayClosed) {
+      for (const code of fundCodes) {
+        const effectiveMethod = valuationOverrides[code] || valuationMethod || 'holdings';
+        const cacheKey = `realtime_${code}_${effectiveMethod}`;
+        const result = globalCache.checkCache(cacheKey, 'realtime');
+        if (result.hit) realtimeMap[code] = result.data;
+      }
+      logger.info(`全天休市，跳过实时估值外部拉取 (${fundCodes.length} 只)`);
+    } else {
+      realtimeMap = await fundService.batchGetRealTimeValuesWithMethod(fundCodes, valuationMethod);
+    }
+
+    // 历史净值：全天休市时跳过外部拉取，仅复用缓存命中项
+    let historyMap = {};
+    if (isFullDayClosed) {
+      for (const code of fundCodes) {
+        const cacheKey = `history_${code}_3d_${today}`;
+        const result = globalCache.checkCache(cacheKey, 'history_recent');
+        if (result.hit) historyMap[code] = result.data;
+      }
+      logger.info(`全天休市，跳过历史净值外部拉取 (${fundCodes.length} 只)`);
+    } else {
+      historyMap = await fundService.batchGetHistoryNetValues(fundCodes, threeDaysAgo, today);
+    }
 
     // 市场状态（用前3只基金检测）
     const marketStatus = await holdingService.checkMarketStatus(fundCodes.slice(0, 3).map(c => ({ fund_code: c })));
