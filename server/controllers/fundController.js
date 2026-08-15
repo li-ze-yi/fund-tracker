@@ -65,12 +65,62 @@ exports.getByCode = async (req, res, next) => {
     const hour = now.getHours();
     const isPreMarket = !isFullDayClosed && hour < 9;
 
+    // ★ 提前查询持仓（供休市/待开市净值兜底与下方收益计算复用，避免重复查询）
+    let holding = null;
+    if (req.user) {
+      holding = await Holding.findByUserAndFund(req.user.id, code).catch(() => null);
+    }
+
     // ★ 实时估值：全天休市或待开市时跳过外部拉取，仅复用缓存命中项
     let realTime = null;
     if (isFullDayClosed || isPreMarket) {
       const cacheKey = `realtime_${code}_${valuationMethod}`;
       const cached = globalCache.checkCache(cacheKey, 'realtime');
       if (cached.hit) realTime = cached.data;
+      // ★ 即使实时估值缓存未命中，也从其他缓存补充最近确认净值（休市/待开市时净值不变）
+      if (!realTime) {
+        const confirmedCache = globalCache.checkCache(`confirmed_nav_${code}`, 'history_recent');
+        if (confirmedCache.hit && confirmedCache.data && parseFloat(confirmedCache.data.nav) > 0) {
+          realTime = {
+            netValue: parseFloat(confirmedCache.data.nav),
+            gainPercent: null,
+            updateTime: confirmedCache.data.date || null,
+            estimatedValue: null,
+            estimatedChange: null,
+            estimationMethod: null,
+            estimationCoverage: null,
+          };
+        } else {
+          const historyCache = globalCache.checkCache(`history_${code}_3d_${today}`, 'history_recent');
+          if (historyCache.hit && historyCache.data && historyCache.data.length > 0) {
+            const latest = historyCache.data[0];
+            const nav = parseFloat(latest.nav);
+            if (nav > 0) {
+              realTime = {
+                netValue: nav,
+                gainPercent: null,
+                updateTime: latest.date || null,
+                estimatedValue: null,
+                estimatedChange: null,
+                estimationMethod: null,
+                estimationCoverage: null,
+              };
+            }
+          }
+        }
+        // ★ 缓存均未命中 → 持仓 DB 兜底（confirmed_nav 为最近确认净值，休市/待开市不失效）
+        if (!realTime && holding && parseFloat(holding.confirmed_nav) > 0) {
+          realTime = {
+            netValue: parseFloat(holding.confirmed_nav),
+            gainPercent: null,
+            updateTime: holding.confirmed_nav_date ? String(holding.confirmed_nav_date).split('T')[0] : null,
+            estimatedValue: null,
+            estimatedChange: null,
+            estimationMethod: null,
+            estimationCoverage: null,
+          };
+        }
+      }
       logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值外部拉取 (${code})`);
     } else {
       realTime = await fundService.getRealTimeValueWithMethod(code, valuationMethod).catch(() => null);
@@ -193,7 +243,6 @@ exports.getByCode = async (req, res, next) => {
     }
 
     if (req.user) {
-      const holding = await Holding.findByUserAndFund(req.user.id, code);
       if (holding) {
         const shares = parseFloat(holding.shares) || 0;
         const costPrice = parseFloat(holding.cost_price) || 0;
@@ -365,10 +414,23 @@ exports.batchGetInfo = async (req, res, next) => {
     const now = new Date();
     const results = fundCodes.map(code => {
       const fund = fundMap[code];
-      const realTime = realtimeMap[code] || null;
+      let realTime = realtimeMap[code] || null;
       const history = historyMap[code] || [];
       const holding = holdingMap[code] || null;
       const txShares = todayTxSharesMap[code] || { buy: 0, sell: 0 };
+
+      // ★ 休市/待开市时实时估值缺失 → 用最近确认净值兜底（confirmed_nav 缓存 → 3d 历史缓存 → 持仓 DB），
+      // 避免"最新净值"显示为空（净值休市不变，无需外部拉取）
+      if ((isFullDayClosed || isPreMarket) && !realTime) {
+        const c1 = globalCache.checkCache(`confirmed_nav_${code}`, 'history_recent');
+        if (c1.hit && c1.data && parseFloat(c1.data.nav) > 0) {
+          realTime = { netValue: parseFloat(c1.data.nav), gainPercent: null, updateTime: c1.data.date || null, estimatedValue: null, estimatedChange: null, estimationMethod: null, estimationCoverage: null };
+        } else if (history.length > 0 && parseFloat(history[0].nav) > 0) {
+          realTime = { netValue: parseFloat(history[0].nav), gainPercent: null, updateTime: history[0].date || null, estimatedValue: null, estimatedChange: null, estimationMethod: null, estimationCoverage: null };
+        } else if (holding && parseFloat(holding.confirmed_nav) > 0) {
+          realTime = { netValue: parseFloat(holding.confirmed_nav), gainPercent: null, updateTime: holding.confirmed_nav_date ? String(holding.confirmed_nav_date).split('T')[0] : null, estimatedValue: null, estimatedChange: null, estimationMethod: null, estimationCoverage: null };
+        }
+      }
 
       const latestHistoryNav = history.length > 0 ? parseFloat(history[0].nav) || 0 : 0;
       const latestHistoryDate = history.length > 0 ? history[0].date : null;
