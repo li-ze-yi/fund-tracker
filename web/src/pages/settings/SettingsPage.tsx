@@ -64,68 +64,6 @@ export default function SettingsPage() {
 
   return (
     <div className="settings-page" style={{ padding: 20 }}>
-      {/* 移动端响应式优化样式 */}
-      <style>{`
-        @media screen and (max-width: 768px) {
-          /* 页面容器 */
-          .settings-page {
-            padding: 12px 8px !important;
-          }
-
-          /* 页面标题 */
-          .settings-title {
-            font-size: clamp(18px, 5vw, 22px) !important;
-            margin-bottom: 16px !important;
-            padding: 0 4px !important;
-          }
-
-          /* 设置卡片 */
-          .settings-card {
-            margin-bottom: 14px !important;
-          }
-
-          .settings-card > .ant-card-head {
-            padding: 12px 16px !important;
-            min-height: auto !important;
-          }
-
-          .settings-card .ant-card-head-title {
-            font-size: clamp(14px, 3.5vw, 16px) !important;
-            padding: 4px 0 !important;
-          }
-
-          .settings-card > .ant-card-body {
-            padding: 16px 12px !important;
-          }
-
-          /* 按钮和交互元素 */
-          .settings-card .ant-btn {
-            min-height: 40px !important;
-            font-size: clamp(13px, 3.2vw, 15px) !important;
-            border-radius: var(--radius-md) !important;
-          }
-
-          /* 分割线 */
-          .settings-card .ant-divider {
-            margin: 14px 0 !important;
-          }
-
-          /* 关于卡片文本 */
-          .settings-about-text {
-            font-size: clamp(13px, 3.2vw, 14px) !important;
-            line-height: 1.9 !important;
-          }
-
-          .settings-about-links {
-            margin-top: 6px !important;
-          }
-
-          .settings-about-links a {
-            font-size: clamp(13px, 3.2vw, 14px) !important;
-          }
-        }
-      `}</style>
-
       <h2 className="settings-title" style={{ marginBottom: 20, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>设置</h2>
 
       <Card

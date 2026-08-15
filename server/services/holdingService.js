@@ -1,5 +1,6 @@
 const fundService = require('./fundService');
 const globalCache = require('./globalCache');
+const holidayService = require('./holidayService');
 const Holding = require('../models/holding');
 const pool = require('../config/database');
 const { createLogger } = require('../utils/logger');
@@ -290,6 +291,18 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
   // ★ 查询今日交易份额（使用北京时间，避免凌晨 UTC 日期偏移导致 yesterdayShares=0）
   const _now = new Date();
   const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
+
+  // ★ 全天休市检测（周末/法定节假日）
+  // 注意：不能以 marketStatus.reason === 'holiday' 作为权威信号——checkMarketStatus 在普通工作日
+  // 收盘后（15:00 后）也会返回 reason='holiday'，会误导此判断。全天休市的权威信号是 isTradingDay === false。
+  let isFullDayClosed = false;
+  try {
+    isFullDayClosed = !(await holidayService.isTradingDay(today));
+  } catch (e) {
+    // 节假日 API 失败 → 按非休市处理（与 holidayService 内部降级为非节假日一致）
+    logger.warn(`全天休市检测失败，按非休市处理: ${e.message}`);
+    isFullDayClosed = false;
+  }
   const userId = holdings[0].user_id;
   let todayTxSharesMap = {};
   try {
@@ -347,17 +360,32 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     });
 
     // 检查哪些需要从外部获取（缓存未命中或强制刷新）
-    const needFetch = forceRefresh ? codes : codes.filter(code => {
-      const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
-      const cacheKey = `realtime_${code}_${effectiveMethod}`;
-      // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
-      const result = globalCache.checkCache(cacheKey, 'realtime');
-      if (result.hit) {
-        realtimeDataMap[code] = result.data;
-        return false;
+    let needFetch;
+    if (isFullDayClosed) {
+      // ★ 全天休市（周末/法定节假日）：跳过实时估值外部拉取，仅复用缓存命中项，未命中留空
+      for (const code of codes) {
+        const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
+        const cacheKey = `realtime_${code}_${effectiveMethod}`;
+        const result = globalCache.checkCache(cacheKey, 'realtime');
+        if (result.hit) {
+          realtimeDataMap[code] = result.data;
+        }
       }
-      return true;
-    });
+      needFetch = [];
+      logger.info(`全天休市，跳过实时估值外部拉取 (${codes.length} 只)`);
+    } else {
+      needFetch = forceRefresh ? codes : codes.filter(code => {
+        const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
+        const cacheKey = `realtime_${code}_${effectiveMethod}`;
+        // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
+        const result = globalCache.checkCache(cacheKey, 'realtime');
+        if (result.hit) {
+          realtimeDataMap[code] = result.data;
+          return false;
+        }
+        return true;
+      });
+    }
 
     if (needFetch.length > 0) {
       batchPromises.push(
@@ -381,7 +409,18 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     const nowHour = new Date().getHours();
     const isTradingHours = nowHour >= 9 && nowHour < 15;
     let historyNeedFetch;
-    if (isTradingHours) {
+    if (isFullDayClosed) {
+      // ★ 全天休市（周末/法定节假日）：跳过历史净值外部拉取，仅复用缓存命中项，未命中留空
+      for (const code of codes) {
+        const cacheKey = `history_${code}_3d_${today}`;
+        const result = globalCache.checkCache(cacheKey, 'history_recent');
+        if (result.hit) {
+          historyDataMap[code] = result.data;
+        }
+      }
+      historyNeedFetch = [];
+      logger.info(`全天休市，跳过历史净值外部拉取 (${codes.length} 只)`);
+    } else if (isTradingHours) {
       // 交易时段（含 forceRefresh）跳过 API 拉取，只复用缓存命中项
       for (const code of codes) {
         const cacheKey = `history_${code}_3d_${today}`;
@@ -444,6 +483,30 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     // ★ 确认净值三级来源解析（缓存 → 数据库 → API），盘中估算以解析出的确认净值为基准
     const resolvedNav = resolveConfirmedNav(fundCode, holding, historyData, realTimeData);
     const effectiveNav = resolvedNav.nav > 0 ? resolvedNav.nav : dbConfirmedNav;
+
+    // ★ 全天休市（周末/节假日）+ 确认净值无法解析（缓存未命中且 DB confirmed_nav 缺失/过期）
+    // → 仅对该基金做定向修复拉取：写回 DB confirmed_nav 并填充 3d 历史缓存。
+    // 不阻塞响应（fire-and-forget），不抛错。
+    if (isFullDayClosed && resolvedNav.source === 'none') {
+      const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+      fundService.getHistoryNetValues(fundCode, threeDaysAgo, today)
+        .then(historyData => {
+          if (!historyData || !historyData.length) return;
+          const latest = historyData[0];
+          if (!latest || !(parseFloat(latest.nav) > 0)) return;
+          globalCache.set(`history_${fundCode}_3d_${today}`, historyData, 'history_recent');
+          return Holding.update(holding.id, holding.user_id, {
+            confirmedNav: parseFloat(latest.nav),
+            confirmedNavDate: latest.date
+          });
+        })
+        .then(() => {
+          logger.info(`全天休市定向修复: fund=${fundCode}, holdingId=${holding.id}, source=none`);
+        })
+        .catch(err => {
+          logger.error(`全天休市定向修复失败: fund=${fundCode}, err=${err.message}`);
+        });
+    }
 
     // 保留原写库：API 历史净值比 DB 更新时回写（保证 DB confirmed_nav 新鲜）
     if (latestHistoryNav > 0 && latestHistoryDate && latestHistoryDate > dbConfirmedNavDate) {

@@ -1,3 +1,8 @@
+// ★ 固化进程时区为北京时间（Asia/Shanghai, UTC+8）
+// 必须在任何日期逻辑之前设置：确保 Node 的 Date 计算、mysql2 日期解析均按北京时间，
+// 避免部署服务器系统时区被运维改为 UTC 后，前端（北京时区）整体错位 8 小时。
+process.env.TZ = 'Asia/Shanghai';
+
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');

@@ -19,6 +19,7 @@ const pool = mysql.createPool({
   queueLimit: 0,
   maxIdle: 10,
   idleTimeout: 600000,  // 10分钟
+  timezone: '+08:00',  // ★ 固化连接时区为北京时间（UTC+8），与 app.js 的 process.env.TZ 保持一致
 });
 
 // 添加连接池错误处理

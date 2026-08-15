@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UpOutlined, DownOutlined, CheckOutlined } from '@ant-design/icons';
-import { fetchIndexData, ALL_INDEX_META } from '@/services/indexService';
+import { fetchIndexData, fetchMarketStatus, ALL_INDEX_META } from '@/services/indexService';
 
 interface IndexItem {
   code: string;
@@ -43,11 +43,47 @@ export default function MarketIndexStrip() {
     setIndices(data);
   }, []);
 
-  useEffect(() => {
-    loadIndices();
-    const timer = setInterval(loadIndices, 60000);
-    return () => clearInterval(timer);
+  // 60s 数据轮询定时器
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 最近一次已知的市场状态（避免重复启停）
+  const statusRef = useRef<boolean | null>(null);
+  // 5 分钟一次的市场状态复查定时器
+  const statusCheckTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 开市时启动 60s 轮询，闭市时停止（保留最后一次数据）
+  const setPolling = useCallback((enabled: boolean) => {
+    if (enabled && !pollTimerRef.current) {
+      pollTimerRef.current = setInterval(loadIndices, 60000);
+    } else if (!enabled && pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
   }, [loadIndices]);
+
+  // 查询市场状态，状态翻转时启停轮询
+  const checkMarketStatus = useCallback(async () => {
+    try {
+      const status = await fetchMarketStatus();
+      if (statusRef.current !== status.isMarketOpen) {
+        statusRef.current = status.isMarketOpen;
+        setPolling(status.isMarketOpen);
+      }
+    } catch {
+      // 状态查询失败时保持当前轮询状态
+    }
+  }, [setPolling]);
+
+  useEffect(() => {
+    // 初始立即加载一次，保证有数据展示
+    loadIndices();
+    // 初始化市场状态，并按 5 分钟频率复查；开市才维持 60s 轮询
+    checkMarketStatus();
+    statusCheckTimerRef.current = setInterval(checkMarketStatus, 300000);
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      if (statusCheckTimerRef.current) clearInterval(statusCheckTimerRef.current);
+    };
+  }, [loadIndices, checkMarketStatus]);
 
   const visibleIndices = indices.filter(i => visibleCodes.includes(i.code));
 

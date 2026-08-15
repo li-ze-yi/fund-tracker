@@ -60,6 +60,35 @@ exports.list = async (req, res, next) => {
 };
 
 /**
+ * 结算优先查缓存：确认净值一旦公布即不可变，可安全复用缓存值。
+ * ① history_{code}_3d_{today} 缓存（最近3天，含确认净值，由持仓 enrich 批量填充）
+ * ② confirmed_nav_{code} 缓存（最新确认净值，由 resolveConfirmedNav 填充）
+ * ③ 兜底：调用外部历史净值接口（仅该交易日单日查询；不写回 3d 缓存，避免污染多日数组）
+ * 返回 { nav, source }，nav<=0 表示该日期净值尚未确认
+ */
+async function getSettleConfirmedNav(fundCode, navDate) {
+  const today = getLocalToday();
+
+  // ① 3d 历史缓存（含确认净值）
+  const histCache = globalCache.checkCache(`history_${fundCode}_3d_${today}`, 'history_recent');
+  if (histCache.hit && Array.isArray(histCache.data)) {
+    const hit = histCache.data.find(r => r && r.date === navDate && parseFloat(r.nav) > 0);
+    if (hit) return { nav: parseFloat(hit.nav), source: 'cache_3d' };
+  }
+
+  // ② 最新确认净值缓存
+  const navCache = globalCache.checkCache(`confirmed_nav_${fundCode}`, 'history_recent');
+  if (navCache.hit && navCache.data && navCache.data.date === navDate && parseFloat(navCache.data.nav) > 0) {
+    return { nav: parseFloat(navCache.data.nav), source: 'cache_confirmed_nav' };
+  }
+
+  // ③ 兜底：外部拉取
+  const history = await fundService.getHistoryNetValues(fundCode, navDate, navDate);
+  const nav = history && history.length ? parseFloat(history[0].nav) || 0 : 0;
+  return { nav, source: 'api' };
+}
+
+/**
  * 异步结算 pending 交易订单
  * 在用户查看持仓时自动触发，不阻塞主流程
  */
@@ -70,17 +99,17 @@ async function settlePendingAsync(userId) {
 
     logger.info(`发现 ${pendingTransactions.length} 笔待结算订单，开始自动结算...`);
 
-    for (const tx of pendingTransactions) {
+    // ★ 单笔结算逻辑封装为独立异步函数，便于并行执行（每批并发受控）
+    const processTx = async (tx) => {
       try {
         const navDate = normalizeDateStr(tx.transaction_date);
-        if (!navDate) continue;
+        if (!navDate) return;
 
-        const history = await fundService.getHistoryNetValues(tx.fund_code, navDate, navDate);
-        const confirmedNav = history.length ? history[0].nav : 0;
-        logger.info(`[Settle] 检查交易 #${tx.id}: fund=${tx.fund_code}, type=${tx.type}, navDate=${navDate}, confirmedNav=${confirmedNav}, amount=${tx.amount}`);
+        const { nav: confirmedNav, source: navSource } = await getSettleConfirmedNav(tx.fund_code, navDate);
+        logger.info(`[Settle] 检查交易 #${tx.id}: fund=${tx.fund_code}, type=${tx.type}, navDate=${navDate}, confirmedNav=${confirmedNav}, navSource=${navSource}, amount=${tx.amount}`);
         if (!confirmedNav) {
           logger.info(`[Settle] 跳过 #${tx.id}: NAV 未确认，下次继续`);
-          continue;
+          return;
         }
 
         const holding = await Holding.findByUserAndFund(userId, tx.fund_code);
@@ -105,7 +134,7 @@ async function settlePendingAsync(userId) {
           if (!acquired) {
             // 已被其他任务结算，跳过持仓更新
             logger.info(`[Settle] 买入 #${tx.id} 已被其他任务结算（乐观锁未获取），跳过持仓更新`);
-            continue;
+            return;
           }
 
           if (!holding) {
@@ -166,7 +195,7 @@ async function settlePendingAsync(userId) {
           if (!acquired) {
             // 已被其他任务结算，跳过持仓更新
             logger.info(`[Settle] 卖出 #${tx.id} 已被其他任务结算（乐观锁未获取），跳过持仓更新`);
-            continue;
+            return;
           }
 
           // 结算时才扣减份额和成本
@@ -200,6 +229,14 @@ async function settlePendingAsync(userId) {
       } catch (err) {
         logger.error(`结算交易 #${tx.id} 失败: ${err.message}`);
       }
+    };
+
+    // ★ 分批并行结算：每批最多 3 笔并发，外部基金 API（getHistoryNetValues）并行但不无界，
+    // 单笔失败由 processTx 内部 try/catch 兜底，Promise.allSettled 保证整批不因单笔失败中断
+    const SETTLE_BATCH_SIZE = 3;
+    for (let i = 0; i < pendingTransactions.length; i += SETTLE_BATCH_SIZE) {
+      const chunk = pendingTransactions.slice(i, i + SETTLE_BATCH_SIZE);
+      await Promise.allSettled(chunk.map(processTx));
     }
   } catch (err) {
     logger.error('自动结算失败:', err.message);
