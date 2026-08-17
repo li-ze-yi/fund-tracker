@@ -1,0 +1,13 @@
+- [x] 所有改动在新分支 `feat/include-sold-out-fund-in-daily-profit` 上完成，未污染主干
+- [x] `backfillDailyProfit` 为每个用户计算日收益前先结算 pending 交易订单
+- [x] 结算逻辑复用 `settlePendingAsync` 核心流程（查询pending → 获取确认净值 → 更新持仓 → 更新交易状态）
+- [x] 结算完成后才执行 `Holding.findByUserId` + `enrichHoldingsWithRealTimeData` + `calculateAndSaveDailyProfit`
+- [x] `calculateHoldingMetrics` 的 `market_closed` 分支增加前置例外：`shares==0 && sold_date==today && isConfirmed && confirmedNav>0` 时跳过早返回
+- [x] 例外场景下 `daily_profit` 基于卖出份额 × 确认净值涨跌幅计算（非0）
+- [x] 例外场景下 `is_confirmed=true`，`update_status='confirmed'`
+- [x] 例外场景下 `market_value=0`，`accumulated_profit=holding.total_return`
+- [x] 卖出当天但净值未确认时仍走 `market_closed` 早返回，daily_profit=0
+- [x] 卖出第二天（sold_date < today）仍返回 `sold_out`，daily_profit=0，不参与统计
+- [x] 兜底任务运行时，已清仓卖出当天的基金被纳入日收益统计（details.funds 包含该基金，daily_profit 非0）
+- [x] `daily_profits` 表当天记录的 profit 包含已清仓基金收益
+- [x] 正常持仓（shares>0）的日收益统计不受影响

@@ -1,0 +1,12 @@
+- [x] `dailyProfitService` 新增 `calculateAndSaveDailyProfitFromConfirmedNav` 方法，仅调用 `fundService.batchGetHistoryNetValues`，不调用新浪实时接口或 `enrichHoldingsWithRealTimeData`
+- [x] 新方法对已确认基金按 `yesterdayShares * (todayNav - yesterdayNav)` 直算当日收益，`yesterdayShares` 正确扣除今日买入、加回今日卖出
+- [x] 新方法对未确认基金（最新净值日期 < 今天）标记 `is_confirmed = false` 并跳过，不回退实时估值
+- [x] `backfillDailyProfit` 不再调用 `enrichHoldingsWithRealTimeData`，改调新方法
+- [x] 去重过滤区分完整/部分记录：`confirmed_funds >= total_funds` 的完整记录跳过；`confirmed_funds < total_funds` 的部分记录重新补算（`upsert` 覆盖，纳入后续确认的基金）；无记录用户照常补算
+- [x] 交易日判断不依赖实时数据采样，不触发新浪请求（周末 + `holidayService` 节假日）
+- [x] `_settlePendingTransactions` 仍在算收益前执行，结算后重新拉取持仓
+- [x] 当 23:55 当日确认净值已发布时，日收益正常写入，不因 `market_closed` 置零而漏算
+- [x] 非交易日（周末/节假日）直接返回，不发起任何外部 API 请求
+- [x] `enrichHoldingsWithRealTimeData` 与持仓页展示路径未被改动（git diff 确认仅 dailyProfitService.js 改动）
+- [x] `node -c server/services/dailyProfitService.js` 语法通过
+- [x] 模块加载 `require('./server/services/dailyProfitService')` 成功

@@ -1,0 +1,37 @@
+- [x] showReturnRate state 提升到 StatsPage 主组件，作为 prop 传入 DateTableView
+- [x] DateTableView 内部不再有 showReturnRate useState，改用 props
+- [x] 三个粒度视图（day/month/year）日历原头部内的日期导航已移除
+- [x] 三个粒度视图日历原头部右侧的金额/收益率切换控件已移除
+- [x] DateTableView 内部原有的粒度选择器已移除（提升到第一行）
+- [x] 日期导航作为独立的第二行居中显示（‹ 月份/年份标题 ›），含返回本月/今年按钮
+- [x] 第一行控件取消 block，改为并排居中（flex, gap, justify-content: center）
+- [x] chart 模式第一行：柱状图/表格切换 + 周期选择器（日/月/年）并排
+- [x] date_table 模式第一行：柱状图/表格切换 + 粒度选择器（日/月/年）+ 金额/收益率切换并排
+- [x] chart 模式无第二行日期导航
+- [x] 原有的视图模式切换 block 容器和周期选择器 block 容器已移除
+- [x] 金额/收益率切换移动端显示「¥」「%」图标
+- [x] 柱状图/表格切换移动端显示简短文字或图标
+- [x] 粒度/周期选择器移动端显示「日」「月」「年」单字
+- [x] 移动端多个控件可换行或缩小以适应窄屏
+- [x] 切换金额/收益率时，日历单元格内容正确切换显示
+- [x] 切换粒度时，第二行日期导航标题正确对应（day→月份、month→年份、year→年份范围）
+- [x] chart 模式切换周期时，图表与概览卡片正确更新
+- [x] TypeScript 编译无新增错误
+- [x] 第一行有组合背景容器（rgba(148,163,184,0.18/0.1) + 16px 圆角）
+- [x] 三个 Segmented 控件之间有明显间隔（桌面 space-between 24px / 移动 space-between 6px）
+- [x] 桌面端三个控件靠左/居中/靠右分布（space-between）
+- [x] 移动端三个控件也用 space-between 靠左/居中/靠右分布（不居中堆叠）
+- [x] 金额/收益率切换在 chart 模式也显示
+- [x] chart 模式金额模式：收益金额柱 + 收益率折线（双 Y 轴）+ 明细表显示金额+累计列
+- [x] chart 模式收益率模式：收益率柱状图（单 Y 轴 %）+ 明细表只显示收益率列
+- [x] 每个 Segmented 控件有独立 var(--bg-elevated) 背景 + 12px 圆角
+- [x] 选中项使用 var(--accent-gold) 金色背景 + 白色文字
+- [x] Segmented 选项内图标水平垂直居中对齐
+- [x] 桌面端 Segmented 使用 size="large" 更大更易点击
+- [x] 移动端 Segmented padding 4px、min-width 32px、min-height 28px 保持
+- [x] 第一行控件容器 maxWidth: 680px 居中显示
+- [x] 日期表格卡片 maxWidth: 720px 居中显示，避免桌面端过大
+- [x] 表格模式月视图（12 月网格）单元格只显示金额或收益率，移除副文本
+- [x] 表格模式年视图（多年年度网格）单元格只显示金额或收益率，移除副文本
+- [x] 月/年视图 Tooltip 中仍同时显示收益金额和收益率（完整信息）
+- [x] 月/年视图移除 subText 变量声明（清理未使用代码）

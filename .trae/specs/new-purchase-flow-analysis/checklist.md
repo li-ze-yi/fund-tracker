@@ -1,0 +1,9 @@
+- [x] spec.md 完整记录了添加持仓（create）的净值获取、份额计算、交易记录生成逻辑
+- [x] spec.md 完整记录了新购基金（purchase）的 NAV 日期计算、confirmed/pending 分支逻辑
+- [x] spec.md 完整记录了自动结算（settlePendingAsync）的流程
+- [x] spec.md 完整记录了 calculateHoldingMetrics 的指标计算逻辑
+- [x] spec.md 完整记录了前端 FundListItem 的显示逻辑和各状态标签
+- [x] spec.md 中提到的所有文件路径与实际代码相符
+- [x] spec.md 记录了持仓金额稳定性修复的根因分析和修复方案
+- [x] spec.md 完整分析了 8 种新购基金场景的显示合理性
+- [x] 持仓金额稳定性修复已应用到 holdingService.js 代码中
