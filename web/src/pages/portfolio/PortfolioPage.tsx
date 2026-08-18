@@ -110,8 +110,8 @@ export default function PortfolioPage() {
 
   const sortedHoldings = [...holdings].sort((a, b) => {
     if (!sortField || !sortDir) return 0;
-    const aVal = (a as any)[sortField] ?? 0;
-    const bVal = (b as any)[sortField] ?? 0;
+    const aVal = (a as unknown as Record<string, number>)[sortField] ?? 0;
+    const bVal = (b as unknown as Record<string, number>)[sortField] ?? 0;
     return sortDir === 'desc' ? bVal - aVal : aVal - bVal;
   });
 
@@ -178,13 +178,7 @@ export default function PortfolioPage() {
           </div>
         ))}
         
-        <style>{`
-          @keyframes skeleton-loading {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
-          }
-        `}</style>
-      </div>
+        </div>
     );
   }
 

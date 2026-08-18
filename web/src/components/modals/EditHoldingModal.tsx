@@ -70,35 +70,6 @@ export default function EditHoldingModal({
       confirmLoading={loading}
       destroyOnHidden
     >
-      <style>{`
-        @media screen and (max-width: 768px) {
-          .edit-holding-modal .ant-modal {
-            max-width: 95vw !important;
-            margin: 8px auto !important;
-          }
-          .edit-holding-modal .ant-modal-header {
-            padding: 14px 18px !important;
-          }
-          .edit-holding-modal .ant-modal-title {
-            font-size: clamp(15px, 4vw, 17px) !important;
-          }
-          .edit-holding-modal .ant-modal-body {
-            padding: 16px !important;
-          }
-          .edit-holding-modal .ant-input-number {
-            height: 42px !important;
-            font-size: clamp(14px, 3.5vw, 15px) !important;
-            border-radius: var(--radius-md) !important;
-          }
-          .edit-holding-modal .ant-btn-primary,
-          .edit-holding-modal .ant-btn-default {
-            height: 42px !important;
-            font-size: clamp(13px, 3.2vw, 14px) !important;
-            border-radius: var(--radius-md) !important;
-          }
-        }
-      `}</style>
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 8, fontWeight: 500 }}>

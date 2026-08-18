@@ -741,20 +741,7 @@ export default function ImageImportModal({ open, onClose, onSuccess }: Props) {
           )}
         </div>
       )}
-      <style>{`
-        .image-import-invalid-row {
-          background: rgba(255, 77, 79, 0.06) !important;
-        }
-        .image-import-invalid-row:hover > td {
-          background: rgba(255, 77, 79, 0.1) !important;
-        }
-        @media (max-width: 768px) {
-          .image-import-modal .ant-modal {
-            max-width: 95vw !important;
-          }
-        }
-      `}</style>
-    </div>
+      </div>
   );
 
   return (

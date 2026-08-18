@@ -66,60 +66,6 @@ export default function CreatePlanModal({ open, onClose, onSuccess, fundCode, fu
       confirmLoading={loading}
       destroyOnHidden
     >
-      {/* 移动端响应式优化样式 */}
-      <style>{`
-        @media screen and (max-width: 768px) {
-          .create-plan-modal .ant-modal {
-            max-width: 95vw !important;
-            margin: 8px auto !important;
-          }
-
-          .create-plan-modal .ant-modal-header {
-            padding: 14px 18px !important;
-          }
-
-          .create-plan-modal .ant-modal-title {
-            font-size: clamp(15px, 4vw, 17px) !important;
-          }
-
-          .create-plan-modal .ant-modal-body {
-            padding: 16px !important;
-          }
-
-          /* 表单项 */
-          .create-plan-modal .ant-form-item {
-            margin-bottom: 14px !important;
-          }
-
-          .create-plan-modal .ant-form-item-label > label {
-            font-size: clamp(13px, 3.2vw, 14px) !important;
-            height: auto !important;
-          }
-
-          /* 输入框和选择器 */
-          .create-plan-modal .ant-input-number,
-          .create-plan-modal .ant-select {
-            height: 42px !important;
-            font-size: clamp(14px, 3.5vw, 15px) !important;
-            border-radius: var(--radius-md) !important;
-          }
-
-          /* 下拉选项 */
-          .create-plan-modal .ant-select-dropdown .ant-select-item {
-            padding: 6px 12px !important;
-            font-size: clamp(13px, 3.2vw, 14px) !important;
-          }
-
-          /* 底部按钮 */
-          .create-plan-modal .ant-btn-primary,
-          .create-plan-modal .ant-btn-default {
-            height: 42px !important;
-            font-size: clamp(13px, 3.2vw, 14px) !important;
-            border-radius: var(--radius-md) !important;
-          }
-        }
-      `}</style>
-
       <Form form={form} layout="vertical">
         <Form.Item name="fundCode" label="选择基金" rules={[{ required: true, message: '请选择基金' }]}>
           <Select showSearch onSearch={searchFund} filterOption={false} placeholder="搜索基金代码或名称" options={fundOptions} />

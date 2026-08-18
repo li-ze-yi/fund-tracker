@@ -62,43 +62,6 @@ export default function PurchaseModal({ open, fundCode, fundName, onClose, onSuc
       confirmLoading={loading}
       destroyOnHidden
     >
-      <style>{`
-        @media screen and (max-width: 768px) {
-          .purchase-modal .ant-modal {
-            max-width: 95vw !important;
-            margin: 8px auto !important;
-          }
-          .purchase-modal .ant-modal-header {
-            padding: 14px 18px !important;
-          }
-          .purchase-modal .ant-modal-title {
-            font-size: clamp(15px, 4vw, 17px) !important;
-          }
-          .purchase-modal .ant-modal-body {
-            padding: 16px !important;
-          }
-          .purchase-modal .ant-form-item {
-            margin-bottom: 16px !important;
-          }
-          .purchase-modal .ant-radio-wrapper {
-            font-size: clamp(12px, 3vw, 13px) !important;
-            margin-right: 12px !important;
-            white-space: normal !important;
-          }
-          .purchase-modal .ant-radio-group {
-            display: flex !important;
-            flex-direction: column !important;
-            gap: 8px !important;
-          }
-          .purchase-modal .ant-btn-primary,
-          .purchase-modal .ant-btn-default {
-            height: 42px !important;
-            font-size: clamp(13px, 3.2vw, 14px) !important;
-            border-radius: var(--radius-md) !important;
-          }
-        }
-      `}</style>
-
       <Form form={form} layout="vertical" initialValues={{ purchaseDate: dayjs(), after3pm: false, feeRate: 0 }}>
         <Form.Item name="amount" label="购买金额" rules={[{ required: true, message: '请输入购买金额' }]}>
           <InputNumber prefix="¥" min={0.01} step={100} style={{ width: '100%' }} placeholder="输入购买金额" />

@@ -7,7 +7,7 @@ import { useThemeStore } from '@/store/themeStore';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { fundService } from '@/services/fundService';
 import { favoriteService } from '@/services/favoriteService';
-import { settingService } from '@/services/settingService';
+import { settingService, type SettingsData } from '@/services/settingService';
 import type { FundInfo } from '@/services/fundService';
 import AddHoldingModal from '@/components/modals/AddHoldingModal';
 import ImageImportModal from '@/components/modals/ImageImportModal';
@@ -37,10 +37,10 @@ export default function Header() {
   useEffect(() => {
     settingService.getSettings().then((data) => {
       // 兼容两种响应结构：{ settings: {...} } 或直接返回设置对象
-      const d: any = (data as any)?.settings || data;
-      if (d?.refresh_frequency != null) {
-        setRefreshFreq(d.refresh_frequency);
-        setCountdown(d.refresh_frequency);
+      const settings = (data as { settings?: SettingsData })?.settings || data;
+      if (settings?.refresh_frequency != null) {
+        setRefreshFreq(settings.refresh_frequency);
+        setCountdown(settings.refresh_frequency);
       }
     }).catch(() => {});
   }, []);
@@ -497,220 +497,7 @@ export default function Header() {
           </Dropdown>
         </div>
 
-        {/* 移动端响应式优化 */}
-        <style>{`
-          .header-icon-btn {
-            -webkit-tap-highlight-color: transparent;
-            user-select: none;
-            -webkit-user-select: none;
-          }
-
-          .header-icon-btn:hover {
-            background: var(--bg-card);
-            border-color: var(--border-strong);
-            color: var(--accent-gold) !important;
-            box-shadow: 0 0 10px var(--neon-glow-gold);
-          }
-
-          .header-icon-btn:active {
-            transform: scale(0.9);
-          }
-
-          /* 刷新完成粒子爆发容器 */
-          .refresh-burst {
-            position: absolute;
-            inset: 0;
-            z-index: 3;
-            pointer-events: none;
-          }
-
-          .burst-particle {
-            position: absolute;
-            left: 50%;
-            top: 50%;
-            width: 5px;
-            height: 5px;
-            margin-left: -2.5px;
-            margin-top: -2.5px;
-            border-radius: 50%;
-            background: #F0D78C;
-            box-shadow: 0 0 8px rgba(240, 215, 140, 0.9), 0 0 16px rgba(212, 168, 75, 0.5);
-            transform-origin: 2.5px 2.5px;
-            animation: burst-fly 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-          }
-
-          .burst-particle::after {
-            content: '';
-            position: absolute;
-            inset: -1px;
-            border-radius: 50%;
-            background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, transparent 70%);
-          }
-
-          @keyframes burst-fly {
-            0% {
-              transform: rotate(var(--angle, 0deg)) translateX(0) scale(1);
-              opacity: 1;
-            }
-            40% {
-              opacity: 1;
-            }
-            100% {
-              transform: rotate(var(--angle, 0deg)) translateX(22px) scale(0);
-              opacity: 0;
-            }
-          }
-
-          /* 沙漏倒计时尾声：呼吸闪烁 */
-          .hourglass.urgent svg {
-            animation: hourglass-breathe 1.2s ease-in-out infinite;
-          }
-
-          @keyframes hourglass-breathe {
-            0%, 100% { opacity: 0.8; }
-            50% { opacity: 1; filter: drop-shadow(0 0 5px rgba(240, 215, 140, 0.8)); }
-          }
-
-          /* 主题图标切换：旋转淡入 */
-          .theme-icon-swap {
-            display: inline-flex;
-            animation: theme-swap 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-          }
-
-          @keyframes theme-swap {
-            0% { transform: rotate(-100deg) scale(0.5); opacity: 0; }
-            100% { transform: rotate(0deg) scale(1); opacity: 1; }
-          }
-
-          @media screen and (max-width: 768px) {
-            .header-container {
-              height: 54px !important;
-              padding: 0 12px !important;
-              gap: 6px !important;
-            }
-
-            .header-actions {
-              gap: 4px !important;
-            }
-            
-            .header-title {
-              font-size: 16px !important;
-            }
-            
-            .header-search {
-              max-width: none !important;
-              flex: 1 !important;
-              min-width: 0 !important;
-              height: 34px !important;
-              font-size: 12px !important;
-              overflow: hidden !important;
-              display: flex !important;
-              align-items: center !important;
-            }
-
-            .header-search .ant-input-prefix,
-            .header-search .ant-input-suffix {
-              display: flex !important;
-              align-items: center !important;
-            }
-
-            .header-search .anticon {
-              display: inline-flex !important;
-              align-items: center !important;
-              justify-content: center !important;
-            }
-
-            .header-search .ant-input {
-              overflow: hidden !important;
-              text-overflow: ellipsis !important;
-              white-space: nowrap !important;
-            }
-
-            .header-search input {
-              overflow: hidden !important;
-              text-overflow: ellipsis !important;
-              white-space: nowrap !important;
-            }
-
-            .header-search input::placeholder,
-            .header-search .ant-input::placeholder {
-              font-size: 11px !important;
-              overflow: hidden !important;
-              text-overflow: ellipsis !important;
-              white-space: nowrap !important;
-            }
-            
-            .header-user {
-              display: none !important;
-              padding: 4px 8px !important;
-              gap: 4px !important;
-            }
-            
-            .header-username {
-              display: none !important;
-            }
-            
-            .header-user .anticon {
-              font-size: 16px !important;
-            }
-
-            /* 能量按钮移动端优化 */
-            .header-energy-button {
-              width: 40px !important;
-              height: 40px !important;
-              touch-action: manipulation !important;
-            }
-
-            /* 搜索下拉框移动端优化 */
-            .ant-dropdown {
-              width: calc(100vw - 24px) !important;
-              left: 12px !important;
-            }
-
-            .ant-dropdown .ant-dropdown-menu {
-              max-height: none !important;
-              overflow-y: auto !important;
-            }
-          }
-
-          /* 超小屏幕额外适配 (iPhone SE 等) */
-          @media screen and (max-width: 375px) {
-            .header-container {
-              height: 50px !important;
-              padding: 0 10px !important;
-              gap: 4px !important;
-            }
-
-            .header-actions {
-              gap: 2px !important;
-            }
-
-            .header-title {
-              font-size: 15px !important;
-              letter-spacing: -0.01em !important;
-            }
-
-            .header-search {
-              height: 32px !important;
-              font-size: 11px !important;
-            }
-
-            .header-search input::placeholder,
-            .header-search .ant-input::placeholder {
-              font-size: 10px !important;
-            }
-
-            /* 超小屏用户菜单 */
-            .header-user {
-              padding: 3px 6px !important;
-            }
-
-            .header-user .anticon {
-              font-size: 15px !important;
-            }
-          }
-        `}</style>
-      </div>
+        </div>
       </div>
 
       <AddHoldingModal
