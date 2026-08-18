@@ -1,0 +1,7 @@
+- [x] `server/controllers/authController.js` 注册流程显式传入 `'holdings'` 给 `UserSetting.upsert`（第 27 行）
+- [x] `server/models/userSetting.js` 的 `upsert` 兜底值由 `'tencent'` 改为 `'holdings'`（第 23 行）
+- [x] `doc/init_db.sql` 中 `user_settings.valuation_method` 默认值为 `'holdings'`，注释更新为 `auto=自动, sina=新浪财经, holdings=持仓穿透`（第 146 行）
+- [x] `server/controllers/settingController.js` 的 `get` 注释与代码一致（`'tencent'` 映射为 `'holdings'`，第 6 行）
+- [x] `doc/migrate_tencent_to_holdings.sql` 存在且能将 `tencent`/NULL 更新为 `'holdings'`
+- [x] 新用户注册后添加持仓，走持仓穿透法显示实时估值（而非前一日数据）—— 默认 `'holdings'` 进入 `batchGetRealTimeValuesWithMethod` 的 holdings 分支，不再落入无 fallback 的 else 分支
+- [x] 新浪与持仓穿透数据源隔离，新用户默认 `'holdings'` 不依赖跨源回退 —— 默认值直接为 `'holdings'`，非 `'auto'`

@@ -1,0 +1,6 @@
+- [x] `fundService.js` 中 `getStocksRealtime` 使用单只股票缓存键 `stock_quote_{code}`，不再使用组合键 `stock_quotes_{sorted.join(',')}`
+- [x] 缓存命中时跳过外部 API 请求，仅对未命中的股票调用 `getStocksRealtimeBatch`
+- [x] 批量请求返回后逐只写入缓存 `globalCache.set('stock_quote_{code}', quote, 'stock_quote')`
+- [x] 保留原有分批逻辑（BATCH_SIZE=50）
+- [x] 有中文注释标注外部 API 来源（腾讯 qt.gtimg.cn）和缓存策略说明
+- [x] 有调用逻辑日志（前缀 `[getStocksRealtime]`）：缓存命中/未命中统计、全部命中跳过请求、请求 API 前的股票代码和批数、请求完成后成功/失败统计

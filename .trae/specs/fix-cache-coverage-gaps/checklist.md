@@ -1,0 +1,12 @@
+- [x] `globalCache.js` 中 `getTTL()` 包含 `stock_quote` 和 `etf_quote` case，均返回 `getRealtimeTTL()`，有中文注释
+- [x] `getETFRealtimeQuote` 使用 `globalCache.getOrFetch('etf_quote_{code}', ...)` 包裹外部 API 调用，类型 `etf_quote`，有中文注释标注外部 API 来源
+- [x] `getStocksRealtime` 使用 `globalCache.getOrFetch('stock_quotes_{hash}', ...)` 包裹外部 API 调用，类型 `stock_quote`，有中文注释标注外部 API 来源（腾讯 qt.gtimg.cn）
+- [x] `planService.js` 中 `getHistoryNetValues` 调用改为 `globalCache.getOrFetch('history_{code}_1d_{today}', ...)`，类型 `history_recent`，有中文注释
+- [x] `dailyProfitService.js` 中 `checkConfirmedFunds` 的 `getHistoryNetValues` 调用改为 `globalCache.getOrFetch('history_{code}_1d_{today}', ...)`，类型 `history_recent`，有中文注释
+- [x] `holdingController.js` 中 `realtimeCacheKey` 改为 `realtime_{fundCode}_auto`，有中文注释
+- [x] `imageImportController.js` 中 `realtimeCacheKey` 改为 `realtime_{fundCode}_auto`
+- [x] `holdingController.js` 中 30 天历史缓存类型为 `history_older`，有中文注释
+- [x] `imageImportController.js` 中 30 天历史缓存类型为 `history_older`
+- [x] `routes/indices.js` 中 `/indices/:code/intraday` 缓存类型为 `realtime`，有中文注释
+- [x] `globalCache.js` 中新增 `history_chart` case，TTL 24h，有中文注释说明不复用 `history_recent` 的原因（cleanup 按 type 取 TTL，`history_recent` 黄金窗口仅 5min 会导致走势图缓存被过早清理）
+- [x] `fundController.js` 中 `getNavHistory` 实现确认检查缓存：缓存键为 `history_{code}_{startDate}_{endDate}`，类型 `history_chart`，缓存命中时取最新记录日期，=今天直接返回；=昨天则轻量查询今天是否确认；<昨天则直接重取，有中文注释

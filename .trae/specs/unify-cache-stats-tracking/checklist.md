@@ -1,0 +1,24 @@
+# Checklist
+
+- [x] `GlobalCache` 构造函数的 `stats` 初始化包含 `forcedRefreshes: 0`
+- [x] `GlobalCache` 新增 `checkCache(key, type)` 方法，返回 `{ hit, data }`
+- [x] `checkCache` 命中且未过期时 `hits++`，返回 `{ hit: true, data }`
+- [x] `checkCache` 未命中时 `misses++`，返回 `{ hit: false, data: null }`
+- [x] `checkCache` 命中但已过期时删除僵尸条目，`evictions++` + `misses++`，返回 `{ hit: false, data: null }`
+- [x] `checkCache` 每次调用 `totalRequests++`
+- [x] `getOrFetch` 的 `forceRefresh` 分支在 `totalRequests++` 后增加 `forcedRefreshes++`
+- [x] `getOrFetch` 的 `forceRefresh` 分支不更新 `hits` 或 `misses`
+- [x] `evictOldest` 阶段 1 删除过期条目时 `evictions++`
+- [x] `evictOldest` 阶段 2 LRU 淘汰未过期条目时 `evictions++`
+- [x] `getStats` 返回对象包含 `forcedRefreshes` 字段
+- [x] `clear()` 重置 `stats` 时包含 `forcedRefreshes: 0`
+- [x] `holdingService.js` realtime 批量检查（~L254）改用 `checkCache(cacheKey, 'realtime')`
+- [x] `holdingService.js` 3 天历史批量检查（~L288）改用 `checkCache(cacheKey, 'history_recent')`
+- [x] `fundController.js` 走势图缓存检查（~L458）改用 `checkCache(cacheKey, 'history_chart')`
+- [x] `fundController.js` 命中时保留 `latestDate` 三分支判断逻辑不变
+- [x] `fundService.js` 股票行情缓存检查（~L464）改用 `checkCache(cacheKey, 'stock_quote')`
+- [x] `adminController.js` 的 `cache.get` 保持不变（调试用，不参与统计）
+- [x] 4 个修改文件通过 `node --check` 语法检查
+- [x] 启动服务后 `getStats` 输出包含 `forcedRefreshes` 字段
+- [x] 启动服务后触发持仓查询，命中率数值比修改前更接近真实水平
+- [x] 用 Grep 确认 `holdingService.js`、`fundController.js`、`fundService.js` 中不再有 `globalCache.cache.get(` 调用（`adminController.js` 除外）

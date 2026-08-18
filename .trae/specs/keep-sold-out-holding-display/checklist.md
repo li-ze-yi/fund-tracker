@@ -1,0 +1,21 @@
+- [x] `doc/init_db.sql` 的 holdings 表新增 `sold_date DATE DEFAULT NULL COMMENT '全部卖出日期'` 列
+- [x] 新增 `doc/migrate_holdings_add_sold_date.sql` 迁移脚本
+- [x] `Holding.findByUserId` SELECT 包含 `h.sold_date` 和 `h.total_return`
+- [x] `Holding.update` columnMap 支持 `soldDate` 和 `totalReturn`
+- [x] `transactionController.sell` 全部卖出时保留持仓（shares=0, sold_date=今天, total_return=实现盈亏），部分卖出累加 total_return
+- [x] `transactionController.settlePending` 卖出分支同上
+- [x] `holdingController.settlePendingAsync` 卖出分支同上
+- [x] `transactionController.buy` 重新买入已清仓基金时清空 sold_date 和 total_return
+- [x] `transactionController.settlePending` 买入分支同上
+- [x] `holdingController.settlePendingAsync` 买入分支同上
+- [x] `holdingController.create` 允许重新添加已清仓基金（existing.shares==0 时不报错）
+- [x] `holdingController.list` 不过滤已清仓基金（包含所有持仓）
+- [x] `holdingService.calculateHoldingMetrics` shares==0 且 sold_date<today 时返回 sold_out 状态；卖出当天（sold_date==today）走正常逻辑
+- [x] FundListItem 新增 sold_out 状态徽章（灰色"已清仓"）
+- [x] FundListItem sold_out 状态下数值列正确展示（金额0/涨幅--/当日收益0/累计收益保留）
+- [x] PortfolioPage 和 FundListItem 的 update_status 类型包含 'sold_out'
+- [x] 全部卖出当天持仓列表显示该基金但不显示"已清仓"徽章（走正常状态）
+- [x] 全部卖出第二天持仓列表显示该基金，状态"已清仓"，累计收益正确
+- [x] 通过 BuyModal 重新买入已清仓基金后恢复正常持仓状态
+- [x] 通过 AddHoldingModal 重新添加已清仓基金后恢复正常持仓状态
+- [x] 手动删除接口（holdingController.delete）仍可彻底删除持仓
