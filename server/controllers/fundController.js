@@ -395,8 +395,8 @@ exports.batchGetInfo = async (req, res, next) => {
     if (isFullDayClosed || isPreMarket) {
       logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值（不查询缓存）(${fundCodes.length} 只)`);
     } else {
-      // 开市：逐只查缓存，未命中才批量拉取，拉取后写回
-      const needFetch = [];
+      // 开市：逐只查缓存，未命中按 effectiveMethod 分组批量拉取，拉取后写回
+      const fetchGroups = {}; // effectiveMethod -> [fundCodes]
       for (const code of fundCodes) {
         const effectiveMethod = valuationOverrides[code] || valuationMethod || 'holdings';
         const cacheKey = `realtime_${code}_${effectiveMethod}`;
@@ -404,21 +404,25 @@ exports.batchGetInfo = async (req, res, next) => {
         if (result.hit) {
           realtimeMap[code] = result.data;
         } else {
-          needFetch.push(code);
+          if (!fetchGroups[effectiveMethod]) fetchGroups[effectiveMethod] = [];
+          fetchGroups[effectiveMethod].push(code);
         }
       }
-      if (needFetch.length > 0) {
-        const freshMap = await fundService.batchGetRealTimeValuesWithMethod(needFetch, valuationMethod);
-        for (const code of needFetch) {
+      const fetchMethods = Object.keys(fetchGroups);
+      let fetchCount = 0;
+      for (const method of fetchMethods) {
+        const codes = fetchGroups[method];
+        fetchCount += codes.length;
+        const freshMap = await fundService.batchGetRealTimeValuesWithMethod(codes, method);
+        for (const code of codes) {
           const data = freshMap[code];
           if (data) {
-            const effectiveMethod = valuationOverrides[code] || valuationMethod || 'holdings';
-            globalCache.set(`realtime_${code}_${effectiveMethod}`, data, 'realtime');
+            globalCache.set(`realtime_${code}_${method}`, data, 'realtime');
           }
           realtimeMap[code] = data;
         }
       }
-      logger.info(`实时估值: 缓存命中 ${fundCodes.length - needFetch.length}/${fundCodes.length}, 拉取 ${needFetch.length} 只`);
+      logger.info(`实时估值: 缓存命中 ${fundCodes.length - fetchCount}/${fundCodes.length}, 拉取 ${fetchCount} 只`);
     }
 
     // 历史净值：全天休市或待开市时不预查 3d 历史（确认净值优先走 confirmed_nav/DB，仅组装阶段按需兜底）

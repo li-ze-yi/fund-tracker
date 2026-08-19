@@ -6,6 +6,7 @@ const Fund = require('../models/fund');
 const Holding = require('../models/holding');
 const Transaction = require('../models/transaction');
 const fundService = require('../services/fundService');
+const { getLocalToday } = require('../utils/date');
 
 // 仅允许 Excel 格式文件（同时校验 mimetype 与扩展名）
 const upload = multer({
@@ -102,6 +103,22 @@ exports.importData = [upload.single('file'), async (req, res, next) => {
     }
   }
 }];
+
+exports.exportTemplate = async (req, res, next) => {
+  try {
+    // 表头与 importData 读取的字段对齐：fund_code（或 code）、amount（或 total_cost）、total_return
+    const header = ['fund_code', 'amount', 'total_return'];
+    const ws = XLSX.utils.aoa_to_sheet([header]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '导入模板');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename=import_template.xlsx');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+  } catch (err) {
+    next(err);
+  }
+};
 
 exports.exportData = async (req, res, next) => {
   try {
