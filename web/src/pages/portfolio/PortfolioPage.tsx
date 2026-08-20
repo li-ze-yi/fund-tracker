@@ -79,7 +79,6 @@ export default function PortfolioPage() {
 
   useEffect(() => {
     loadHoldings(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

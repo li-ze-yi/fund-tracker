@@ -85,8 +85,9 @@ export default function FundDetailPage() {
       if (isCancelled && isCancelled()) return;
       message.error('获取基金信息失败');
     } finally {
-      if (isCancelled && isCancelled()) return;
-      setLoading(false);
+      if (!(isCancelled && isCancelled())) {
+        setLoading(false);
+      }
     }
   };
 

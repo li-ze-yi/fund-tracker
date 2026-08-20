@@ -91,7 +91,6 @@ export default function MarketDetailPage() {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
       if (statusCheckTimerRef.current) clearInterval(statusCheckTimerRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -151,8 +150,9 @@ export default function MarketDetailPage() {
       console.error('❌ Failed to fetch intraday data:', e);
       setIntradayData(null);
     } finally {
-      if (isCancelled && isCancelled()) return;
-      setIntradayLoading(false);
+      if (!(isCancelled && isCancelled())) {
+        setIntradayLoading(false);
+      }
     }
   };
 
@@ -266,7 +266,8 @@ export default function MarketDetailPage() {
         if (currentPrice == null || Number.isNaN(currentPrice)) {
           return `<div style="color: #94A3B8;">尚未走到的时段</div>`;
         }
-        const basePrice = intradayData.prices[0];
+        // ★ 涨跌幅基准统一为昨收（与卡片一致），而非分时首点
+        const basePrice = prevClose > 0 ? prevClose : intradayData.prices[0];
         const changePercent = ((currentPrice - basePrice) / basePrice * 100).toFixed(2);
         const changeAmount = (currentPrice - basePrice).toFixed(2);
 
@@ -410,7 +411,7 @@ export default function MarketDetailPage() {
           silent: true,
           lineStyle: { color: isLight ? 'rgba(100,116,139,0.55)' : 'rgba(148,163,184,0.5)', type: 'dashed', width: 1 },
           data: [
-            ...(getLunchBreak(initialCode) ? [{ xAxis: getLunchBreak(initialCode), label: { show: false } }] : []),
+            ...(getLunchBreak(selectedIndex) ? [{ xAxis: getLunchBreak(selectedIndex), label: { show: false } }] : []),
             {
               yAxis: prevClose,
               label: { show: true, position: isMobile ? 'insideStartTop' : 'insideEndTop', formatter: `昨收 ${prevClose.toFixed(2)}`, fontSize: isMobile ? 9 : 10, color: isLight ? '#64748B' : '#94A3B8' },

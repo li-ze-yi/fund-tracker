@@ -207,9 +207,12 @@ async function checkMarketStatus(holdings) {
  * @param {object|null} holding 持仓记录（用于 DB confirmed_nav）
  * @param {Array|null} historyData 最近历史净值（判定 DB 新鲜度 / API 兜底）
  * @param {object|null} realTimeData 实时数据（fundmobapi 确认净值，API 兜底源）
+ * @param {object} [options] 可选配置
+ * @param {boolean} [options.skipApiFallback=false] 为 true 时跳过「④ 同步拉取历史净值 API」兜底，
+ *   供批量场景先按缓存/DB 解析、收集缺失码后再批量拉取，避免逐只串行外部请求
  * @returns {Promise<{ nav: number, date: string|null, source: 'cache'|'db'|'api'|'none' }>} nav<=0 表示解析失败
  */
-async function resolveConfirmedNav(fundCode, holding, historyData, realTimeData) {
+async function resolveConfirmedNav(fundCode, holding, historyData, realTimeData, options = {}) {
   const cacheKey = `confirmed_nav_${fundCode}`;
   const cacheType = 'history_recent'; // 确认净值复用历史近期动态TTL（收盘后快速刷新）
 
@@ -225,8 +228,8 @@ async function resolveConfirmedNav(fundCode, holding, historyData, realTimeData)
     return cached.data;
   }
 
-  const latestHistory = historyData && historyData.length > 0 ? historyData[0] : null;
-  const latestHistoryDate = latestHistory ? latestHistory.date : null;
+  let latestHistory = historyData && historyData.length > 0 ? historyData[0] : null;
+  let latestHistoryDate = latestHistory ? latestHistory.date : null;
 
   // ② 数据库值新鲜（占位持仓 confirmed_nav<=0 或日期不匹配则不命中）
   const dbNav = parseFloat(holding && holding.confirmed_nav) || 0;
@@ -271,7 +274,8 @@ async function resolveConfirmedNav(fundCode, holding, historyData, realTimeData)
   }
 
   // ④ 缓存/DB 均不可用（apiNav 仍为 0）→ 同步拉取历史净值 API（需要的数据），回写 history_3d 缓存（confirmed_nav 缓存与 DB 由下方③写回）
-  if (apiNav <= 0) {
+  // skipApiFallback=true（批量场景）时跳过单只同步拉取，交由调用方批量拉取后二次回调本函数
+  if (apiNav <= 0 && !options.skipApiFallback) {
     try {
       const todayStr4 = getLocalToday();
       const threeDaysAgo4 = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
@@ -548,19 +552,25 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
       logger.info(`[HoldingService] 确认持仓含pending: fund=${fundCode}, holdingId=${holding.id}, confirmed_nav=${holding.confirmed_nav}, 不标记为待入库`);
     }
 
+    const metrics = calculateHoldingMetrics(
+      holding,
+      realTimeData,
+      isConfirmed,
+      effectiveNav,
+      fundMarketStatus,
+      yesterdayNav,
+      todayTxSharesMap[fundCode] || { buy: 0, sell: 0 },
+      isPendingPurchase
+    );
+
+    // ★ Task 9：白名单挑选前端所需字段，剔除 DB 全字段（user_id/created_at/updated_at/
+    //   sold_date/total_return/confirmed_nav/confirmed_nav_date/total_cost）与整包 realTimeData 冗余
     return {
-      ...holding,
-      realTimeData: realTimeData,
-      ...calculateHoldingMetrics(
-        holding,
-        realTimeData,
-        isConfirmed,
-        effectiveNav,
-        fundMarketStatus,
-        yesterdayNav,
-        todayTxSharesMap[fundCode] || { buy: 0, sell: 0 },
-        isPendingPurchase
-      )
+      id: holding.id,
+      fund_name: holding.fund_name,
+      fund_type: holding.fund_type,
+      group_id: holding.group_id,
+      ...metrics // fund_code/shares/cost_price/net_value/market_value/estimated_change/daily_profit/accumulated_profit/update_time/last_updated/is_fresh/update_status/data_source/is_confirmed/day_of_week
     };
   }));
 
@@ -571,6 +581,42 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
   logger.info(`GlobalCache 统计: 命中率=${stats.hitRate}, 缓存数=${stats.size}/${stats.maxSize}`);
 
   return result;
+}
+
+/**
+ * ★ 更新状态判定公共函数（收敛 pre_market/confirmed/estimating/no_estimate/pending_confirm/market_closed 定义）
+ * 依据：小时、开市状态、是否已确认净值、是否有盘中估算涨跌幅
+ * @param {object} p
+ * @param {number} p.hour 当前小时（0-23）
+ * @param {boolean} p.isMarketOpen 目标基金所在市场是否开市
+ * @param {boolean} p.isConfirmed 今日确认净值是否已公布
+ * @param {boolean} p.hasEstimate 是否有盘中估算涨跌幅（estimatedChange）
+ * @param {string|null} p.dayOfWeek 休市时的星期名（用于 market_closed 展示）
+ * @returns {{ update_status: string, data_source: string, is_fresh: boolean, day_of_week?: string|null }}
+ */
+function resolveUpdateStatus({ hour, isMarketOpen, isConfirmed, hasEstimate, dayOfWeek = null }) {
+  if (!isMarketOpen) {
+    return {
+      update_status: 'market_closed',
+      data_source: 'actual',
+      is_fresh: false,
+      day_of_week: dayOfWeek
+    };
+  }
+  if (hour < 9) {
+    return { update_status: 'pre_market', data_source: 'actual', is_fresh: false };
+  }
+  if (isConfirmed) {
+    return { update_status: 'confirmed', data_source: 'actual', is_fresh: true };
+  }
+  if (hour >= 9 && hour < 15) {
+    return hasEstimate
+      ? { update_status: 'estimating', data_source: 'estimated', is_fresh: true }
+      : { update_status: 'no_estimate', data_source: 'actual', is_fresh: false };
+  }
+  return hasEstimate
+    ? { update_status: 'pending_confirm', data_source: 'estimated', is_fresh: false }
+    : { update_status: 'no_estimate', data_source: 'actual', is_fresh: false };
 }
 
 function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, confirmedNav = 0, marketStatus = { isMarketOpen: true }, yesterdayNav = 0, todayTxShares = { buy: 0, sell: 0 }, isPendingPurchase = false) {
@@ -719,7 +765,6 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
   }
 
   const updateTime = realTimeData ? realTimeData.updateTime : null;
-  let update_status, data_source, is_fresh;
 
   if (!marketStatus.isMarketOpen) {
     // ★ 例外：已清仓卖出当天（shares==0 && sold_date==today && isConfirmed && confirmedNav>0）时跳过早返回
@@ -756,40 +801,19 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     // 已清仓卖出当天 → 跳过早返回，继续走后续已确认收益计算逻辑（line 493+）
   }
 
+  // ★ 盘前统一清零（市值用确认净值，日涨幅和日收益也应为 0，保持一致）
   if (hour < 9) {
-    update_status = 'pre_market';
-    data_source = 'actual';
-    is_fresh = false;
-    // 盘前统一清零（市值用确认净值，日涨幅和日收益也应为 0，保持一致）
     gainPercent = null;
     dailyGain = 0;
-  } else if (isConfirmed) {
-    update_status = 'confirmed';
-    data_source = 'actual';
-    is_fresh = true;
-  } else if (isTradingHours) {
-    if (usedEstimated) {
-      update_status = 'estimating';
-      data_source = 'estimated';
-      is_fresh = true;
-    } else {
-      // 盘中估算失败 → 显示前一天确认数据
-      update_status = 'no_estimate';
-      data_source = 'actual';
-      is_fresh = false;
-    }
-  } else {
-    if (usedEstimated) {
-      update_status = 'pending_confirm';
-      data_source = 'estimated';
-      is_fresh = false;
-    } else {
-      // 估算失败 → 显示前一天确认数据
-      update_status = 'no_estimate';
-      data_source = 'actual';
-      is_fresh = false;
-    }
   }
+
+  // ★ 统一状态判定（pre_market/confirmed/estimating/no_estimate/pending_confirm）
+  const { update_status, data_source, is_fresh } = resolveUpdateStatus({
+    hour,
+    isMarketOpen: true, // market_closed 已在上方早返回处理（含卖出当天例外）
+    isConfirmed,
+    hasEstimate: usedEstimated
+  });
 
   return {
     market_value: Math.round(marketValue * 100) / 100,
@@ -821,5 +845,6 @@ module.exports = {
   checkMarketStatus,
   clearAllCache,
   getFundMarketStatus,
-  resolveConfirmedNav
+  resolveConfirmedNav,
+  resolveUpdateStatus
 };

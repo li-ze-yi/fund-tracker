@@ -337,8 +337,7 @@ exports.confirmImport = async (req, res, next) => {
           price: netValue,
           amount,
           fee: 0,
-          transactionDate: confirmedNavDate || getLocalToday(),
-          metadata: JSON.stringify({ netValueSource, source: 'image_import' })
+          transactionDate: confirmedNavDate || getLocalToday()
         });
 
         logger.info(`持仓创建成功: id=${id}, fund=${fundCode}`);

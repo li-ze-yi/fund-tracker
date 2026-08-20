@@ -75,72 +75,18 @@ exports.getByCode = async (req, res, next) => {
     // 展示净值直接走确认净值链：confirmed_nav 缓存 → history_3d 缓存 → 持仓 DB；取到后写回 confirmed_nav 缓存下次命中
     let realTime = null;
     if (isFullDayClosed || isPreMarket) {
-      // ① 真实请求：confirmed_nav 缓存（统计 hit/miss）
-      const confirmedCache = globalCache.checkCache(`confirmed_nav_${code}`, 'history_recent');
-      if (confirmedCache.hit && confirmedCache.data && parseFloat(confirmedCache.data.nav) > 0) {
+      // ★ 统一确认净值链：confirmed_nav 缓存 → 持仓 DB → history_3d 缓存 → API 兜底（复用 resolveConfirmedNav）
+      const resolved = await holdingService.resolveConfirmedNav(code, holding, null, null);
+      if (resolved && resolved.nav > 0) {
         realTime = {
-          netValue: parseFloat(confirmedCache.data.nav),
+          netValue: resolved.nav,
           gainPercent: null,
-          updateTime: confirmedCache.data.date || null,
+          updateTime: resolved.date || null,
           estimatedValue: null,
           estimatedChange: null,
           estimationMethod: null,
           estimationCoverage: null,
         };
-      } else {
-        // ② confirmed_nav 缓存未命中 → 3d 历史缓存（真实请求：确认净值兜底来源）
-        const historyCache = globalCache.checkCache(`history_${code}_3d_${today}`, 'history_recent');
-        if (historyCache.hit && historyCache.data && historyCache.data.length > 0) {
-          const latest = historyCache.data[0];
-          const nav = parseFloat(latest.nav);
-          if (nav > 0) {
-            realTime = {
-              netValue: nav,
-              gainPercent: null,
-              updateTime: latest.date || null,
-              estimatedValue: null,
-              estimatedChange: null,
-              estimationMethod: null,
-              estimationCoverage: null,
-            };
-            globalCache.set(`confirmed_nav_${code}`, { nav, date: latest.date || null, source: 'cache' }, 'history_recent');
-          }
-        }
-        // ③ 缓存均未命中 → 持仓 DB 兜底（confirmed_nav 为最近确认净值，休市/待开市不失效）
-        if (!realTime && holding && parseFloat(holding.confirmed_nav) > 0) {
-          realTime = {
-            netValue: parseFloat(holding.confirmed_nav),
-            gainPercent: null,
-            updateTime: holding.confirmed_nav_date ? String(holding.confirmed_nav_date).split('T')[0] : null,
-            estimatedValue: null,
-            estimatedChange: null,
-            estimationMethod: null,
-            estimationCoverage: null,
-          };
-          globalCache.set(`confirmed_nav_${code}`, { nav: parseFloat(holding.confirmed_nav), date: (holding.confirmed_nav_date ? String(holding.confirmed_nav_date).split('T')[0] : null), source: 'db' }, 'history_recent');
-        }
-        // ④ 缓存/DB 均不可用 → 同步拉取历史净值 API（需要的数据），回写 history_3d + confirmed_nav
-        if (!realTime) {
-          try {
-            const threeDaysAgo4 = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
-            const fetched = await fundService.getHistoryNetValues(code, threeDaysAgo4, today);
-            if (fetched && fetched.length > 0 && parseFloat(fetched[0].nav) > 0) {
-              realTime = {
-                netValue: parseFloat(fetched[0].nav),
-                gainPercent: null,
-                updateTime: fetched[0].date || null,
-                estimatedValue: null,
-                estimatedChange: null,
-                estimationMethod: null,
-                estimationCoverage: null,
-              };
-              globalCache.set(`history_${code}_3d_${today}`, fetched, 'history_recent');
-              globalCache.set(`confirmed_nav_${code}`, { nav: parseFloat(fetched[0].nav), date: fetched[0].date || null, source: 'api' }, 'history_recent');
-            }
-          } catch (e) {
-            logger.error(`确认净值同步 API 兜底失败: fund=${code}, err=${e.message}`);
-          }
-        }
       }
       logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值（不查询缓存）(${code})`);
     } else {
@@ -166,7 +112,6 @@ exports.getByCode = async (req, res, next) => {
       update_time: realTime ? realTime.updateTime : null,
       // 盘中估算字段
       estimated_value: realTime?.estimatedValue ?? null,
-      estimated_change_pct: realTime?.estimatedChange ?? null,
       estimation_method: realTime?.estimationMethod ?? null,
       estimation_coverage: realTime?.estimationCoverage ?? null,
     };
@@ -181,17 +126,13 @@ exports.getByCode = async (req, res, next) => {
     // ★ 基于实时数据判断该基金的市场状态（不依赖名称识别）
     const effectiveMarketStatus = holdingService.getFundMarketStatus(realTime, marketStatus);
 
-    if (!effectiveMarketStatus.isMarketOpen) {
-      result.last_updated = updateTime || null;
-      result.data_source = 'actual';
-      result.is_fresh = false;
-      result.update_status = 'market_closed';
-      result.day_of_week = effectiveMarketStatus.dayOfWeek || dayNames[now.getDay()];
-    } else {
-      // ★ 工作日：检查是否有确认净值
-      let isConfirmed = false;
-      let confirmedNav = null;
-      let yesterdayNav = null;
+    result.last_updated = updateTime || null;
+
+    // ★ 工作日：检查是否有确认净值（仅开市时才需要确认净值）
+    let isConfirmed = false;
+    let confirmedNav = null;
+    let yesterdayNav = null;
+    if (effectiveMarketStatus.isMarketOpen) {
       try {
         const todayStr = getLocalToday();
         const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
@@ -225,63 +166,42 @@ exports.getByCode = async (req, res, next) => {
       } catch (error) {
         logger.error(`查询 ${code} 确认净值失败: ${error.message}`);
       }
+    }
 
-      result.last_updated = updateTime || null;
+    // ★ 统一状态判定（收敛 pre_market/confirmed/estimating/no_estimate/pending_confirm/market_closed）
+    const status = holdingService.resolveUpdateStatus({
+      hour,
+      isMarketOpen: effectiveMarketStatus.isMarketOpen,
+      isConfirmed,
+      hasEstimate: realTime?.estimatedChange != null,
+      dayOfWeek: effectiveMarketStatus.dayOfWeek || dayNames[now.getDay()]
+    });
+    result.update_status = status.update_status;
+    result.data_source = status.data_source;
+    result.is_fresh = status.is_fresh;
+    if (status.day_of_week) result.day_of_week = status.day_of_week;
 
-      if (hour < 9) {
-        // 盘前待开市：无论是否已确认，都显示待开市，清空涨幅
-        result.update_status = 'pre_market';
-        result.data_source = 'actual';
-        result.is_fresh = false;
-        result.estimated_change = null;
-      } else if (isConfirmed) {
-        result.update_status = 'confirmed';
-        result.data_source = 'actual';
-        result.is_fresh = true;
-        // ★ 确认净值后，优先使用API的除权涨跌幅（NAVCHGRT，已扣除分红影响）
-        if (confirmedNav > 0) {
-          result.net_value = confirmedNav;
-          // 优先：东方财富API除权涨幅
-          if (realTime?.gainPercent != null) {
-            result.estimated_change = realTime.gainPercent;
-          } else if (yesterdayNav > 0) {
-            // 回退：原始净值差计算（含分红，可能偏大）
-            result.estimated_change = parseFloat(((confirmedNav - yesterdayNav) / yesterdayNav * 100).toFixed(2));
-          } else {
-            result.estimated_change = null;
-          }
-        }
-      } else if (hour >= 9 && hour < 15) {
-        if (realTime?.estimatedChange != null) {
-          // 盘中估算成功
-          result.update_status = 'estimating';
-          result.data_source = 'estimated';
-          result.is_fresh = true;
-          result.estimated_change = realTime.estimatedChange;
+    // ★ 依据状态附加涨跌幅 / 净值字段
+    if (status.update_status === 'pre_market') {
+      result.estimated_change = null;
+    } else if (status.update_status === 'confirmed') {
+      // ★ 确认净值后，优先使用API的除权涨跌幅（NAVCHGRT，已扣除分红影响）
+      if (confirmedNav > 0) {
+        result.net_value = confirmedNav;
+        if (realTime?.gainPercent != null) {
+          result.estimated_change = realTime.gainPercent;
+        } else if (yesterdayNav > 0) {
+          // 回退：原始净值差计算（含分红，可能偏大）
+          result.estimated_change = parseFloat(((confirmedNav - yesterdayNav) / yesterdayNav * 100).toFixed(2));
         } else {
-          // 盘中估算失败 → 显示前一天确认数据
-          result.update_status = 'no_estimate';
-          result.data_source = 'actual';
-          result.is_fresh = false;
-          result.estimated_change = realTime?.gainPercent ?? null;
-          result.net_value = realTime?.netValue ?? null;
-        }
-      } else {
-        if (realTime?.estimatedChange != null) {
-          // 待确认：使用估算涨跌幅
-          result.update_status = 'pending_confirm';
-          result.data_source = 'estimated';
-          result.is_fresh = false;
-          result.estimated_change = realTime.estimatedChange;
-        } else {
-          // 估算失败 → 显示前一天确认数据
-          result.update_status = 'no_estimate';
-          result.data_source = 'actual';
-          result.is_fresh = false;
-          result.estimated_change = realTime?.gainPercent ?? null;
-          result.net_value = realTime?.netValue ?? null;
+          result.estimated_change = null;
         }
       }
+    } else if (status.update_status === 'estimating' || status.update_status === 'pending_confirm') {
+      result.estimated_change = realTime.estimatedChange;
+    } else if (status.update_status === 'no_estimate') {
+      result.estimated_change = realTime?.gainPercent ?? null;
+      result.net_value = realTime?.netValue ?? null;
     }
 
     if (req.user) {
@@ -474,39 +394,34 @@ exports.batchGetInfo = async (req, res, next) => {
       if (holding) holdingMap[holding.fund_code] = holding;
     }
 
-    // ★ 休市/待开市：展示净值走确认净值链（confirmed_nav 缓存 → 持仓 DB → 批量拉 history_3d），取到后写回 confirmed_nav 缓存
-    // 只在组装前解析一次，避免组装阶段重复查缓存导致统计翻倍
+    // ★ 休市/待开市：展示净值走统一确认净值链 resolveConfirmedNav（confirmed_nav 缓存 → 持仓 DB → history_3d 缓存 → API），
+    // 仅组装前解析一次，避免组装阶段重复查缓存导致统计翻倍；缺失码批量拉取后二次回调，避免逐只串行 API 兜底
     const displayNavMap = {}; // code -> { nav, date }
     if (isFullDayClosed || isPreMarket) {
-      const needConfirm = [];
+      // ① 先按缓存/DB/3d历史解析（跳过单只 API 兜底），收集确实需要批量拉取的基金码
+      const needFetch = [];
       for (const code of fundCodes) {
-        // ① 真实请求：confirmed_nav 缓存（统计 hit/miss）
-        const c1 = globalCache.checkCache(`confirmed_nav_${code}`, 'history_recent');
-        if (c1.hit && c1.data && parseFloat(c1.data.nav) > 0) {
-          displayNavMap[code] = { nav: parseFloat(c1.data.nav), date: c1.data.date || null };
-          continue;
-        }
-        // ② 持仓 DB 兜底（confirmed_nav 为最近确认净值，休市/待开市不失效）
         const holding = holdingMap[code] || null;
-        if (holding && parseFloat(holding.confirmed_nav) > 0) {
-          const date = holding.confirmed_nav_date ? String(holding.confirmed_nav_date).split('T')[0] : null;
-          displayNavMap[code] = { nav: parseFloat(holding.confirmed_nav), date };
-          globalCache.set(`confirmed_nav_${code}`, { nav: displayNavMap[code].nav, date, source: 'db' }, 'history_recent');
-          continue;
+        const resolved = await holdingService.resolveConfirmedNav(code, holding, null, null, { skipApiFallback: true });
+        if (resolved && resolved.nav > 0) {
+          displayNavMap[code] = { nav: resolved.nav, date: resolved.date };
+        } else {
+          needFetch.push(code);
         }
-        // ③ 缓存/DB 均不可用 → 收集，批量拉取确认净值
-        needConfirm.push(code);
       }
-      // ④ 批量拉取缺失确认净值（需要的数据），回写 history_3d + confirmed_nav
-      if (needConfirm.length > 0) {
-        logger.info(`休市/待开市确认净值批量拉取: ${needConfirm.join(',')}`);
-        const freshMap = await fundService.batchGetHistoryNetValues(needConfirm, threeDaysAgo, today);
-        for (const code of needConfirm) {
+      // ② 批量拉取确需兜底的基金，写回 history_3d 后二次回调 resolveConfirmedNav（回写 confirmed_nav 缓存 + DB）
+      if (needFetch.length > 0) {
+        logger.info(`休市/待开市确认净值批量拉取: ${needFetch.join(',')}`);
+        const freshMap = await fundService.batchGetHistoryNetValues(needFetch, threeDaysAgo, today);
+        for (const code of needFetch) {
           const data = freshMap[code];
           if (data && data.length > 0 && parseFloat(data[0].nav) > 0) {
-            displayNavMap[code] = { nav: parseFloat(data[0].nav), date: data[0].date || null };
             globalCache.set(`history_${code}_3d_${today}`, data, 'history_recent');
-            globalCache.set(`confirmed_nav_${code}`, { nav: displayNavMap[code].nav, date: displayNavMap[code].date, source: 'api' }, 'history_recent');
+            const holding = holdingMap[code] || null;
+            const resolved = await holdingService.resolveConfirmedNav(code, holding, data, null, { skipApiFallback: true });
+            if (resolved && resolved.nav > 0) {
+              displayNavMap[code] = { nav: resolved.nav, date: resolved.date };
+            }
           }
         }
       }
@@ -559,69 +474,43 @@ exports.batchGetInfo = async (req, res, next) => {
         estimated_change: null, // 初始置null，后续根据市场状态分支赋值
         update_time: realTime?.updateTime ?? null,
         estimated_value: realTime?.estimatedValue ?? null,
-        estimated_change_pct: realTime?.estimatedChange ?? null,
         estimation_method: realTime?.estimationMethod ?? null,
         estimation_coverage: realTime?.estimationCoverage ?? null,
       };
 
-      // 更新状态
-      if (!fundMarketStatus.isMarketOpen) {
-        result.last_updated = realTime?.updateTime || null;
-        result.data_source = 'actual';
-        result.is_fresh = false;
-        result.update_status = 'market_closed';
-        result.day_of_week = fundMarketStatus.dayOfWeek || dayNames[now.getDay()];
-      } else {
-        result.last_updated = realTime?.updateTime || null;
-        const hour = now.getHours();
-        if (hour < 9) {
-          result.update_status = 'pre_market';
-          result.data_source = 'actual';
-          result.is_fresh = false;
-          result.estimated_change = null;
-        } else if (isConfirmed && latestHistoryNav > 0) {
-          result.update_status = 'confirmed';
-          result.data_source = 'actual';
-          result.is_fresh = true;
-          result.net_value = latestHistoryNav;
-          // 优先：东方财富API除权涨幅（NAVCHGRT，已扣除分红影响）
-          if (realTime?.gainPercent != null) {
-            result.estimated_change = realTime.gainPercent;
-          } else if (yesterdayNav > 0) {
-            // 回退：原始净值差计算（含分红，可能偏大）
-            result.estimated_change = parseFloat(((latestHistoryNav - yesterdayNav) / yesterdayNav * 100).toFixed(2));
-          } else {
-            result.estimated_change = null;
-          }
-        } else if (hour >= 9 && hour < 15) {
-          if (realTime?.estimatedChange != null) {
-            result.update_status = 'estimating';
-            result.data_source = 'estimated';
-            result.is_fresh = true;
-            result.estimated_change = realTime.estimatedChange;
-          } else {
-            // 盘中估算失败 → 显示前一天确认数据
-            result.update_status = 'no_estimate';
-            result.data_source = 'actual';
-            result.is_fresh = false;
-            result.estimated_change = realTime?.gainPercent ?? null;
-            result.net_value = realTime?.netValue ?? null;
-          }
+      // 更新状态（统一状态判定）
+      result.last_updated = realTime?.updateTime || null;
+      const status = holdingService.resolveUpdateStatus({
+        hour: now.getHours(),
+        isMarketOpen: fundMarketStatus.isMarketOpen,
+        isConfirmed: isConfirmed && latestHistoryNav > 0,
+        hasEstimate: realTime?.estimatedChange != null,
+        dayOfWeek: fundMarketStatus.dayOfWeek || dayNames[now.getDay()]
+      });
+      result.update_status = status.update_status;
+      result.data_source = status.data_source;
+      result.is_fresh = status.is_fresh;
+      if (status.day_of_week) result.day_of_week = status.day_of_week;
+
+      // 依据状态附加涨跌幅 / 净值字段
+      if (status.update_status === 'pre_market') {
+        result.estimated_change = null;
+      } else if (status.update_status === 'confirmed') {
+        result.net_value = latestHistoryNav;
+        // 优先：东方财富API除权涨幅（NAVCHGRT，已扣除分红影响）
+        if (realTime?.gainPercent != null) {
+          result.estimated_change = realTime.gainPercent;
+        } else if (yesterdayNav > 0) {
+          // 回退：原始净值差计算（含分红，可能偏大）
+          result.estimated_change = parseFloat(((latestHistoryNav - yesterdayNav) / yesterdayNav * 100).toFixed(2));
         } else {
-          if (realTime?.estimatedChange != null) {
-            result.update_status = 'pending_confirm';
-            result.data_source = 'estimated';
-            result.is_fresh = false;
-            result.estimated_change = realTime.estimatedChange;
-          } else {
-            // 估算失败 → 显示前一天确认数据
-            result.update_status = 'no_estimate';
-            result.data_source = 'actual';
-            result.is_fresh = false;
-            result.estimated_change = realTime?.gainPercent ?? null;
-            result.net_value = realTime?.netValue ?? null;
-          }
+          result.estimated_change = null;
         }
+      } else if (status.update_status === 'estimating' || status.update_status === 'pending_confirm') {
+        result.estimated_change = realTime.estimatedChange;
+      } else if (status.update_status === 'no_estimate') {
+        result.estimated_change = realTime?.gainPercent ?? null;
+        result.net_value = realTime?.netValue ?? null;
       }
 
       // 持仓信息

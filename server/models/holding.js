@@ -24,6 +24,14 @@ const Holding = {
     return rows[0] || null;
   },
 
+  async findById(id, userId) {
+    const [rows] = await pool.query(
+      'SELECT * FROM holdings WHERE id = ? AND user_id = ?',
+      [id, userId]
+    );
+    return rows[0] || null;
+  },
+
   async findByUserAndCodes(userId, fundCodes) {
     if (!fundCodes || fundCodes.length === 0) return [];
     const placeholders = fundCodes.map(() => '?').join(',');

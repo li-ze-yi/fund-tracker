@@ -77,7 +77,6 @@ export function useMarketData(opts: UseMarketDataOpts): MarketDataState {
     return () => {
       if (timer) clearInterval(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, pollIntervalMs]);
 
   const refresh = useCallback(() => {

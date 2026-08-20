@@ -98,7 +98,7 @@ const NB_TOP10_BASELINE: NorthboundStock[] = [
 async function fetchNorthbound(): Promise<DashboardData["northbound"]> {
   // 尝试实时更新「今日」成交额；失败则保留静态基线
   let series = NB_BASELINE.slice();
-  let top10 = NB_TOP10_BASELINE.slice();
+  const top10 = NB_TOP10_BASELINE.slice();
   try {
     // 东方财富北向资金整体页接口（字段以官方为准，可能变动）
     const j = await emGet(

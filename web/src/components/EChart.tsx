@@ -43,7 +43,6 @@ export default function EChart({ option, style, className, opts, notMerge, lazyU
       chart.dispose();
       chartRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

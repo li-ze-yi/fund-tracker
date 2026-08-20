@@ -35,6 +35,11 @@ if (missingEnv.length > 0) {
   process.exit(1);
 }
 
+// JWT_SECRET 强度提示：长度不足时警告（不阻断启动），引导使用强随机密钥
+if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+  logger.warn('JWT_SECRET 长度不足 32 字符，建议使用强随机值生成：node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
+}
+
 const app = express();
 
 app.use(helmet()); // 设置安全相关的 HTTP 响应头（默认隐藏 x-powered-by）

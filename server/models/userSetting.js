@@ -17,17 +17,26 @@ const UserSetting = {
 
   async upsert(userId, refreshFrequency, valuationMethod, valuationOverrides) {
     let overridesJson;
-    if (valuationOverrides === undefined) {
-      // 未传估值覆盖时保留库中已有值，避免更新刷新频率/估值方法时误清空单基金覆盖
+    let effectiveMethod = valuationMethod;
+    if (valuationOverrides === undefined || valuationMethod === undefined) {
+      // 未传估值覆盖/估值方法时保留库中已有值（区别于显式传 null 意图清空）
+      // 避免仅更新刷新频率时误清空单基金覆盖或重置全局估值方法
       const existing = await this.findByUserId(userId);
-      overridesJson = existing && existing.valuation_overrides ? JSON.stringify(existing.valuation_overrides) : null;
+      if (valuationOverrides === undefined) {
+        overridesJson = existing && existing.valuation_overrides ? JSON.stringify(existing.valuation_overrides) : null;
+      } else {
+        overridesJson = valuationOverrides ? JSON.stringify(valuationOverrides) : null;
+      }
+      if (valuationMethod === undefined) {
+        effectiveMethod = existing && existing.valuation_method ? existing.valuation_method : 'holdings';
+      }
     } else {
       overridesJson = valuationOverrides ? JSON.stringify(valuationOverrides) : null;
     }
     await pool.query(
       `INSERT INTO user_settings (user_id, refresh_frequency, valuation_method, valuation_overrides) VALUES (?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE refresh_frequency = VALUES(refresh_frequency), valuation_method = VALUES(valuation_method), valuation_overrides = VALUES(valuation_overrides)`,
-      [userId, refreshFrequency || 30, valuationMethod || 'holdings', overridesJson]
+      [userId, refreshFrequency || 30, effectiveMethod || 'holdings', overridesJson]
     );
   },
 

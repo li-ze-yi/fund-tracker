@@ -5,6 +5,7 @@ const pool = require('../config/database');
 const globalCache = require('./globalCache');
 const holdingService = require('./holdingService');
 const fundService = require('./fundService');
+const settlementService = require('./settlementService');
 const holidayService = require('./holidayService');
 const { getLocalToday, normalizeDateStr } = require('../utils/date');
 const { createLogger } = require('../utils/logger');
@@ -611,7 +612,7 @@ class DailyProfitService {
   }
 
   /**
-   * ★ 结算用户 pending 交易订单（inlined from holdingController.settlePendingAsync）
+   * ★ 结算用户 pending 交易订单（统一结算逻辑，来自 settlementService）
    * 在 backfillDailyProfit 中先调用此方法，确保卖出订单已结算后再计算当日收益
    * 每笔交易独立 try/catch，单笔失败不中断整体流程
    */
@@ -627,104 +628,11 @@ class DailyProfitService {
           const navDate = this._normalizeDateStr(tx.transaction_date);
           if (!navDate) continue;
 
-          const history = await fundService.getHistoryNetValues(tx.fund_code, navDate, navDate);
-          const confirmedNav = history.length ? history[0].nav : 0;
+          const { nav: confirmedNav } = await settlementService.getConfirmedNavByDate(tx.fund_code, navDate);
           if (!confirmedNav) continue; // 净值未确认，保持 pending
 
-          const holding = await Holding.findByUserAndFund(userId, tx.fund_code);
-
-          if (tx.type === 'buy') {
-            // 买入结算：用确认净值计算实际份额（扣除买入费率）
-            const feeRate = parseFloat(tx.fee) || 0;
-            const feeAmount = feeRate ? parseFloat(tx.amount) * feeRate : 0;
-            const actualInvestment = parseFloat(tx.amount) - feeAmount;
-            const actualShares = actualInvestment / confirmedNav;
-            const costPrice = actualShares > 0 ? parseFloat(tx.amount) / actualShares : confirmedNav;
-
-            if (!holding) {
-              // 无持仓 → 新建
-              await Holding.create({
-                userId,
-                fundCode: tx.fund_code,
-                shares: actualShares,
-                costPrice,
-                confirmedNav,
-                confirmedNavDate: navDate,
-                totalCost: parseFloat(tx.amount)
-              });
-            } else if (holding.confirmed_nav === null) {
-              // 占位持仓（pending 购买创建）→ 替换为实际数据（不累加，避免 totalCost 翻倍）
-              await Holding.update(holding.id, userId, {
-                shares: actualShares,
-                cost_price: costPrice,
-                totalCost: parseFloat(tx.amount),
-                confirmedNav,
-                confirmedNavDate: navDate,
-                soldDate: null,
-                totalReturn: 0
-              });
-            } else {
-              // 已有确认持仓 → 加仓
-              const currentShares = parseFloat(holding.shares) + actualShares;
-              const currentTotalCost = parseFloat(holding.total_cost) + parseFloat(tx.amount);
-              const currentCostPrice = currentShares ? currentTotalCost / currentShares : 0;
-
-              await Holding.update(holding.id, userId, {
-                shares: currentShares,
-                cost_price: currentCostPrice,
-                totalCost: currentTotalCost,
-                soldDate: null,
-                totalReturn: 0
-              });
-            }
-
-            await Transaction.updateToConfirmed(tx.id, userId, {
-              shares: actualShares,
-              price: confirmedNav,
-              amount: parseFloat(tx.amount)
-            });
-
-            logger.info(`自动结算买入: #${tx.id}, actualShares=${actualShares.toFixed(2)}, nav=${confirmedNav}, holdingCreated=${!holding}`);
-          } else if (tx.type === 'sell') {
-            // 卖出结算：用确认净值计算实际金额，扣减持仓份额和成本
-            const sellShares = parseFloat(tx.shares);
-            const actualAmount = sellShares * confirmedNav;
-            const feeRate = parseFloat(tx.fee) || 0;
-            const feeAmount = feeRate ? actualAmount * feeRate : 0;
-            const actualNetAmount = actualAmount - feeAmount;
-
-            const newShares = parseFloat(holding.shares) - sellShares;
-            const oldTotalCost = parseFloat(holding.total_cost) || parseFloat(holding.shares) * parseFloat(holding.cost_price);
-            const costPerShare = oldTotalCost / parseFloat(holding.shares);
-            const newTotalCost = costPerShare * newShares;
-
-            const realizedProfit = actualNetAmount - (costPerShare * sellShares);
-
-            if (newShares <= 0) {
-              // 全部卖出 → 保留持仓记录（shares=0），记录实现盈亏与清仓日期
-              await Holding.update(holding.id, userId, {
-                shares: 0,
-                totalCost: 0,
-                totalReturn: Math.round(realizedProfit * 100) / 100,
-                soldDate: getLocalToday()
-              });
-            } else {
-              // 部分卖出 → 累加 total_return
-              await Holding.update(holding.id, userId, {
-                shares: newShares,
-                totalCost: Math.round(newTotalCost * 100) / 100,
-                totalReturn: Math.round(((parseFloat(holding.total_return) || 0) + realizedProfit) * 100) / 100
-              });
-            }
-
-            await Transaction.updateToConfirmed(tx.id, userId, {
-              shares: sellShares,
-              price: confirmedNav,
-              amount: actualNetAmount
-            });
-
-            logger.info(`自动结算卖出: #${tx.id}, nav=${confirmedNav}, amount=${actualNetAmount.toFixed(2)}`);
-          }
+          // 统一结算逻辑（费用/份额/成本反算 + 乐观锁 + 新建/占位替换/加仓三分支）
+          await settlementService.settleTransaction({ userId, tx, confirmedNav, navDate });
         } catch (err) {
           logger.error(`结算交易 #${tx.id} 失败: ${err.message}`);
         }
