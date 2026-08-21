@@ -111,7 +111,7 @@ export default function AddHoldingModal({ open, fundCode, fundName, onClose, onS
             <InputNumber prefix="¥" min={0.01} step={100} style={{ width: '100%' }} placeholder="输入当前持仓金额" />
           </Form.Item>
           <Form.Item name="totalReturn" label="累计收益" rules={[{ required: true, message: '请输入累计收益' }]}>
-            <InputNumber prefix="¥" step={100} style={{ width: '100%' }} placeholder="首次买入基金请前往新购基金入口" />
+            <InputNumber prefix="¥" step={100} style={{ width: '100%' }} placeholder="首次买入请走新购基金" />
           </Form.Item>
           <Form.Item name="groupId" label="选择分组（可选）">
             <Select allowClear placeholder="不选择则放入全部分组" options={groupOptions} />
@@ -131,7 +131,7 @@ export default function AddHoldingModal({ open, fundCode, fundName, onClose, onS
                     <InputNumber prefix="¥" min={0.01} step={100} style={{ width: '100%' }} placeholder="输入当前持仓金额" />
                   </Form.Item>
                   <Form.Item name="totalReturn" label="累计收益" rules={[{ required: true, message: '请输入累计收益' }]}>
-                    <InputNumber prefix="¥" step={100} style={{ width: '100%' }} placeholder="首次买入基金请前往新购基金入口" />
+                    <InputNumber prefix="¥" step={100} style={{ width: '100%' }} placeholder="首次买入请走新购基金" />
                   </Form.Item>
                   <Form.Item name="groupId" label="选择分组（可选）">
                     <Select allowClear placeholder="不选择则放入全部分组" options={groupOptions} />
