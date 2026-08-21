@@ -15,6 +15,7 @@ import SellModal from '@/components/modals/SellModal';
 import CreatePlanModal from '@/components/modals/CreatePlanModal';
 import EditHoldingModal from '@/components/modals/EditHoldingModal';
 import PurchaseModal from '@/components/modals/PurchaseModal';
+import AddHoldingModal from '@/components/modals/AddHoldingModal';
 
 type Period = '1w' | '1m' | '3m' | '6m' | '1y' | 'all';
 
@@ -35,6 +36,7 @@ export default function FundDetailPage() {
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
+  const [addHoldingModalOpen, setAddHoldingModalOpen] = useState(false);
 
   // 估值方法
   const [fundValuationMethod, setFundValuationMethod] = useState<ValuationMethod | null>(null);
@@ -1004,82 +1006,129 @@ export default function FundDetailPage() {
         marginBottom: 12,
       }}>
         {fund.shares != null && fund.shares > 0 ? (
-          <Button
-            className="fund-detail-action-btn"
-            icon={<EditOutlined />}
-            onClick={() => setEditModalOpen(true)}
-            style={{
-              height: 48,
-              fontSize: 15,
-              fontWeight: 600,
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--border-default)',
-            }}
-          >
-            修改
-          </Button>
+          <>
+            <Button
+              className="fund-detail-action-btn"
+              icon={<EditOutlined />}
+              onClick={() => setEditModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-default)',
+              }}
+            >
+              {isMobile ? '修改' : '修改持仓'}
+            </Button>
+            <Button
+              className="fund-detail-action-btn"
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setBuyModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
+              }}
+            >
+              {isMobile ? '加仓' : '买入加仓'}
+            </Button>
+            <Button
+              className="fund-detail-action-btn"
+              icon={<MinusOutlined />}
+              onClick={() => setSellModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: '#e3787d',
+                color: 'white',
+                border: '1px solid #e3787d',
+              }}
+            >
+              {isMobile ? '减仓' : '卖出减仓'}
+            </Button>
+            <Button
+              className="fund-detail-action-btn"
+              icon={<ScheduleOutlined />}
+              onClick={() => setPlanModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-default)',
+              }}
+            >
+              {isMobile ? '定投' : '发起定投'}
+            </Button>
+          </>
         ) : (
-          <Button
-            className="fund-detail-action-btn"
-            type="primary"
-            icon={<ThunderboltOutlined />}
-            onClick={() => setPurchaseModalOpen(true)}
-            style={{
-              height: 48,
-              fontSize: 15,
-              fontWeight: 600,
-              borderRadius: 'var(--radius-md)',
-              boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
-            }}
-          >
-            新购
-          </Button>
+          <>
+            <Button
+              className="fund-detail-action-btn"
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              onClick={() => setAddHoldingModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
+              }}
+            >
+              {isMobile ? '添加' : '添加持仓'}
+            </Button>
+            <Button
+              className="fund-detail-action-btn"
+              type="primary"
+              icon={<AimOutlined />}
+              onClick={() => setPurchaseModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
+              }}
+            >
+              {isMobile ? '新购' : '新购基金'}
+            </Button>
+            <Button
+              className="fund-detail-action-btn"
+              icon={<PlusOutlined />}
+              onClick={() => setBuyModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-default)',
+              }}
+            >
+              {isMobile ? '加仓' : '买入加仓'}
+            </Button>
+            <Button
+              className="fund-detail-action-btn"
+              icon={<ScheduleOutlined />}
+              onClick={() => setPlanModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-default)',
+              }}
+            >
+              {isMobile ? '定投' : '发起定投'}
+            </Button>
+          </>
         )}
-        <Button
-          className="fund-detail-action-btn"
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setBuyModalOpen(true)}
-          style={{
-            height: 48,
-            fontSize: 15,
-            fontWeight: 600,
-            borderRadius: 'var(--radius-md)',
-            boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
-          }}
-        >
-          加仓
-        </Button>
-        <Button
-          className="fund-detail-action-btn"
-          icon={<MinusOutlined />}
-          onClick={() => setSellModalOpen(true)}
-          style={{
-            height: 48,
-            fontSize: 15,
-            fontWeight: 600,
-            borderRadius: 'var(--radius-md)',
-            backgroundColor: '#e3787d',
-            color: 'white',
-            border: '1px solid #e3787d',
-          }}
-        >
-          减仓
-        </Button>
-        <Button
-          className="fund-detail-action-btn"
-          icon={<ScheduleOutlined />}
-          onClick={() => setPlanModalOpen(true)}
-          style={{
-            height: 48,
-            fontSize: 15,
-            fontWeight: 600,
-            borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--border-default)',
-          }}
-        >
-          定投
-        </Button>
       </div>
 
       {/* 交易记录 */}
@@ -1113,6 +1162,14 @@ export default function FundDetailPage() {
       </Card>
 
       {/* 模态框 */}
+      <AddHoldingModal
+        open={addHoldingModalOpen}
+        fundCode={code || ''}
+        fundName={fund.name || code || ''}
+        onClose={() => setAddHoldingModalOpen(false)}
+        onSuccess={loadData}
+        hidePurchase
+      />
       <PurchaseModal
         open={purchaseModalOpen}
         fundCode={code || ''}

@@ -665,13 +665,13 @@ input.ant-input {
   background: var(--bg-card) !important;
 }
 
-/* 优化卖出/买入模态框中的赎回时间Radio标签颜色 */
+/* 优化卖出/买入模态框中的赎回时间Radio标签颜色（浅色用深字、深色用浅字，保证对比度） */
 div#after3pm > label.ant-radio-wrapper:nth-child(1) > span.ant-radio-label {
-  color: #e5e1e1 !important;
+  color: var(--text-primary) !important;
 }
 
 div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
-  color: #f1efef !important;
+  color: var(--text-primary) !important;
 }
 
 /* ========== 持仓页：分组 + 汇总合并容器 ========== */
