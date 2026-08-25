@@ -54,66 +54,6 @@ export default function BuyModal({ open, fundCode, fundName, onClose, onSuccess 
       confirmLoading={loading}
       destroyOnHidden
     >
-      {/* 移动端响应式优化样式 */}
-      <style>{`
-        @media screen and (max-width: 768px) {
-          .buy-modal .ant-modal {
-            max-width: 95vw !important;
-            margin: 8px auto !important;
-          }
-
-          .buy-modal .ant-modal-header {
-            padding: 14px 18px !important;
-          }
-
-          .buy-modal .ant-modal-title {
-            font-size: clamp(15px, 4vw, 17px) !important;
-          }
-
-          .buy-modal .ant-modal-body {
-            padding: 16px !important;
-          }
-
-          /* 表单项 */
-          .buy-modal .ant-form-item {
-            margin-bottom: 16px !important;
-          }
-
-          .buy-modal .ant-form-item-label > label {
-            font-size: clamp(13px, 3.2vw, 14px) !important;
-            height: auto !important;
-          }
-
-          .buy-modal .ant-input-number,
-          .buy-modal .ant-picker {
-            height: 42px !important;
-            font-size: clamp(14px, 3.5vw, 15px) !important;
-            border-radius: var(--radius-md) !important;
-          }
-
-          /* Radio 组 */
-          .buy-modal .ant-radio-wrapper {
-            font-size: clamp(12px, 3vw, 13px) !important;
-            margin-right: 12px !important;
-            white-space: normal !important;
-          }
-
-          .buy-modal .ant-radio-group {
-            display: flex !important;
-            flex-direction: column !important;
-            gap: 8px !important;
-          }
-
-          /* 底部按钮 */
-          .buy-modal .ant-btn-primary,
-          .buy-modal .ant-btn-default {
-            height: 42px !important;
-            font-size: clamp(13px, 3.2vw, 14px) !important;
-            border-radius: var(--radius-md) !important;
-          }
-        }
-      `}</style>
-
       <Form form={form} layout="vertical">
         <Form.Item name="amount" label="买入金额" rules={[{ required: true, message: '请输入买入金额' }]}>
           <InputNumber prefix="¥" min={0.01} step={100} style={{ width: '100%' }} placeholder="输入买入金额" />

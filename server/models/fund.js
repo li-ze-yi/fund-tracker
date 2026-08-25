@@ -15,6 +15,16 @@ const Fund = {
     return rows[0] || null;
   },
 
+  async findByCodes(codes) {
+    if (!codes || codes.length === 0) return [];
+    const placeholders = codes.map(() => '?').join(',');
+    const [rows] = await pool.query(
+      `SELECT * FROM funds WHERE code IN (${placeholders})`,
+      codes
+    );
+    return rows;
+  },
+
   async getAll(offset = 0, limit = 50) {
     const [rows] = await pool.query('SELECT * FROM funds LIMIT ? OFFSET ?', [limit, offset]);
     return rows;

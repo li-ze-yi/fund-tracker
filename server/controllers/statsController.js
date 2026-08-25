@@ -86,8 +86,8 @@ exports.monthly = async (req, res, next) => {
         `SELECT DATE_FORMAT(date, '%Y-%m') as month,
                 SUM(profit) as profit,
                 CASE 
-                  WHEN AVG(total_investment) > 0 
-                  THEN (SUM(profit) / AVG(total_investment)) * 100 
+                  WHEN CAST(SUBSTRING_INDEX(GROUP_CONCAT(total_investment ORDER BY date ASC), ',', 1) AS DECIMAL(18,4)) > 0 
+                  THEN (SUM(profit) / CAST(SUBSTRING_INDEX(GROUP_CONCAT(total_investment ORDER BY date ASC), ',', 1) AS DECIMAL(18,4))) * 100 
                   ELSE 0 
                 END as monthly_return_rate
          FROM daily_profits
@@ -103,8 +103,8 @@ exports.monthly = async (req, res, next) => {
         `SELECT DATE_FORMAT(date, '%Y-%m') as month,
                 SUM(profit) as profit,
                 CASE 
-                  WHEN AVG(total_investment) > 0 
-                  THEN (SUM(profit) / AVG(total_investment)) * 100 
+                  WHEN CAST(SUBSTRING_INDEX(GROUP_CONCAT(total_investment ORDER BY date ASC), ',', 1) AS DECIMAL(18,4)) > 0 
+                  THEN (SUM(profit) / CAST(SUBSTRING_INDEX(GROUP_CONCAT(total_investment ORDER BY date ASC), ',', 1) AS DECIMAL(18,4))) * 100 
                   ELSE 0 
                 END as monthly_return_rate
          FROM daily_profits
@@ -151,8 +151,8 @@ exports.yearly = async (req, res, next) => {
       `SELECT YEAR(date) as year,
               SUM(profit) as profit,
               CASE 
-                WHEN AVG(total_investment) > 0 
-                THEN (SUM(profit) / AVG(total_investment)) * 100 
+                WHEN CAST(SUBSTRING_INDEX(GROUP_CONCAT(total_investment ORDER BY date ASC), ',', 1) AS DECIMAL(18,4)) > 0 
+                THEN (SUM(profit) / CAST(SUBSTRING_INDEX(GROUP_CONCAT(total_investment ORDER BY date ASC), ',', 1) AS DECIMAL(18,4))) * 100 
                 ELSE 0 
               END as yearly_return_rate
        FROM daily_profits

@@ -1,0 +1,23 @@
+- [x]`viewMode` 初始值为 `'date_table'`，进入统计页直接显示日历表格
+- [x]日历表头为「日 一 二 三 四 五 六」（周日起始），1 号对齐到正确星期列
+- [x]`firstDayOfWeek` 使用 `new Date(year, month - 1, 1).getDay()` 计算（周日=0）
+- [x]有记录但收益为零（return_rate === 0）的单元格显示灰色背景（`rgba(148, 163, 184, 0.25/0.18)`），与完全无数据的空单元格区分
+- [x]零收益灰色逻辑在日/月/年三个粒度视图均生效
+- [x]图例区域新增「无收益」灰色色块，位于「亏损」与「无」之间
+- [x]点击日视图单元格选中该日，金色 outline 描边高亮，与 today 的 inset 边框可叠加
+- [x]点击月视图单元格选中该月（不再下钻到日视图），金色描边高亮
+- [x]点击年视图单元格选中该年（不再下钻到月视图），金色描边高亮
+- [x]粒度切换时选中重置：日→今天、月→当前月、年→当前年
+- [x]日历下方基金明细卡片标题含「基金收益明细」+ 选中周期标签
+- [x]金额模式显示每只基金收益金额（+/- 前缀，红涨绿跌，受 hideAmount 影响），按金额降序
+- [x]收益率模式显示每只基金收益率百分比（+/- 前缀，红涨绿跌，不受 hideAmount 影响），按收益率降序
+- [x]金额/收益率切换不重新请求后端，前端切换显示内容
+- [x]加载中显示 Skeleton 骨架屏
+- [x]无数据显示「该周期暂无基金明细数据」空状态
+- [x]`/stats/fund-breakdown?date=YYYY-MM-DD` 返回单日基金明细（profit=daily_profit, return_rate=gain_percent）
+- [x]`/stats/fund-breakdown?year=YYYY&month=MM` 返回月度聚合（profit=SUM, return_rate=profit/total_cost×100）
+- [x]`/stats/fund-breakdown?year=YYYY` 返回年度聚合
+- [x]details 为 null 或 JSON 解析失败时跳过该记录，不中断聚合
+- [x]无数据时接口返回空数组 `[]`
+- [x]切回 chart 模式后图表 + 明细表行为无回归
+- [x]移动端基金明细列表布局不溢出，样式与日历卡片视觉一致

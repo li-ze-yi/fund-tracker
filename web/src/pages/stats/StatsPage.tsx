@@ -1,49 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { Card, Segmented, Table, Skeleton, Empty, Tooltip } from 'antd';
 import { BarChartOutlined, CalendarOutlined, DollarOutlined, PercentageOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import dayjs from 'dayjs';
+import EChart from '@/components/EChart';
 import { statsService } from '@/services/statsService';
 import { useThemeStore } from '@/store/themeStore';
 import { useHideAmountStore } from '@/store/hideAmountStore';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 type Period = 'daily' | 'monthly' | 'yearly';
 type ViewMode = 'chart' | 'date_table';
-
-const MOCK_DAILY_DATA = [
-  { date: '2026-05-11', profit: 128.56, return_rate: 0.85 },
-  { date: '2026-05-10', profit: -45.23, return_rate: -0.30 },
-  { date: '2026-05-09', profit: 89.34, return_rate: 0.59 },
-  { date: '2026-05-08', profit: -12.78, return_rate: -0.08 },
-  { date: '2026-05-07', profit: 156.42, return_rate: 1.04 },
-  { date: '2026-05-06', profit: 67.89, return_rate: 0.45 },
-  { date: '2026-05-05', profit: -98.21, return_rate: -0.65 },
-  { date: '2026-05-04', profit: 203.15, return_rate: 1.35 },
-  { date: '2026-05-03', profit: 34.67, return_rate: 0.23 },
-  { date: '2026-05-02', profit: -56.43, return_rate: -0.37 },
-  { date: '2026-05-01', profit: 178.92, return_rate: 1.19 },
-  { date: '2026-04-30', profit: 245.68, return_rate: 1.63 },
-];
-
-const MOCK_MONTHLY_DATA = [
-  { month: '2026-05', profit: 895.32, return_rate: 5.96, accumulated_profit: 12580.50 },
-  { month: '2026-04', profit: 1234.78, return_rate: 8.22, accumulated_profit: 11685.18 },
-  { month: '2026-03', profit: -345.67, return_rate: -2.30, accumulated_profit: 10450.40 },
-  { month: '2026-02', profit: 678.90, return_rate: 4.52, accumulated_profit: 10796.07 },
-  { month: '2026-01', profit: 1122.34, return_rate: 7.47, accumulated_profit: 10117.17 },
-  { month: '2025-12', profit: 890.12, return_rate: 5.93, accumulated_profit: 8994.83 },
-  { month: '2025-11', profit: -234.56, return_rate: -1.56, accumulated_profit: 8104.71 },
-  { month: '2025-10', profit: 1567.89, return_rate: 10.44, accumulated_profit: 8339.27 },
-  { month: '2025-09', profit: 445.23, return_rate: 2.96, accumulated_profit: 6771.38 },
-  { month: '2025-08', profit: -123.45, return_rate: -0.82, accumulated_profit: 6326.15 },
-  { month: '2025-07', profit: 1890.67, return_rate: 12.58, accumulated_profit: 6449.60 },
-  { month: '2025-06', profit: 556.78, return_rate: 3.70, accumulated_profit: 4558.93 },
-];
-
-const MOCK_YEARLY_DATA = [
-  { year: '2026', profit: 895.32, return_rate: 5.96, accumulated_profit: 12580.50 },
-  { year: '2025', profit: 8543.21, return_rate: 57.00, accumulated_profit: 11685.18 },
-  { year: '2024', profit: 3245.67, return_rate: 21.64, accumulated_profit: 3141.97 },
-];
 
 // 日期表格视图粒度：日（日历网格）/ 月（12 月网格）/ 年（多年年度网格）
 type CalendarGranularity = 'day' | 'month' | 'year';
@@ -79,14 +45,44 @@ interface DateTableViewProps {
 function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYear, granularity, onMonthChange, onYearChange, onGranularityChange, hideAmount, isLight, isMobile, showReturnRate, onShowReturnRateChange, selectedDay, selectedMonth, selectedYear, fundBreakdown, fundBreakdownLoading, onSelectDay, onSelectMonth, onSelectYear }: DateTableViewProps) {
   const { year, month } = currentMonth;
 
-  // 根据数字位数动态返回字号
-  const getDynamicFontSize = (value: number, baseSize: number, isMobile: boolean): number => {
-    const abs = Math.abs(value);
-    if (abs < 100) return isMobile ? baseSize : baseSize + 2;       // 0-99: 最大
-    if (abs < 1000) return isMobile ? baseSize - 1 : baseSize + 1;  // 100-999
-    if (abs < 10000) return isMobile ? baseSize - 2 : baseSize;     // 1000-9999
-    if (abs < 100000) return isMobile ? baseSize - 3 : baseSize - 1; // 10000-99999
-    return isMobile ? baseSize - 4 : baseSize - 2;                   // >= 100000: 最小
+  // 网格容器宽度测量：直接测量第一个 cell 的实际渲染宽度，避免列数/gap 推算误差
+  const gridWrapRef = useRef<HTMLDivElement>(null);
+  const [cellWidth, setCellWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = gridWrapRef.current;
+    if (!el) return;
+    const update = () => {
+      // 直接取第一个实际格子元素的宽度（跳过 weekday 等非格子子元素）
+      const cellSelector = granularity === 'day' ? '.date-table-cell:not(.empty)' : '.year-grid-cell';
+      const firstCell = el.querySelector(cellSelector) as HTMLElement | null;
+      if (firstCell) {
+        setCellWidth(firstCell.clientWidth);
+      } else {
+        setCellWidth(el.clientWidth);
+      }
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [granularity]);
+
+  // 根据实际文本宽度自动适配字号：短数字取最大字号，长数字自动缩小至不溢出格子宽度
+  // 基于等宽字体字符宽度比例直接计算，cellWidth 已含 padding（clientWidth），需扣除
+  const getDynamicFontSize = (text: string, maxSize: number, minSize = 9, _weight: 600 | 700 = 600): number => {
+    if (!text || cellWidth <= 0) return maxSize;
+    // JetBrains Mono 等宽字体，单字符宽度约 0.62em（Bold 含字间距余量）
+    const charWidthRatio = 0.62;
+    // cellWidth 是 clientWidth（含 padding 不含 border）。扣除水平 padding + border + 安全余量
+    // day: .date-table-cell 无 padding；month/year: .year-grid-cell 桌面/移动均 padding 4px×2
+    const horizontalReserve = granularity === 'day'
+      ? 4
+      : 12;
+    const availablePx = Math.max(8, cellWidth - horizontalReserve);
+    // 字号上限：让文本总宽度不超过可用宽度
+    const sizeByWidth = Math.floor(availablePx / (text.length * charWidthRatio));
+    return Math.max(minSize, Math.min(maxSize, sizeByWidth));
   };
 
   // 今天
@@ -164,12 +160,13 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
       : 'rgba(148, 163, 184, 0.18)';
   };
 
-  // 格式化收益缩略（单元格内显示）
+  // 格式化收益缩略（单元格内显示，保留 2 位小数）
   const formatProfitShort = (profit: number): string => {
     if (hideAmount) return '****';
-    const rounded = Math.round(profit);
+    const rounded = Math.round(profit * 100) / 100;
+    if (rounded === 0) return '+0.00';
     const sign = rounded >= 0 ? '+' : '-';
-    return `${sign}${Math.abs(rounded)}`;
+    return `${sign}${Math.abs(rounded).toFixed(2)}`;
   };
 
   // 格式化 Tooltip 收益金额
@@ -252,7 +249,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
       {granularity === 'day' ? (
         <>
           {/* 7 列网格 */}
-          <div className="date-table-grid">
+          <div className="date-table-grid" ref={gridWrapRef}>
             {weekDays.map((d, i) => (
               <div key={`wd-${i}`} className="date-table-weekday">{d}</div>
             ))}
@@ -291,6 +288,12 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                 </div>
               );
 
+              const cellMainText = hasData
+                ? showReturnRate
+                  ? `${dayData!.return_rate >= 0 ? '+' : ''}${dayData!.return_rate.toFixed(2)}%`
+                  : formatProfitShort(dayData!.profit)
+                : '';
+
               return (
                 <Tooltip key={dateStr} title={tooltipContent} placement="top">
                   <div
@@ -303,14 +306,12 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                     }}
                     onClick={() => onSelectDay(dateStr)}
                   >
-                    <span style={{ fontSize: 14, fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1 }}>
+                    <span style={{ fontSize: isMobile ? 15 : 18, fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1 }}>
                       {day}
                     </span>
                     {hasData && (
-                      <span style={{ fontSize: getDynamicFontSize(Math.abs(dayData!.profit), 11, isMobile), fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1, marginTop: 2 }}>
-                        {showReturnRate
-                          ? `${dayData!.return_rate >= 0 ? '+' : ''}${dayData!.return_rate.toFixed(1)}%`
-                          : formatProfitShort(dayData!.profit)}
+                      <span style={{ fontSize: getDynamicFontSize(cellMainText, isMobile ? 14 : 24, isMobile ? 6 : 8, 600), fontFamily: 'var(--font-mono)', fontWeight: 600, color: textColor, lineHeight: 1, marginTop: 2 }}>
+                        {cellMainText}
                       </span>
                     )}
                   </div>
@@ -323,7 +324,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
         <>
           {/* 月视图：12 个月网格 */}
           {/* 12 个月网格 4x3 */}
-          <div className="year-grid-view">
+          <div className="year-grid-view" ref={gridWrapRef}>
             {Array.from({ length: 12 }, (_, i) => {
               const m = i + 1;
               const monthKey = `${currentYear}-${String(m).padStart(2, '0')}`;
@@ -363,7 +364,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
               const mainText = !hasData
                 ? ''
                 : showReturnRate
-                  ? `${mData!.return_rate >= 0 ? '+' : ''}${mData!.return_rate.toFixed(1)}%`
+                  ? `${mData!.return_rate >= 0 ? '+' : ''}${mData!.return_rate.toFixed(2)}%`
                   : formatProfitShort(mData!.profit);
 
               return (
@@ -375,7 +376,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                   >
                     <span style={{ fontSize: 13, fontWeight: 600, color: textColor }}>{m} 月</span>
                     {hasData && (
-                      <span style={{ fontSize: getDynamicFontSize(Math.abs(mData!.profit), 13, isMobile), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
+                      <span style={{ fontSize: getDynamicFontSize(mainText, isMobile ? 18 : 24, isMobile ? 6 : 7, 700), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
                         {mainText}
                       </span>
                     )}
@@ -389,7 +390,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
         <>
           {/* 年视图：多年年度网格（当前年前后各 3 年，共 7 年） */}
           {/* 多年网格 3 列 */}
-          <div className="year-grid-view" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          <div className="year-grid-view" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }} ref={gridWrapRef}>
             {years.map((y) => {
               const yKey = String(y);
               const yData = yearlyMap.get(yKey);
@@ -428,7 +429,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
               const mainText = !hasData
                 ? ''
                 : showReturnRate
-                  ? `${yData!.return_rate >= 0 ? '+' : ''}${yData!.return_rate.toFixed(1)}%`
+                  ? `${yData!.return_rate >= 0 ? '+' : ''}${yData!.return_rate.toFixed(2)}%`
                   : formatProfitShort(yData!.profit);
 
               return (
@@ -440,7 +441,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                   >
                     <span style={{ fontSize: 14, fontWeight: 600, color: textColor }}>{y} 年</span>
                     {hasData && (
-                      <span style={{ fontSize: getDynamicFontSize(Math.abs(yData!.profit), 14, isMobile), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
+                      <span style={{ fontSize: getDynamicFontSize(mainText, isMobile ? 15 : 24, isMobile ? 6 : 7, 700), fontFamily: 'var(--font-mono)', fontWeight: 700, color: textColor, marginTop: 4 }}>
                         {mainText}
                       </span>
                     )}
@@ -683,7 +684,7 @@ export default function StatsPage() {
     if (viewMode !== 'date_table') return;
     const now = new Date();
     if (calendarGranularity === 'day' && !selectedDay) {
-      setSelectedDay(now.toISOString().slice(0, 10));
+      setSelectedDay(dayjs().format('YYYY-MM-DD'));
     } else if (calendarGranularity === 'month' && !selectedMonth) {
       setSelectedMonth(now.getMonth() + 1);
     } else if (calendarGranularity === 'year' && !selectedYear) {
@@ -742,7 +743,7 @@ export default function StatsPage() {
     // 重置选中状态为默认值
     const now = new Date();
     if (g === 'day') {
-      setSelectedDay(now.toISOString().slice(0, 10));
+      setSelectedDay(dayjs().format('YYYY-MM-DD'));
     } else if (g === 'month') {
       setSelectedMonth(now.getMonth() + 1);
     } else if (g === 'year') {
@@ -753,19 +754,6 @@ export default function StatsPage() {
   const handleSelectDay = (date: string) => setSelectedDay(date);
   const handleSelectMonth = (month: number) => setSelectedMonth(month);
   const handleSelectYear = (year: number) => setSelectedYear(year);
-
-  const useMockData = () => {
-    if (period === 'daily') {
-      setData(MOCK_DAILY_DATA);
-      calculateSummary(MOCK_DAILY_DATA);
-    } else if (period === 'monthly') {
-      setData(MOCK_MONTHLY_DATA);
-      calculateSummary(MOCK_MONTHLY_DATA);
-    } else {
-      setData(MOCK_YEARLY_DATA);
-      calculateSummary(MOCK_YEARLY_DATA);
-    }
-  };
 
   const calculateSummary = (list: any[]) => {
     if (list.length === 0) {
@@ -827,7 +815,7 @@ export default function StatsPage() {
     };
   };
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+  const isMobile = useIsMobile();
   const themeMode = useThemeStore((s) => s.mode);
   const isLight = themeMode === 'light';
   const hideAmount = useHideAmountStore((s) => s.hidden);
@@ -1214,191 +1202,7 @@ export default function StatsPage() {
   };
 
   return (
-    <div className="stats-page-container" style={{ padding: '20px 16px', paddingBottom: 100 }}>
-      {/* 移动端响应式优化样式 */}
-      <style>{`
-        @media screen and (max-width: 768px) {
-          .stats-page-title {
-            font-size: clamp(18px, 5vw, 22px) !important;
-            margin-bottom: 16px !important;
-            padding: 0 4px !important;
-          }
-
-          .stats-summary-card > .ant-card-body {
-            padding: 12px 10px !important;
-          }
-
-          .stats-overview-grid {
-            grid-template-columns: repeat(3, 1fr) !important;
-            gap: 6px !important;
-          }
-
-          .stats-overview-item {
-            min-height: 58px !important;
-            padding: 8px 6px 6px !important;
-            border-radius: 8px !important;
-          }
-
-          .stats-overview-item .stats-item-label {
-            font-size: 9px !important;
-            margin-bottom: 2px !important;
-            letter-spacing: 0.02em !important;
-          }
-
-          .stats-overview-item .stats-item-value {
-            font-size: clamp(11px, 3vw, 14px) !important;
-            white-space: normal !important;
-            word-break: break-all !important;
-            line-height: 1.2 !important;
-          }
-
-          /* 单位字号在移动端缩小 */
-          .stats-overview-item .stats-item-value .stats-item-unit {
-            font-size: 9px !important;
-          }
-
-          .stats-segmented-wrapper {
-            margin-bottom: 12px !important;
-            padding: 0 4px !important;
-          }
-
-          .stats-segmented-wrapper .ant-segmented {
-            height: 36px !important;
-          }
-
-          .stats-segmented-wrapper .ant-segmented-item {
-            font-size: clamp(11px, 2.8vw, 13px) !important;
-            padding: 0 8px !important;
-          }
-
-          /* 第一行控件并排容器：移动端紧凑显示（缩宽不降高） */
-          .stats-controls-row .ant-segmented {
-            font-size: 12px;
-          }
-
-          .stats-controls-row .ant-segmented-item {
-            padding: 0 4px !important;
-            min-height: 28px !important;
-            line-height: 28px !important;
-            border-radius: 8px !important;
-            min-width: 32px !important;
-          }
-
-          .stats-controls-row .ant-segmented-item .anticon {
-            font-size: 14px !important;
-          }
-
-          .stats-controls-row .ant-segmented-item-selected {
-            font-weight: 500;
-          }
-
-          .stats-controls-row .ant-segmented-thumb {
-            border-radius: 8px !important;
-          }
-
-          .stats-chart-card {
-            margin-bottom: 16px !important;
-          }
-
-          .stats-chart-card > .ant-card-body {
-            padding: 16px 8px !important;
-          }
-
-          .stats-chart-container {
-            height: clamp(260px, 45vw, 320px) !important;
-            width: 100% !important;
-            overflow: hidden !important;
-          }
-
-          .stats-chart-container canvas,
-          .stats-chart-container div[data-zr-dom-id] {
-            max-width: 100% !important;
-            touch-action: pan-y !important;
-            -webkit-tap-highlight-color: transparent !important;
-          }
-
-          .stats-table-card {
-            margin-bottom: 16px !important;
-          }
-
-          .stats-table-card > .ant-card-header {
-            padding: 12px 16px !important;
-          }
-
-          .stats-table-card .ant-card-head-title {
-            font-size: clamp(14px, 3.5vw, 16px) !important;
-          }
-
-          .stats-table-card .ant-table {
-            font-size: clamp(11px, 2.8vw, 13px) !important;
-          }
-
-          .stats-table-card .ant-table-thead > tr > th {
-            padding: 10px 8px !important;
-            font-size: clamp(11px, 2.5vw, 12px) !important;
-            background: var(--bg-elevated) !important;
-          }
-
-          .stats-table-card .ant-table-tbody > tr > td {
-            padding: 8px 6px !important;
-            font-size: clamp(11px, 2.8vw, 13px) !important;
-          }
-
-          .stats-table-card .number-tabular {
-            font-size: clamp(10px, 2.5vw, 12px) !important;
-            white-space: nowrap !important;
-          }
-
-          .stats-page-container {
-            padding: 12px 8px !important;
-            padding-bottom: 80px !important;
-          }
-
-          /* 日期表格移动端样式 */
-          .date-table-view {
-            padding: 0 4px;
-          }
-
-          .date-table-header {
-            flex-wrap: wrap;
-            gap: 8px;
-          }
-
-          .date-table-grid {
-            grid-template-columns: repeat(7, minmax(36px, 1fr));
-            overflow-x: auto;
-          }
-
-          .date-table-cell {
-            min-width: 36px;
-          }
-
-          .year-grid-view {
-            grid-template-columns: repeat(2, 1fr);
-            gap: 6px;
-          }
-
-          .year-grid-cell {
-            min-height: 70px;
-            padding: 10px 6px;
-          }
-
-          .date-table-legend {
-            flex-wrap: wrap;
-            gap: 6px;
-            font-size: 10px;
-          }
-
-          .fund-breakdown-item {
-            padding: 6px 8px !important;
-          }
-
-          .fund-breakdown-item span:first-child {
-            font-size: 12px !important;
-          }
-        }
-      `}</style>
-
+    <div className="stats-page-container" style={{ padding: '20px 8px', paddingBottom: 100 }}>
       {/* 页面标题 */}
       <div className="stats-page-title" style={{
         fontSize: 22,
@@ -1428,7 +1232,7 @@ export default function StatsPage() {
         ) : (
         <div className="stats-overview-grid" style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
+          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
           gap: 12,
         }}>
           {overviewItems.map((item, idx) => (
@@ -1529,7 +1333,7 @@ export default function StatsPage() {
                   body: { padding: '20px 16px' },
                 }}
               >
-                <ReactECharts option={chartOption} style={{ height: 'clamp(280px, 50vw, 380px)' }} className="stats-chart-container" opts={{ renderer: 'canvas' }} />
+                <EChart option={chartOption} style={{ height: 'clamp(280px, 50vw, 380px)' }} className="stats-chart-container" opts={{ renderer: 'canvas' }} />
               </Card>
 
               {/* 数据表格 */}
@@ -1620,175 +1424,6 @@ export default function StatsPage() {
           </Card>
         )}
 
-      {/* 日期表格组件样式 */}
-      <style>{`
-        .date-table-view {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
-        }
-        /* 第一行控件现代简约样式：组合背景容器 */
-        .stats-controls-row {
-          box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
-        }
-        .stats-controls-row .ant-segmented {
-          background: var(--bg-elevated);
-          border-radius: 12px;
-          padding: 2px;
-        }
-        .stats-controls-row .ant-segmented-item {
-          border-radius: 10px;
-          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-          display: inline-flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-        }
-        .stats-controls-row .ant-segmented-item-selected {
-          background: var(--accent-gold);
-          color: #fff;
-          box-shadow: 0 2px 6px rgba(212, 160, 23, 0.25);
-          font-weight: 500;
-        }
-        .stats-controls-row .ant-segmented-thumb {
-          border-radius: 10px;
-          background: var(--accent-gold);
-          box-shadow: 0 2px 6px rgba(212, 160, 23, 0.25);
-        }
-        .stats-controls-row .ant-segmented-item .anticon {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .date-table-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 16px;
-        }
-        .date-table-nav-btn {
-          width: 32px;
-          height: 32px;
-          border-radius: 8px;
-          border: 1px solid var(--border-default);
-          background: var(--bg-card);
-          color: var(--text-secondary);
-          cursor: pointer;
-          font-size: 16px;
-          line-height: 1;
-          transition: all 0.15s ease;
-          font-family: inherit;
-        }
-        .date-table-nav-btn:hover {
-          background: var(--bg-input);
-          border-color: var(--accent-gold);
-          color: var(--accent-gold);
-        }
-        .date-table-title {
-          font-size: 16px;
-          font-weight: 600;
-          color: var(--text-primary);
-          letter-spacing: -0.01em;
-        }
-        .date-table-back-btn {
-          font-size: 11px;
-          color: var(--accent-gold);
-          padding: 4px 12px;
-          border-radius: 999px;
-          background: var(--accent-gold-dim);
-          border: 0;
-          cursor: pointer;
-          font-family: inherit;
-          font-weight: 500;
-          transition: all 0.15s ease;
-        }
-        .date-table-back-btn:hover {
-          background: var(--accent-gold);
-          color: #fff;
-        }
-        .date-table-grid {
-          display: grid;
-          grid-template-columns: repeat(7, 1fr);
-          gap: 4px;
-        }
-        .date-table-weekday {
-          font-size: 12px;
-          color: var(--text-muted);
-          text-align: center;
-          padding: 6px 0 8px;
-          font-weight: 500;
-          letter-spacing: 0.04em;
-        }
-        .date-table-cell {
-          aspect-ratio: 1 / 1;
-          border-radius: 6px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 2px;
-          cursor: pointer;
-          transition: transform 0.12s ease, border-color 0.12s ease;
-          border: 1px solid transparent;
-          position: relative;
-        }
-        .date-table-cell:hover {
-          transform: scale(1.08);
-          border-color: var(--border-default);
-          z-index: 2;
-          box-shadow: var(--shadow-soft);
-        }
-        .date-table-cell.empty {
-          background: transparent;
-          cursor: default;
-        }
-        .date-table-cell.empty:hover {
-          transform: none;
-          border-color: transparent;
-          box-shadow: none;
-        }
-        /* 年视图 12 月网格 */
-        .year-grid-view {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 8px;
-        }
-        .year-grid-cell {
-          border-radius: 8px;
-          padding: 12px 8px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          transition: transform 0.12s ease, border-color 0.12s ease;
-          border: 1px solid transparent;
-          min-height: 80px;
-        }
-        .year-grid-cell:hover {
-          transform: scale(1.04);
-          border-color: var(--border-default);
-          z-index: 2;
-          box-shadow: var(--shadow-soft);
-        }
-        .date-table-legend {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          margin-top: 16px;
-          padding-top: 12px;
-          border-top: 1px dashed var(--border-subtle);
-          font-size: 11px;
-          color: var(--text-tertiary);
-        }
-        .date-table-legend-group {
-          display: inline-flex;
-          align-items: center;
-          gap: 3px;
-        }
-        .date-table-legend-block {
-          width: 14px;
-          height: 14px;
-          border-radius: 3px;
-        }
-      `}</style>
     </div>
   );
 }

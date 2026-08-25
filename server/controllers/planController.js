@@ -1,4 +1,5 @@
 const InvestmentPlan = require('../models/investmentPlan');
+const { getLocalToday, normalizeDateStr } = require('../utils/date');
 
 exports.list = async (req, res, next) => {
   try {
@@ -111,5 +112,5 @@ function calcNextRunDate(today, frequency, dayOfWeek, dayOfMonth) {
     d.setDate(d.getDate() + 1);
   }
 
-  return d.toISOString().slice(0, 10);
+  return normalizeDateStr(d);
 }

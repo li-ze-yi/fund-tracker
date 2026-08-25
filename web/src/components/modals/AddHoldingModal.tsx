@@ -19,9 +19,11 @@ interface Props {
   fundName: string;
   onClose: () => void;
   onSuccess: () => void;
+  /** 隐藏「新购基金」Tab（当页面已提供独立新购入口时传 true，避免重复） */
+  hidePurchase?: boolean;
 }
 
-export default function AddHoldingModal({ open, fundCode, fundName, onClose, onSuccess }: Props) {
+export default function AddHoldingModal({ open, fundCode, fundName, onClose, onSuccess, hidePurchase }: Props) {
   // 两个独立 Form 实例，避免导入/新购字段互相冲突
   const [importForm] = Form.useForm();
   const [purchaseForm] = Form.useForm();
@@ -103,59 +105,73 @@ export default function AddHoldingModal({ open, fundCode, fundName, onClose, onS
       <div style={{ marginBottom: 12, color: 'var(--text-secondary)' }}>
         基金: {fundName} ({fundCode})
       </div>
-      <Tabs
-        activeKey={mode}
-        onChange={(key) => setMode(key as 'import' | 'purchase')}
-        items={[
-          {
-            key: 'import',
-            label: '导入持仓',
-            children: (
-              <Form form={importForm} layout="vertical">
-                <Form.Item name="amount" label="持仓金额（当前市值）" rules={[{ required: true, message: '请输入持仓金额' }]}>
-                  <InputNumber prefix="¥" min={0.01} step={100} style={{ width: '100%' }} placeholder="输入当前持仓金额" />
-                </Form.Item>
-                <Form.Item name="totalReturn" label="累计收益" rules={[{ required: true, message: '请输入累计收益' }]}>
-                  <InputNumber prefix="¥" step={100} style={{ width: '100%' }} placeholder="首次添加填0" />
-                </Form.Item>
-                <Form.Item name="groupId" label="选择分组（可选）">
-                  <Select allowClear placeholder="不选择则放入全部分组" options={groupOptions} />
-                </Form.Item>
-              </Form>
-            ),
-          },
-          {
-            key: 'purchase',
-            label: '新购基金',
-            children: (
-              <Form
-                form={purchaseForm}
-                layout="vertical"
-                initialValues={{ purchaseDate: dayjs(), after3pm: false, feeRate: 0 }}
-              >
-                <Form.Item name="purchaseDate" label="购买日期" rules={[{ required: true, message: '请选择购买日期' }]}>
-                  <DatePicker format="YYYY-MM-DD" disabledDate={disabledDate} style={{ width: '100%' }} />
-                </Form.Item>
-                <Form.Item name="after3pm" label="申购时间">
-                  <Radio.Group>
-                    <Radio value={false}>15:00 前（今日净值）</Radio>
-                    <Radio value={true}>15:00 后（次日确认）</Radio>
-                  </Radio.Group>
-                </Form.Item>
-                <Form.Item name="amount" label="购买金额" rules={[{ required: true, message: '请输入购买金额' }]}>
-                  <InputNumber prefix="¥" min={0.01} step={100} style={{ width: '100%' }} placeholder="输入购买金额" />
-                </Form.Item>
-                <Form.Item name="feeRate" label="买入费率">
-                  <Select options={FEE_OPTIONS} />
-                </Form.Item>
-                <Form.Item name="groupId" label="选择分组（可选）">
-                  <Select allowClear placeholder="不选择则放入全部分组" options={groupOptions} />
-                </Form.Item>
-              </Form>
-            ),
-          },
-        ]}
-      />
+      {hidePurchase ? (
+        <Form form={importForm} layout="vertical">
+          <Form.Item name="amount" label="持仓金额（当前市值）" rules={[{ required: true, message: '请输入持仓金额' }]}>
+            <InputNumber prefix="¥" min={0.01} step={100} style={{ width: '100%' }} placeholder="输入当前持仓金额" />
+          </Form.Item>
+          <Form.Item name="totalReturn" label="累计收益" rules={[{ required: true, message: '请输入累计收益' }]}>
+            <InputNumber prefix="¥" step={100} style={{ width: '100%' }} placeholder="首次买入请走新购基金" />
+          </Form.Item>
+          <Form.Item name="groupId" label="选择分组（可选）">
+            <Select allowClear placeholder="不选择则放入全部分组" options={groupOptions} />
+          </Form.Item>
+        </Form>
+      ) : (
+        <Tabs
+          activeKey={mode}
+          onChange={(key) => setMode(key as 'import' | 'purchase')}
+          items={[
+            {
+              key: 'import',
+              label: '导入持仓',
+              children: (
+                <Form form={importForm} layout="vertical">
+                  <Form.Item name="amount" label="持仓金额（当前市值）" rules={[{ required: true, message: '请输入持仓金额' }]}>
+                    <InputNumber prefix="¥" min={0.01} step={100} style={{ width: '100%' }} placeholder="输入当前持仓金额" />
+                  </Form.Item>
+                  <Form.Item name="totalReturn" label="累计收益" rules={[{ required: true, message: '请输入累计收益' }]}>
+                    <InputNumber prefix="¥" step={100} style={{ width: '100%' }} placeholder="首次买入请走新购基金" />
+                  </Form.Item>
+                  <Form.Item name="groupId" label="选择分组（可选）">
+                    <Select allowClear placeholder="不选择则放入全部分组" options={groupOptions} />
+                  </Form.Item>
+                </Form>
+              ),
+            },
+            {
+              key: 'purchase',
+              label: '新购基金',
+              children: (
+                <Form
+                  form={purchaseForm}
+                  layout="vertical"
+                  initialValues={{ purchaseDate: dayjs(), after3pm: false, feeRate: 0 }}
+                >
+                  <Form.Item name="purchaseDate" label="购买日期" rules={[{ required: true, message: '请选择购买日期' }]}>
+                    <DatePicker format="YYYY-MM-DD" disabledDate={disabledDate} style={{ width: '100%' }} />
+                  </Form.Item>
+                  <Form.Item name="after3pm" label="申购时间">
+                    <Radio.Group>
+                      <Radio value={false}>15:00 前（今日净值）</Radio>
+                      <Radio value={true}>15:00 后（次日确认）</Radio>
+                    </Radio.Group>
+                  </Form.Item>
+                  <Form.Item name="amount" label="购买金额" rules={[{ required: true, message: '请输入购买金额' }]}>
+                    <InputNumber prefix="¥" min={0.01} step={100} style={{ width: '100%' }} placeholder="输入购买金额" />
+                  </Form.Item>
+                  <Form.Item name="feeRate" label="买入费率">
+                    <Select options={FEE_OPTIONS} />
+                  </Form.Item>
+                  <Form.Item name="groupId" label="选择分组（可选）">
+                    <Select allowClear placeholder="不选择则放入全部分组" options={groupOptions} />
+                  </Form.Item>
+                </Form>
+              ),
+            },
+          ]}
+        />
+      )}
     </Modal>
   );
 }

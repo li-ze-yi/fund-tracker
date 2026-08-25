@@ -1,6 +1,12 @@
+// ★ 固化进程时区为北京时间（Asia/Shanghai, UTC+8）
+// 必须在任何日期逻辑之前设置：确保 Node 的 Date 计算、mysql2 日期解析均按北京时间，
+// 避免部署服务器系统时区被运维改为 UTC 后，前端（北京时区）整体错位 8 小时。
+process.env.TZ = 'Asia/Shanghai';
+
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const compression = require('compression');
 const cron = require('node-cron');
 const { executeDuePlans } = require('./services/planService');
@@ -11,9 +17,50 @@ const { createLogger } = require('./utils/logger');
 
 const logger = createLogger('App');
 
+// 全局异常兜底：防止单个请求/任务的未处理异常导致整个进程崩溃（服务不可用）
+// 记录日志后继续运行；若处理函数已损坏则优雅退出（由进程管理器重启）
+process.on('uncaughtException', (err) => {
+  logger.error(`[uncaughtException] ${err.message}`, err.stack);
+});
+process.on('unhandledRejection', (reason) => {
+  const msg = reason instanceof Error ? `${reason.message} | ${reason.stack}` : String(reason);
+  logger.error(`[unhandledRejection] ${msg}`);
+});
+
+// 启动时校验必需环境变量，缺失时明确报错退出，避免用 undefined 静默签名
+const REQUIRED_ENV = ['JWT_SECRET', 'MYSQL_HOST', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'];
+const missingEnv = REQUIRED_ENV.filter(key => !process.env[key]);
+if (missingEnv.length > 0) {
+  logger.error(`缺少必需的环境变量: ${missingEnv.join(', ')}，请检查 .env 文件配置`);
+  process.exit(1);
+}
+
+// JWT_SECRET 强度提示：长度不足时警告（不阻断启动），引导使用强随机密钥
+if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+  logger.warn('JWT_SECRET 长度不足 32 字符，建议使用强随机值生成：node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
+}
+
 const app = express();
 
-app.use(cors());
+app.use(helmet()); // 设置安全相关的 HTTP 响应头（默认隐藏 x-powered-by）
+app.disable('x-powered-by'); // 显式隐藏 x-powered-by，防止泄露框架信息
+
+// CORS 配置：从环境变量读取允许来源（CORS_ORIGIN，逗号分隔）
+// 未配置时回退为不限制（保持兼容，避免破坏现有使用）
+const corsWhitelist = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+app.use(cors({
+  origin: corsWhitelist.length > 0 ? (origin, callback) => {
+    // 无 origin 的请求（如同源/curl）直接放行
+    if (!origin) return callback(null, true);
+    if (corsWhitelist.includes('*') || corsWhitelist.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('不允许的跨域来源'));
+  } : true // 未配置 CORS_ORIGIN 时回退为不限制
+}));
 app.use(compression()); // 启用 gzip 压缩，API 响应体积可减少 60-80%
 app.use(express.json());
 

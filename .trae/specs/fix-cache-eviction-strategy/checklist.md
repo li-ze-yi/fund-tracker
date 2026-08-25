@@ -1,0 +1,5 @@
+- [x] `globalCache.js` 中 `evictOldest` 先删除过期条目，不足时再按 LRU 淘汰未过期条目，有中文注释
+- [x] `holdingService.js` realtime 缓存检查过期时删除条目
+- [x] `holdingService.js` 3 天历史净值检查过期时删除条目
+- [x] `fundController.js` 走势图缓存检查过期时删除条目
+- [x] `fundService.js` 单只股票行情缓存检查过期时删除条目

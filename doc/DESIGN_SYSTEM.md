@@ -495,8 +495,8 @@ value.toLocaleString('zh-CN', {
   /* 层级3：重要元素强调 */
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
   
-  /* 特殊：碧玉青发光（用于品牌元素）*/
-  --shadow-glow-gold: 0 0 20px rgba(46, 139, 123, 0.2);
+  /* 特殊：金色发光（用于品牌元素）*/
+  --shadow-glow-gold: 0 0 20px rgba(184, 134, 11, 0.2);
 }
 ```
 
@@ -1149,7 +1149,7 @@ const renderUpdateIndicator = () => {
 ```tsx
 // 主题切换通过 data-theme 属性控制
 // 在 App.tsx 中设置默认主题
-document.documentElement.setAttribute('data-theme', 'light');
+document.documentElement.setAttribute('data-theme', 'dark');
 
 // 切换主题
 const toggleTheme = () => {
@@ -1183,7 +1183,7 @@ useEffect(() => {
 :root[data-theme='light'] {
   --bg-base: #FFFFFF;
   --text-primary: #1A1A2E;
-  --accent-gold: #2E8B7B;
+  --accent-gold: #B8860B;
   /* ... */
 }
 ```

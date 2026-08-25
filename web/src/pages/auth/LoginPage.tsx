@@ -46,55 +46,6 @@ export default function LoginPage() {
         },
       }}
     >
-      {/* 移动端响应式优化样式 */}
-      <style>{`
-        @media screen and (max-width: 768px) {
-          .login-card {
-            margin: 8px !important;
-            border-radius: var(--radius-lg) !important;
-          }
-
-          .login-card > .ant-card-head {
-            padding: 16px 20px !important;
-            min-height: auto !important;
-          }
-
-          .login-card .ant-card-head-title {
-            font-size: clamp(18px, 5vw, 22px) !important;
-          }
-
-          .login-card > .ant-card-body {
-            padding: 20px 16px !important;
-          }
-
-          /* 表单项 */
-          .login-card .ant-form-item {
-            margin-bottom: 16px !important;
-          }
-
-          .login-card .ant-input,
-          .login-card .ant-input-password {
-            height: 44px !important;
-            font-size: clamp(14px, 3.5vw, 15px) !important;
-            border-radius: var(--radius-md) !important;
-          }
-
-          /* 登录按钮 */
-          .login-card .ant-btn-primary {
-            height: 46px !important;
-            font-size: clamp(14px, 3.5vw, 15px) !important;
-            font-weight: 600 !important;
-            border-radius: var(--radius-md) !important;
-          }
-
-          /* 注册链接 */
-          .login-register-link {
-            font-size: clamp(13px, 3.2vw, 14px) !important;
-            padding-top: 4px !important;
-          }
-        }
-      `}</style>
-
       <Form onFinish={onSubmit} layout="vertical" size="large">
         <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
           <Input prefix={<UserOutlined style={{ color: 'var(--text-muted)' }} />} placeholder="用户名" />

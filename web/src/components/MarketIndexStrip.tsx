@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UpOutlined, DownOutlined, CheckOutlined } from '@ant-design/icons';
-import { fetchIndexData, ALL_INDEX_META } from '@/services/indexService';
+import { fetchIndexData, fetchMarketStatus, ALL_INDEX_META } from '@/services/indexService';
 
 interface IndexItem {
   code: string;
@@ -24,6 +24,15 @@ export default function MarketIndexStrip() {
   });
   const [indices, setIndices] = useState<IndexItem[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== 'undefined' && window.innerWidth <= 1024
+  );
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 1024);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('ft_visible_indices', JSON.stringify(visibleCodes));
@@ -34,11 +43,47 @@ export default function MarketIndexStrip() {
     setIndices(data);
   }, []);
 
-  useEffect(() => {
-    loadIndices();
-    const timer = setInterval(loadIndices, 60000);
-    return () => clearInterval(timer);
+  // 60s 数据轮询定时器
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 最近一次已知的市场状态（避免重复启停）
+  const statusRef = useRef<boolean | null>(null);
+  // 5 分钟一次的市场状态复查定时器
+  const statusCheckTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 开市时启动 60s 轮询，闭市时停止（保留最后一次数据）
+  const setPolling = useCallback((enabled: boolean) => {
+    if (enabled && !pollTimerRef.current) {
+      pollTimerRef.current = setInterval(loadIndices, 60000);
+    } else if (!enabled && pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
   }, [loadIndices]);
+
+  // 查询市场状态，状态翻转时启停轮询
+  const checkMarketStatus = useCallback(async () => {
+    try {
+      const status = await fetchMarketStatus();
+      if (statusRef.current !== status.isMarketOpen) {
+        statusRef.current = status.isMarketOpen;
+        setPolling(status.isMarketOpen);
+      }
+    } catch {
+      // 状态查询失败时保持当前轮询状态
+    }
+  }, [setPolling]);
+
+  useEffect(() => {
+    // 初始立即加载一次，保证有数据展示
+    loadIndices();
+    // 初始化市场状态，并按 5 分钟频率复查；开市才维持 60s 轮询
+    checkMarketStatus();
+    statusCheckTimerRef.current = setInterval(checkMarketStatus, 300000);
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      if (statusCheckTimerRef.current) clearInterval(statusCheckTimerRef.current);
+    };
+  }, [loadIndices, checkMarketStatus]);
 
   const visibleIndices = indices.filter(i => visibleCodes.includes(i.code));
 
@@ -49,7 +94,7 @@ export default function MarketIndexStrip() {
     let pos = 0;
     let rafId: number;
     let lastTime = 0;
-    const speed = 0.02; // px per ms
+    const speed = 0.02;
 
     const animate = (time: number) => {
       if (lastTime) {
@@ -82,10 +127,13 @@ export default function MarketIndexStrip() {
     <>
       <div className="market-index-strip" style={{
         padding: '8px 0',
-        background: 'var(--bg-elevated)',
-        borderBottom: '1px solid var(--border-subtle)',
+        background: 'var(--bg-header)',
+        backdropFilter: 'blur(16px) saturate(150%)',
+        WebkitBackdropFilter: 'blur(16px) saturate(150%)',
+        boxShadow: '0 1px 0 var(--border-subtle), 0 2px 12px -2px rgba(0,0,0,0.04)',
         position: 'relative',
         overflow: 'hidden',
+        ...(isMobile ? { marginLeft: 'calc(-1 * var(--content-padding))', marginRight: 'calc(-1 * var(--content-padding))' } : {}),
       }}>
         {!expanded && !selectorOpen && displayList.length > 0 ? (
           <div
@@ -94,8 +142,14 @@ export default function MarketIndexStrip() {
             style={{
               display: 'flex',
               overflow: 'hidden',
-              gap: 24,
-              padding: '6px 16px',
+              gap: isMobile ? 16 : 24,
+              padding: isMobile ? '4px 6px' : '6px 16px',
+              WebkitMaskImage: isMobile
+                ? 'linear-gradient(to right, transparent 0%, black 2%, black 98%, transparent 100%)'
+                : 'linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%)',
+              maskImage: isMobile
+                ? 'linear-gradient(to right, transparent 0%, black 2%, black 98%, transparent 100%)'
+                : 'linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%)',
             }}
           >
             {[...displayList, ...displayList].map((item, idx) => (
@@ -154,17 +208,24 @@ export default function MarketIndexStrip() {
                 key={item.code}
                 onClick={() => navigate(`/market?code=${item.code}`)}
                 style={{
-                  minWidth: 108,
+                  minWidth: 112,
                   padding: '8px 14px',
                   borderRadius: 'var(--radius-md)',
                   background: item.point !== undefined ? (isUp(item.change) ? 'var(--gain-bg)' : 'var(--loss-bg)') : 'var(--flat-bg)',
                   border: item.point !== undefined ? `1px solid ${isUp(item.change) ? 'var(--gain-border)' : 'var(--loss-border)'}` : '1px solid var(--border-subtle)',
                   cursor: 'pointer',
                   flexShrink: 0,
-                  transition: 'transform var(--transition-fast)',
+                  transition: 'all var(--transition-base)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px) scale(1.03)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.06)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'scale(1)';
+                  e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.03)';
+                }}
               >
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>{item.name}</div>
                 <div className="number-tabular" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginTop: 1, fontFamily: 'var(--font-mono)' }}>

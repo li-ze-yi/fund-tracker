@@ -9,6 +9,22 @@ interface IndexData {
   changePercent: number;
 }
 
+/** 后端 /indices 接口返回的原始行情条目 */
+interface IndexQuote {
+  code: string;
+  name?: string;
+  point?: number | string;
+  change?: number | string;
+  changePercent?: number | string;
+}
+
+/** 市场开闭市状态（前端仅消费 isMarketOpen） */
+export interface MarketStatus {
+  isMarketOpen: boolean;
+  markets: Record<string, unknown>;
+  updatedAt?: string;
+}
+
 export const ALL_INDEX_META = [
   { code: '000001', name: '上证指数', nameShort: '上证' },
   { code: '000016', name: '上证50', nameShort: '上证50' },
@@ -29,8 +45,8 @@ export const ALL_INDEX_META = [
 export async function fetchIndexData(codes: string[]): Promise<IndexData[]> {
   try {
     const res = await api.get(`/indices?codes=${codes.join(',')}`);
-    const indices: any[] = res.data?.indices || [];
-    const map: Record<string, any> = {};
+    const indices: IndexQuote[] = res.data?.indices || [];
+    const map: Record<string, IndexQuote> = {};
     for (let i = 0; i < indices.length; i++) {
       map[indices[i].code] = indices[i];
     }
@@ -55,6 +71,20 @@ export async function fetchIndexData(codes: string[]): Promise<IndexData[]> {
   }
 }
 
+export async function fetchMarketStatus(): Promise<MarketStatus> {
+  try {
+    const res = await api.get('/market/status');
+    return {
+      isMarketOpen: !!res.data?.isMarketOpen,
+      markets: res.data?.markets || {},
+      updatedAt: res.data?.updatedAt,
+    };
+  } catch (err) {
+    // 状态接口不可用（如未部署/请求失败）时，按开市处理，保持原有轮询行为
+    return { isMarketOpen: true, markets: {} };
+  }
+}
+
 export interface IntradayData {
   times: string[];
   prices: number[];
@@ -65,10 +95,7 @@ export interface IntradayData {
 
 export async function fetchIntradayData(code: string): Promise<IntradayData | null> {
   try {
-    console.log(`🌐 API call: GET /api/indices/${code}/intraday`);
     const res = await api.get(`/indices/${code}/intraday`);
-    console.log(`📦 API response status:`, res.status);
-    console.log(`📦 API response data:`, res.data);
 
     if (res.status === 200 && res.data && res.data.data) {
       const result = {
@@ -78,7 +105,6 @@ export async function fetchIntradayData(code: string): Promise<IntradayData | nu
         source: res.data.source,
         pointCount: res.data.pointCount
       };
-      console.log(`✅ Parsed intraday data:`, result);
       return result;
     }
 

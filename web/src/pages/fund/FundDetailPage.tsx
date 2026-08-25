@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
+import dayjs from 'dayjs';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Button, Table, Tag, Segmented, Skeleton, App, Space, Dropdown } from 'antd';
 import { ArrowLeftOutlined, StarOutlined, StarFilled, PlusOutlined, MinusOutlined, ScheduleOutlined, DeleteOutlined, EditOutlined, ThunderboltOutlined, FundOutlined, AimOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import EChart from '@/components/EChart';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { fundService } from '@/services/fundService';
 import { transactionService } from '@/services/transactionService';
 import { favoriteService } from '@/services/favoriteService';
@@ -13,6 +15,7 @@ import SellModal from '@/components/modals/SellModal';
 import CreatePlanModal from '@/components/modals/CreatePlanModal';
 import EditHoldingModal from '@/components/modals/EditHoldingModal';
 import PurchaseModal from '@/components/modals/PurchaseModal';
+import AddHoldingModal from '@/components/modals/AddHoldingModal';
 
 type Period = '1w' | '1m' | '3m' | '6m' | '1y' | 'all';
 
@@ -33,12 +36,13 @@ export default function FundDetailPage() {
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
+  const [addHoldingModalOpen, setAddHoldingModalOpen] = useState(false);
 
   // 估值方法
   const [fundValuationMethod, setFundValuationMethod] = useState<ValuationMethod | null>(null);
   const [globalValuationMethod, setGlobalValuationMethod] = useState<ValuationMethod>('sina');
 
-  const loadNavHistory = async (p: Period, fundCode: string) => {
+  const loadNavHistory = async (p: Period, fundCode: string, isCancelled?: () => boolean) => {
     const now = new Date();
     let start = new Date();
     switch (p) {
@@ -49,45 +53,53 @@ export default function FundDetailPage() {
       case '1y': start.setFullYear(now.getFullYear() - 1); break;
       case 'all': start = new Date('2000-01-01'); break;
     }
-    const s = start.toISOString().slice(0, 10);
-    const e = now.toISOString().slice(0, 10);
+    // 使用 dayjs 本地日期，避免 toISOString 的 UTC 偏移导致日期跨天错误
+    const s = dayjs(start).format('YYYY-MM-DD');
+    const e = dayjs(now).format('YYYY-MM-DD');
     try {
       const timestamp = Date.now();
       const data = await fundService.getHistoryNav(fundCode, s, e, timestamp);
+      if (isCancelled && isCancelled()) return;
       setNavHistory(data.records || data || []);
       setDataUpdateTime(now.toLocaleString('zh-CN'));
     } catch (error) {
+      if (isCancelled && isCancelled()) return;
       console.error('获取历史净值失败:', error);
       setNavHistory([]);
     }
   };
 
-  const loadData = async () => {
+  const loadData = async (isCancelled?: () => boolean) => {
     if (!code) return;
     setLoading(true);
     try {
       const fundData = await fundService.getFundInfo(code);
+      if (isCancelled && isCancelled()) return;
       setFund(fundData);
       setIsFavorite(!!fundData.is_favorite);
 
       try {
         const txData = await transactionService.getTransactions(code);
-        console.log('[DEBUG] 原始交易数据:', JSON.stringify(txData, null, 2));
-        if (txData.transactions && txData.transactions.length > 0) {
-          console.log('[DEBUG] 第一条交易的日期:', txData.transactions[0].transaction_date);
-        }
+        if (isCancelled && isCancelled()) return;
         setTransactions(txData.transactions || txData || []);
       } catch {}
-
-      await loadNavHistory(period, code);
     } catch {
+      if (isCancelled && isCancelled()) return;
       message.error('获取基金信息失败');
     } finally {
-      setLoading(false);
+      if (!(isCancelled && isCancelled())) {
+        setLoading(false);
+      }
     }
   };
 
-  useEffect(() => { loadData(); }, [code]);
+  // 基金信息/交易（code 变化时加载）；净值历史由下方 [period, code] effect 统一加载，避免重复请求
+  useEffect(() => {
+    if (!code) return;
+    let cancelled = false;
+    loadData(() => cancelled);
+    return () => { cancelled = true; };
+  }, [code]);
 
   // 加载用户估值设置
   useEffect(() => {
@@ -102,7 +114,10 @@ export default function FundDetailPage() {
   }, [code]);
 
   useEffect(() => {
-    if (code) loadNavHistory(period, code);
+    if (!code) return;
+    let cancelled = false;
+    loadNavHistory(period, code, () => cancelled);
+    return () => { cancelled = true; };
   }, [period, code]);
 
   const toggleFavorite = async () => {
@@ -298,7 +313,7 @@ export default function FundDetailPage() {
 
   const xAxisConfig = getXAxisConfig();
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+  const isMobile = useIsMobile();
   const themeMode = useThemeStore((s) => s.mode);
   const isLight = themeMode === 'light';
 
@@ -683,196 +698,6 @@ export default function FundDetailPage() {
 
   return (
     <div className="fund-detail-page" style={{ paddingTop: 20, paddingLeft: 16, paddingRight: 16, paddingBottom: 100 }}>
-      {/* 移动端响应式优化样式 */}
-      <style>{`
-        @media screen and (max-width: 768px) {
-          /* 页面容器 */
-          .fund-detail-page {
-            padding: 12px 8px !important;
-            padding-bottom: 80px !important;
-          }
-
-          /* 顶部导航栏 */
-          .fund-detail-header {
-            margin-bottom: 16px !important;
-            padding: 8px 4px !important;
-            gap: 10px !important;
-          }
-
-          .fund-detail-title {
-            font-size: clamp(18px, 5vw, 22px) !important;
-            margin-bottom: 2px !important;
-          }
-
-          .fund-detail-meta {
-            font-size: clamp(11px, 2.8vw, 13px) !important;
-            gap: 6px !important;
-            flex-wrap: wrap !important;
-          }
-
-          /* 核心数据卡片 */
-          .fund-detail-summary-card > .ant-card-body {
-            padding: 16px 12px !important;
-          }
-
-          .fund-detail-grid {
-            grid-template-columns: repeat(2, 1fr) !important;
-            gap: 12px !important;
-          }
-
-          .fund-detail-data-label {
-            font-size: clamp(10px, 2.5vw, 12px) !important;
-            margin-bottom: 3px !important;
-          }
-
-          .fund-detail-data-value {
-            font-size: clamp(18px, 4.5vw, 28px) !important;
-          }
-
-          .fund-detail-data-value-small {
-            font-size: clamp(14px, 3.5vw, 18px) !important;
-          }
-
-          /* 走势图卡片 */
-          .fund-detail-chart-card {
-            margin-bottom: 10px !important;  // ✅ 移动端间距更小
-          }
-
-          .fund-detail-chart-card > .ant-card-body {
-            padding: 12px 8px !important;
-          }
-
-          .fund-detail-chart-container {
-            height: clamp(240px, 42vw, 300px) !important;
-            width: 100% !important;
-            overflow: hidden !important;
-          }
-
-          /* Canvas 元素优化 */
-          .fund-detail-chart-container canvas,
-          .fund-detail-chart-container div[data-zr-dom-id] {
-            max-width: 100% !important;
-            touch-action: pan-y !important;
-            -webkit-tap-highlight-color: transparent !important;
-          }
-
-          .fund-detail-chart-header {
-            margin-bottom: 12px !important;
-            flex-direction: column !important;
-            align-items: flex-start !important;
-            gap: 10px !important;
-          }
-
-          .fund-detail-chart-title {
-            font-size: clamp(14px, 3.5vw, 16px) !important;
-          }
-
-          .fund-detail-period-selector {
-            width: 100% !important;
-            justify-content: flex-start !important;
-          }
-
-          .fund-detail-period-selector .ant-segmented {
-            width: 100% !important;
-          }
-
-          .fund-detail-period-selector .ant-segmented-item {
-            font-size: clamp(10px, 2.5vw, 12px) !important;
-            padding: 0 6px !important;
-          }
-
-          .fund-detail-data-info {
-            flex-direction: row !important;    // ✅ 保持横向排列
-            flex-wrap: nowrap !important;     // ✅ 不换行
-            gap: 10px !important;              // ✅ 间距
-            font-size: clamp(10px, 2.5vw, 11px) !important;
-            padding: 8px 10px !important;
-          }
-
-          .fund-detail-data-info span {
-            white-space: nowrap !important;   // ✅ 单行显示
-          }
-
-          /* 操作按钮组 */
-          .fund-detail-actions {
-            display: flex !important;
-            grid-template-columns: unset !important;
-            gap: 6px !important;
-            margin-bottom: 16px !important;
-          }
-
-          .fund-detail-action-btn {
-            flex: 1 !important;
-            height: 40px !important;
-            font-size: clamp(12px, 3vw, 14px) !important;
-            padding: 0 4px !important;
-            border-radius: var(--radius-sm) !important;
-          }
-          
-          /* 确保减仓按钮在移动端也有红色背景 */
-          .fund-detail-actions button:nth-child(2) {
-            background-color: #e3787d !important;
-            color: white !important;
-            border-color: #e3787d !important;
-          }
-
-          /* 交易记录卡片 */
-          .fund-detail-transactions-card > .ant-card-header {
-            padding: 12px 16px !important;
-          }
-
-          .fund-detail-transactions-card .ant-table {
-            font-size: clamp(11px, 2.8vw, 13px) !important;
-          }
-
-          .fund-detail-transactions-card .ant-table-thead > tr > th,
-          .fund-detail-transactions-card .ant-table-tbody > tr > td {
-            padding: 8px 6px !important;
-            font-size: clamp(11px, 2.8vw, 13px) !important;
-          }
-
-          /* 防止表格超出 */
-          .fund-detail-transactions-card .ant-table-wrapper {
-            overflow-x: auto !important;
-          }
-
-          .fund-detail-transactions-card .ant-table-container {
-            width: 100% !important;
-          }
-
-          .fund-detail-transactions-card table {
-            table-layout: fixed !important;
-            width: 100% !important;
-          }
-          
-          /* 优化表格单元格间距 */
-          .fund-detail-transactions-card .ant-table-thead > tr > th,
-          .fund-detail-transactions-card .ant-table-tbody > tr > td {
-            padding: 8px 4px !important;
-          }
-          
-          /* 确保列宽正确应用 */
-          .fund-detail-transactions-card .ant-table-cell {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-          }
-
-          /* 返回按钮和收藏按钮 */
-          .fund-detail-back-btn {
-            width: 36px !important;
-            height: 36px !important;
-            font-size: 16px !important;
-          }
-
-          .fund-detail-favorite-btn {
-            width: 40px !important;
-            height: 40px !important;
-            font-size: 20px !important;
-          }
-        }
-      `}</style>
-
       {/* 顶部导航栏 */}
       <div className="fund-detail-header" style={{
         display: 'flex',
@@ -1140,7 +965,7 @@ export default function FundDetailPage() {
             />
           </Space>
         </div>
-        <ReactECharts option={chartOption} style={{ height: 'clamp(260px, 45vw, 340px)' }} className="fund-detail-chart-container" opts={{ renderer: 'canvas' }} />
+        <EChart option={chartOption} style={{ height: 'clamp(260px, 45vw, 340px)' }} className="fund-detail-chart-container" opts={{ renderer: 'canvas' }} />
         {navHistory.length > 0 && (
           <div className="fund-detail-data-info" style={{
             marginTop: 12,
@@ -1181,82 +1006,129 @@ export default function FundDetailPage() {
         marginBottom: 12,
       }}>
         {fund.shares != null && fund.shares > 0 ? (
-          <Button
-            className="fund-detail-action-btn"
-            icon={<EditOutlined />}
-            onClick={() => setEditModalOpen(true)}
-            style={{
-              height: 48,
-              fontSize: 15,
-              fontWeight: 600,
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--border-default)',
-            }}
-          >
-            修改
-          </Button>
+          <>
+            <Button
+              className="fund-detail-action-btn"
+              icon={<EditOutlined />}
+              onClick={() => setEditModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-default)',
+              }}
+            >
+              {isMobile ? '修改' : '修改持仓'}
+            </Button>
+            <Button
+              className="fund-detail-action-btn"
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setBuyModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
+              }}
+            >
+              {isMobile ? '加仓' : '买入加仓'}
+            </Button>
+            <Button
+              className="fund-detail-action-btn"
+              icon={<MinusOutlined />}
+              onClick={() => setSellModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: '#e3787d',
+                color: 'white',
+                border: '1px solid #e3787d',
+              }}
+            >
+              {isMobile ? '减仓' : '卖出减仓'}
+            </Button>
+            <Button
+              className="fund-detail-action-btn"
+              icon={<ScheduleOutlined />}
+              onClick={() => setPlanModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-default)',
+              }}
+            >
+              {isMobile ? '定投' : '发起定投'}
+            </Button>
+          </>
         ) : (
-          <Button
-            className="fund-detail-action-btn"
-            type="primary"
-            icon={<ThunderboltOutlined />}
-            onClick={() => setPurchaseModalOpen(true)}
-            style={{
-              height: 48,
-              fontSize: 15,
-              fontWeight: 600,
-              borderRadius: 'var(--radius-md)',
-              boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
-            }}
-          >
-            新购
-          </Button>
+          <>
+            <Button
+              className="fund-detail-action-btn"
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              onClick={() => setAddHoldingModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
+              }}
+            >
+              {isMobile ? '添加' : '添加持仓'}
+            </Button>
+            <Button
+              className="fund-detail-action-btn"
+              type="primary"
+              icon={<AimOutlined />}
+              onClick={() => setPurchaseModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
+              }}
+            >
+              {isMobile ? '新购' : '新购基金'}
+            </Button>
+            <Button
+              className="fund-detail-action-btn"
+              icon={<PlusOutlined />}
+              onClick={() => setBuyModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-default)',
+              }}
+            >
+              {isMobile ? '加仓' : '买入加仓'}
+            </Button>
+            <Button
+              className="fund-detail-action-btn"
+              icon={<ScheduleOutlined />}
+              onClick={() => setPlanModalOpen(true)}
+              style={{
+                height: 48,
+                fontSize: 15,
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-default)',
+              }}
+            >
+              {isMobile ? '定投' : '发起定投'}
+            </Button>
+          </>
         )}
-        <Button
-          className="fund-detail-action-btn"
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setBuyModalOpen(true)}
-          style={{
-            height: 48,
-            fontSize: 15,
-            fontWeight: 600,
-            borderRadius: 'var(--radius-md)',
-            boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
-          }}
-        >
-          加仓
-        </Button>
-        <Button
-          className="fund-detail-action-btn"
-          icon={<MinusOutlined />}
-          onClick={() => setSellModalOpen(true)}
-          style={{
-            height: 48,
-            fontSize: 15,
-            fontWeight: 600,
-            borderRadius: 'var(--radius-md)',
-            backgroundColor: '#e3787d',
-            color: 'white',
-            border: '1px solid #e3787d',
-          }}
-        >
-          减仓
-        </Button>
-        <Button
-          className="fund-detail-action-btn"
-          icon={<ScheduleOutlined />}
-          onClick={() => setPlanModalOpen(true)}
-          style={{
-            height: 48,
-            fontSize: 15,
-            fontWeight: 600,
-            borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--border-default)',
-          }}
-        >
-          定投
-        </Button>
       </div>
 
       {/* 交易记录 */}
@@ -1290,6 +1162,14 @@ export default function FundDetailPage() {
       </Card>
 
       {/* 模态框 */}
+      <AddHoldingModal
+        open={addHoldingModalOpen}
+        fundCode={code || ''}
+        fundName={fund.name || code || ''}
+        onClose={() => setAddHoldingModalOpen(false)}
+        onSuccess={loadData}
+        hidePurchase
+      />
       <PurchaseModal
         open={purchaseModalOpen}
         fundCode={code || ''}

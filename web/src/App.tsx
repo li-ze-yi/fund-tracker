@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider, App as AntApp, theme as antTheme, Spin } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect, useLayoutEffect, lazy, Suspense } from 'react';
 import { useAuthStore } from './store/authStore';
 import { useThemeStore } from './store/themeStore';
 import MainLayout from './layouts/MainLayout';
@@ -44,12 +44,15 @@ export default function App() {
     restoreSession();
   }, [restoreSession]);
 
-  useEffect(() => {
+  // 用 useLayoutEffect 在首帧绘制前同步 data-theme，确保界面主题与切换图标（store.mode）始终一致，
+  // 避免刷新/恢复页面时出现“界面浅色、图标深色”之类的脱节。
+  useLayoutEffect(() => {
     document.documentElement.setAttribute('data-theme', themeMode);
   }, [themeMode]);
 
   const isLight = themeMode === 'light';
-  const antAlgorithm = isLight ? antTheme.defaultAlgorithm : antTheme.defaultAlgorithm;
+  // 暗色模式使用 darkAlgorithm，避免 Ant Design 组件按浅色算法渲染导致界面偏白
+  const antAlgorithm = isLight ? antTheme.defaultAlgorithm : antTheme.darkAlgorithm;
   const antToken = {
     colorPrimary: isLight ? '#B8860B' : '#D4A84B',
     borderRadius: 8,

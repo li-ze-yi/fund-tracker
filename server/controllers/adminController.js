@@ -215,7 +215,7 @@ exports.cacheStats = async (req, res, next) => {
       });
     }
     entries.sort((a, b) => a.remainingSeconds - b.remainingSeconds);
-    res.json({ stats, entries });
+    res.json({ stats, entries, recentMisses: stats.recentMisses || [] });
   } catch (err) {
     next(err);
   }
@@ -255,8 +255,9 @@ exports.cacheClear = async (req, res, next) => {
       globalCache.cache.delete(key);
       res.json({ message: `缓存key "${key}" 已清除` });
     } else {
-      globalCache.clear();
-      res.json({ message: '全部缓存已清除' });
+      // 仅清除缓存条目列表，保留命中率等统计信息
+      globalCache.clearEntries();
+      res.json({ message: '全部缓存条目已清除（统计信息保留）' });
     }
   } catch (err) {
     next(err);

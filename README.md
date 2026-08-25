@@ -70,7 +70,7 @@
 
 ### 数据库
 
-MySQL 8.0+，核心表：`users`、`funds`、`holdings`、`transactions`、`groups`、`investment_plans`、`favorites`、`user_settings`、`daily_profits`、`feedbacks`
+MySQL 8.0+，核心表：`users`、`funds`、`holdings`、`transactions`、`groups`、`investment_plans`、`favorites`、`user_settings`、`daily_profits`、`feedbacks`、`announcements`
 
 ## 项目结构
 
@@ -178,7 +178,9 @@ MYSQL_PORT=3306
 MYSQL_USER=your_mysql_user
 MYSQL_PASSWORD=your_mysql_password
 MYSQL_DATABASE=real_time
-JWT_SECRET=your_jwt_secret
+# JWT_SECRET 请使用强随机值（≥32 字符）：
+#   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+JWT_SECRET=your_strong_random_secret
 PORT=3001
 ```
 
@@ -471,15 +473,17 @@ sudo tail -f /var/log/nginx/access.log
 | POST | `/api/auth/register` | 用户注册 |
 | POST | `/api/auth/login` | 用户登录 |
 | GET | `/api/holdings` | 获取持仓列表（含实时估值） |
-| POST | `/api/holdings` | 添加持仓 |
+| POST | `/api/holdings` | 添加持仓（金额/收益反算份额） |
+| POST | `/api/holdings/purchase` | 新购基金（按购买日期确认净值） |
 | PUT | `/api/holdings/:id` | 修改持仓（金额/收益） |
 | DELETE | `/api/holdings/:id` | 删除持仓 |
-| POST | `/api/holdings/buy/:id` | 加仓 |
-| POST | `/api/holdings/sell/:id` | 减仓 |
+| POST | `/api/transactions/buy` | 买入（加仓） |
+| POST | `/api/transactions/sell` | 卖出（减仓） |
+| POST | `/api/transactions/settle` | 结算待确认订单 |
 | GET | `/api/funds/search?keyword=` | 基金搜索 |
 | GET | `/api/funds/:code` | 基金详情 |
 | GET | `/api/indices?codes=` | 大盘指数数据 |
-| GET | `/api/transactions/fund/:code` | 基金交易记录 |
+| GET | `/api/transactions/:fundCode` | 基金交易记录 |
 | DELETE | `/api/transactions/:id` | 删除交易记录 |
 | GET | `/api/stats/daily` | 日收益统计 |
 | GET | `/api/stats/monthly` | 月收益统计 |
@@ -494,12 +498,15 @@ sudo tail -f /var/log/nginx/access.log
 | GET | `/api/plans` | 定投计划列表 |
 | POST | `/api/plans` | 创建定投计划 |
 | PUT | `/api/plans/:id` | 修改定投计划 |
-| POST | `/api/import/upload` | 导入持仓 |
-| POST | `/api/export` | 导出持仓 |
+| POST | `/api/import-export/import` | 导入持仓 |
+| GET | `/api/import-export/template` | 下载导入模板 |
+| GET | `/api/import-export/export` | 导出持仓 |
 | POST | `/api/image-import/recognize` | 图片识别导入（OCR） |
 | POST | `/api/image-import/confirm` | 确认导入识别结果 |
 | GET | `/api/settings` | 获取用户设置 |
 | PUT | `/api/settings` | 更新用户设置 |
+| GET | `/api/announcements/active/popup` | 获取弹窗公告 |
+| GET | `/api/announcements/active/banner` | 获取横幅公告 |
 
 ## 版本历史
 
@@ -520,9 +527,9 @@ sudo tail -f /var/log/nginx/access.log
 ## 安全
 
 - 密码使用 **bcrypt** 加密存储
-- 接口鉴权使用 **JWT Token**（7天有效期）
+- 接口鉴权使用 **JWT Token**（7天有效期）；`JWT_SECRET` 通过环境变量注入，须使用强随机值（≥32 字符），示例见 `.env.example`
 - SQL 注入防护：参数化查询
-- `.env` 文件已加入 `.gitignore`，不提交敏感信息
+- `.env` / `.env.production` 已加入 `.gitignore`，不提交敏感信息
 
 ## License
 

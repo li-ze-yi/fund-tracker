@@ -1,0 +1,9 @@
+- [x] holdingController.create 的初始买入交易 transactionDate 使用 confirmedNavDate || today，不再硬编码今天
+- [x] imageImportController 图片导入创建持仓的初始买入交易 transactionDate 使用 confirmedNavDate || today
+- [x] importExportController 数据导入创建持仓的初始买入交易 transactionDate 使用 realTime.updateTime 日期部分 || today
+- [x] 盘中通过 AddHoldingModal 添加新基金后，持仓列表 daily_profit 按当日涨跌幅正常计算，不再恒为 0
+- [x] 盘中通过 AddHoldingModal 添加新基金后，todayTxShares.buy 为 0（交易日期为昨日，不命中今日查询）
+- [x] estimated_change（涨跌幅）显示不受本次改动影响
+- [x] 盘后（今日确认净值已公布）添加新基金时，daily_profit 为 0（按今日收盘净值买入，符合预期）
+- [x] 历史净值获取失败回退实时估值时，transactionDate 回退为今天，不阻塞持仓创建
+- [x] BuyModal（transactionController.buy）流程未受影响，仍使用 navDate 作为交易日期

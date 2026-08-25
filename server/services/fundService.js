@@ -1,8 +1,33 @@
 const axios = require('axios');
 const globalCache = require('./globalCache');
 const { createLogger } = require('../utils/logger');
+const { getLocalToday, normalizeDateStr } = require('../utils/date');
 
 const logger = createLogger('FundService');
+
+// 惰性 TTL 缓存：存取时检查过期条目并删除，超出 maxSize 时删除最旧（Map 迭代顺序即插入顺序）
+function createTtlCache({ ttl, maxSize = 200 }) {
+  const map = new Map();
+  return {
+    get(key) {
+      const item = map.get(key);
+      if (item) {
+        if (Date.now() - item.ts < ttl) return item;
+        map.delete(key); // 过期惰性删除
+      }
+      return null;
+    },
+    set(key, value) {
+      if (map.size >= maxSize) {
+        const oldestKey = map.keys().next().value;
+        if (oldestKey !== undefined) map.delete(oldestKey);
+      }
+      map.set(key, value);
+    },
+    has(key) { return map.has(key); },
+    clear() { map.clear(); },
+  };
+}
 
 const TIMEOUT = 3000; // 3秒超时（原8秒太长，失败时串行等待浪费大量时间）
 
@@ -75,8 +100,8 @@ async function getRealTimeValue(fundCode) {
   // 注：fundgz.1234567.com.cn 实时估值接口已于2026年因监管要求下线
   try {
     const refererUrl = `http://fundf10.eastmoney.com/jjjz_${fundCode}.html`;
-    const today = new Date().toISOString().slice(0, 10);
-    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const today = getLocalToday();
+    const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
     const { data } = await axios.get(
       `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=2&startDate=${threeDaysAgo}&endDate=${today}`,
       { timeout: TIMEOUT, headers: defaultHeaders(refererUrl) }
@@ -131,7 +156,7 @@ async function getRealTimeValue(fundCode) {
           return {
             netValue: nav,
             gainPercent: gainPercent,
-            updateTime: latest.x ? new Date(latest.x).toISOString().slice(0, 10) : '',
+            updateTime: latest.x ? normalizeDateStr(new Date(latest.x)) : '',
           };
         }
       }
@@ -217,7 +242,7 @@ async function getHistoryNetValues(fundCode, startDate, endDate) {
   // 接口2: fundf10.eastmoney.com/F10DataApi.aspx (HTML表格接口)
   try {
     const sdate = startDate || '2000-01-01';
-    const edate = endDate || new Date().toISOString().slice(0, 10);
+    const edate = endDate || getLocalToday();
     const { data: html } = await axios.get(
       `https://fundf10.eastmoney.com/F10DataApi.aspx?type=lsjz&code=${fundCode}&page=1&per=100&sdate=${sdate}&edate=${edate}`,
       { timeout: TIMEOUT, headers: defaultHeaders(`http://fundf10.eastmoney.com/jjjz_${fundCode}.html`) }
@@ -346,7 +371,7 @@ async function getTencentValue(fundCode) {
 // ═══════════════════════════════════════════
 
 // 持仓数据缓存（按基金代码，TTL 4小时）
-const holdingsCache = new Map();
+const holdingsCache = createTtlCache({ ttl: 4 * 60 * 60 * 1000 });
 
 function getStockPrefix(code) {
   if (code.length === 5) return 'hk'; // 港股
@@ -593,8 +618,8 @@ async function getHoldingsEstimatedValue(fundCode) {
 
   // 基于加权涨跌幅估算净值：需要前一日确认净值
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const today = getLocalToday();
+    const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
     const { data } = await axios.get(
       `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=1&startDate=${threeDaysAgo}&endDate=${today}`,
       { timeout: TIMEOUT, headers: defaultHeaders(`http://fundf10.eastmoney.com/jjjz_${fundCode}.html`) }
@@ -805,90 +830,8 @@ async function getETFRealtimeQuote(fundCode) {
   }, { type: 'etf_quote' }); // ETF实时行情缓存（东方财富 push2 / 腾讯 / 新浪）
 }
 
-// ═══════════════════════════════════════════
-// ETF联接基金估值（通过母ETF实时行情估算）
-// ETF联接基金持仓是母ETF而非个股，持仓穿透法不适用
-// 方案：通过天天基金持仓接口获取母ETF代码 → 获取母ETF实时涨跌幅 → 估算净值
-// ═══════════════════════════════════════════
-const etfLinkageCache = new Map(); // 母ETF代码缓存（TTL 24小时）
-
-/**
- * 通过基金代码获取母ETF场内代码
- * 使用天天基金APP持仓接口 FundMNInverstPosition，返回 ETFCODE 字段
- */
-async function getUnderlyingETFCode(fundCode) {
-  const now = Date.now();
-  const cached = etfLinkageCache.get(fundCode);
-  if (cached && (now - cached.ts) < 24 * 60 * 60 * 1000) {
-    logger.debug(`${fundCode} 母ETF代码命中缓存: ${cached.code}`);
-    return cached.code;
-  }
-
-  // 复用 getFundHoldings 的缓存结果（fundmobapi 返回的 ETFCODE 字段）
-  try {
-    const holdingsResult = await getFundHoldings(fundCode);
-    if (holdingsResult?.etfCode) {
-      etfLinkageCache.set(fundCode, { code: holdingsResult.etfCode, ts: now });
-      logger.info(`${fundCode} 母ETF代码: ${holdingsResult.etfCode}`);
-      return holdingsResult.etfCode;
-    }
-  } catch (e) { /* fall through */ }
-
-  logger.warn(`${fundCode} 未找到母ETF代码`);
-  return null;
-}
-
-/**
- * ETF联接基金盘中估值：通过母ETF实时涨跌幅估算
- * 1. 获取母ETF代码（天天基金持仓接口，缓存24小时）
- * 2. 获取母ETF实时行情（东方财富push2接口）
- * 3. 用母ETF涨跌幅 + 昨日确认净值 计算估算净值
- */
-async function getETFBasedEstimatedValue(fundCode) {
-  logger.info(`${fundCode} ETF联接估值`);
-  const etfCode = await getUnderlyingETFCode(fundCode);
-  if (!etfCode) {
-    logger.warn(`${fundCode} ETF联接估值失败: 无母ETF代码`);
-    return null;
-  }
-
-  // 获取母ETF实时行情（复用getETFRealtimeQuote）
-  const etfQuote = await getETFRealtimeQuote(etfCode).catch(() => null);
-  if (!etfQuote || etfQuote.estimatedChange == null) {
-    logger.warn(`${fundCode} ETF联接估值失败: 母ETF行情不可用`);
-    return null;
-  }
-
-  const changePercent = etfQuote.estimatedChange;
-
-  // 获取昨日确认净值，计算估算净值
-  let estimatedValue = null;
-  try {
-    const today = new Date().toISOString().slice(0, 10);
-    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const { data } = await axios.get(
-      `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=1&startDate=${threeDaysAgo}&endDate=${today}`,
-      { timeout: TIMEOUT, headers: defaultHeaders(`http://fundf10.eastmoney.com/jjjz_${fundCode}.html`) }
-    );
-    if (data?.Data?.LSJZList?.length) {
-      const yesterdayNav = parseFloat(data.Data.LSJZList[0].DWJZ);
-      if (!isNaN(yesterdayNav) && yesterdayNav > 0) {
-        estimatedValue = parseFloat((yesterdayNav * (1 + changePercent / 100)).toFixed(4));
-      }
-    }
-  } catch (e) { /* fall through */ }
-
-  logger.info(`${fundCode} ETF联接估值完成: change=${changePercent}%${estimatedValue ? `, estimatedNav=${estimatedValue}` : ''}`);
-  return {
-    estimatedValue,
-    estimatedChange: changePercent,
-    estimationMethod: 'etf_linkage',
-    estimationCoverage: 100,
-  };
-}
-
 // 资产配置缓存（24小时）
-const assetAllocCache = new Map();
+const assetAllocCache = createTtlCache({ ttl: 24 * 60 * 60 * 1000 });
 
 /**
  * 获取基金资产配置占比（股票/债券/现金/母ETF）
@@ -945,7 +888,7 @@ async function getFundAssetAllocation(fundCode) {
 
 
 
-async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
+async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = {}) {
   logger.info(`${fundCode} 进入持仓穿透估值`);
 
   // 1. 获取全部持仓 + 总股票仓位比例 + 报告期
@@ -984,12 +927,17 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
   }
 
   // 5. 获取基准指数涨跌幅用于填补缺失股票 + 国债指数用于债券部分
+  //    批量入口可传入已计算好的基准，避免每只基金重复请求
   let benchmarkReturn = 0;
   if (missingStockWeight > 0) {
-    benchmarkReturn = await getBenchmarkChange();
+    benchmarkReturn = benchmarks.benchmarkReturn != null
+      ? benchmarks.benchmarkReturn
+      : await getBenchmarkChange();
     logger.info(`${fundCode} 缺失股票权重=${missingStockWeight.toFixed(2)}%, 沪深300=${benchmarkReturn}%`);
   }
-  const bondBenchmarkChange = await getBondBenchmarkChange();
+  const bondBenchmarkChange = benchmarks.bondBenchmarkChange != null
+    ? benchmarks.bondBenchmarkChange
+    : await getBondBenchmarkChange();
 
   // 6. 获取资产配置
   const assetAlloc = await getFundAssetAllocation(fundCode);
@@ -1062,8 +1010,8 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav) {
 
   // 9. confirmedNav 不可用 → 回退到 lsjz API 获取昨日净值
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const today = getLocalToday();
+    const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
     const { data } = await axios.get(
       `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=1&startDate=${threeDaysAgo}&endDate=${today}`,
       { timeout: TIMEOUT, headers: defaultHeaders(`http://fundf10.eastmoney.com/jjjz_${fundCode}.html`) }
@@ -1391,6 +1339,17 @@ async function batchGetHistoryNetValues(fundCodes, startDate, endDate) {
 }
 
 /**
+ * 批量获取基准涨跌幅（沪深300 + 国债指数），供多只基金复用，避免每只重复请求
+ */
+async function getBenchmarks() {
+  const [benchmarkReturn, bondBenchmarkChange] = await Promise.all([
+    getBenchmarkChange().catch(() => 0),
+    getBondBenchmarkChange().catch(() => 0),
+  ]);
+  return { benchmarkReturn, bondBenchmarkChange };
+}
+
+/**
  * 批量统一入口：确认净值 + 盘中估算
  * fundmobapi 仅用于批量获取确认净值（NAV, NAVCHGRT）
  * 盘中估算根据 method 选择数据源，两个数据源互不回退
@@ -1410,8 +1369,10 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina') {
   let estimatedMap = {};
   if (method === 'holdings') {
     // 持仓穿透法：并行调用
+    // 基准涨跌幅只计算一次，供所有基金复用，避免每只基金重复请求
+    const benchmarks = await getBenchmarks();
     const promises = fundCodes.map(async (code) => {
-      try { return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue) }; }
+      try { return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue, benchmarks) }; }
       catch { return { code, data: null }; }
     });
     const responses = await Promise.allSettled(promises);
@@ -1424,8 +1385,9 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina') {
     const fallbackCodes = fundCodes.filter(code => !estimatedMap[code]);
     if (fallbackCodes.length) {
       logger.info(`${fallbackCodes.length}只基金回退持仓穿透`);
+      const benchmarks = await getBenchmarks();
       const fallbackPromises = fallbackCodes.map(async (code) => {
-        try { return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue) }; }
+        try { return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue, benchmarks) }; }
         catch { return { code, data: null }; }
       });
       const responses = await Promise.allSettled(fallbackPromises);
@@ -1480,8 +1442,6 @@ module.exports = {
   getRealTimeValueWithMethod,
   getSinaEstimatedValue,
   getHoldingsEstimatedOverlay,
-  getETFBasedEstimatedValue,
-  getUnderlyingETFCode,
   getHistoryNetValues,
   getFundInfo,
   getAllFunds,

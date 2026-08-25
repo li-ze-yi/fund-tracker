@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Empty, Alert, Button, Skeleton } from 'antd';
 import { SearchOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { holdingService } from '@/services/holdingService';
-import { settingService } from '@/services/settingService';
 import { useHideAmountStore } from '@/store/hideAmountStore';
 import MarketIndexStrip from '@/components/MarketIndexStrip';
 import GroupSwitcher from '@/components/GroupSwitcher';
@@ -44,7 +43,6 @@ export default function PortfolioPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeGroup, setActiveGroup] = useState<number | null>(null);
   const [groupManageOpen, setGroupManageOpen] = useState(false);
-  const [refreshFreq, setRefreshFreq] = useState(30);
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>(null);
   const isLoadingRef = useRef(false);
@@ -81,10 +79,6 @@ export default function PortfolioPage() {
 
   useEffect(() => {
     loadHoldings(true);
-    settingService.getSettings().then((data) => {
-      if (data?.refresh_frequency != null) setRefreshFreq(data.refresh_frequency);
-    }).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -103,12 +97,6 @@ export default function PortfolioPage() {
     };
   }, [loadHoldings]);
 
-  useEffect(() => {
-    if (refreshFreq <= 0) return;
-    const timer = setInterval(() => loadHoldings(true), refreshFreq * 1000);
-    return () => clearInterval(timer);
-  }, [refreshFreq, loadHoldings]);
-
   const handleSort = (field: string) => {
     if (sortField === field) {
       if (sortDir === 'desc') { setSortDir('asc'); }
@@ -121,8 +109,8 @@ export default function PortfolioPage() {
 
   const sortedHoldings = [...holdings].sort((a, b) => {
     if (!sortField || !sortDir) return 0;
-    const aVal = (a as any)[sortField] ?? 0;
-    const bVal = (b as any)[sortField] ?? 0;
+    const aVal = (a as unknown as Record<string, number>)[sortField] ?? 0;
+    const bVal = (b as unknown as Record<string, number>)[sortField] ?? 0;
     return sortDir === 'desc' ? bVal - aVal : aVal - bVal;
   });
 
@@ -155,7 +143,7 @@ export default function PortfolioPage() {
           ))}
         </div>
         {/* ✨ 模拟真实持仓列表的骨架屏 */}
-        {[1, 2, 3, 4, 5].map((i) => (
+        {[1, 2, 3, 4].map((i) => (
           <div key={i} style={{
             display: 'flex',
             alignItems: 'center',
@@ -163,7 +151,7 @@ export default function PortfolioPage() {
             margin: '0 10px 2px',
             background: 'var(--bg-card)',
             borderRadius: 'var(--radius-lg)',
-            borderBottom: i < 5 ? '1px solid var(--border-subtle)' : 'none'
+            borderBottom: i < 4 ? '1px solid var(--border-subtle)' : 'none'
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <Skeleton.Input active size="small" style={{ width: '45%', marginBottom: 8 }} />
@@ -189,13 +177,7 @@ export default function PortfolioPage() {
           </div>
         ))}
         
-        <style>{`
-          @keyframes skeleton-loading {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
-          }
-        `}</style>
-      </div>
+        </div>
     );
   }
 
@@ -216,7 +198,7 @@ export default function PortfolioPage() {
       {!error && holdings.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '80px 16px' }}>
           <Empty description="还没有持仓，去搜索添加基金吧">
-            <Button type="primary" icon={<SearchOutlined />} onClick={() => {
+            <Button type="primary" shape="round" icon={<SearchOutlined />} onClick={() => {
               const input = document.querySelector('input[placeholder*="搜索"]') as HTMLInputElement;
               if (input) { input.focus(); input.click(); }
             }}>
@@ -228,85 +210,98 @@ export default function PortfolioPage() {
 
       {!error && holdings.length > 0 && (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 12px' }} className="portfolio-group-switcher">
-            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-              <GroupSwitcher activeId={activeGroup} onChange={setActiveGroup} />
-            </div>
-            <Button
-              type="text"
-              icon={<SettingOutlined />}
-              onClick={() => setGroupManageOpen(true)}
-              style={{
-                flexShrink: 0,
-                marginRight: 6,
-                color: 'var(--text-muted)',
-                borderRadius: 'var(--radius-sm)',
-                transition: 'all var(--transition-fast)'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'var(--accent-gold)';
-                e.currentTarget.style.background = 'var(--bg-card)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--text-muted)';
-                e.currentTarget.style.background = 'transparent';
-              }}
-            />
-          </div>
+          <div className="portfolio-summary-container">
+            {/* 背景微光晕 */}
+            <div style={{
+              position: 'absolute',
+              top: '-60px',
+              right: '-30px',
+              width: '240px',
+              height: '240px',
+              background: 'radial-gradient(circle, var(--hero-accent-glow), transparent 70%)',
+              pointerEvents: 'none',
+            }} />
 
-          <div className="glass-card portfolio-total-asset" style={{
-            margin: '8px 12px',
-            padding: '14px 18px',
-            borderRadius: 'var(--radius-lg)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
-            flexWrap: 'wrap',
-            gap: 12,
-          }}>
-            <div style={{ marginBottom: 4 }}>
-              <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 500 }}>总资产</span>
-              <span
-                className="number-tabular"
-                onClick={toggleHideAmount}
+            {/* 分组切换器 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 4px' }} className="portfolio-group-switcher">
+              <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                <GroupSwitcher activeId={activeGroup} onChange={setActiveGroup} />
+              </div>
+              <Button
+                type="text"
+                icon={<SettingOutlined />}
+                onClick={() => setGroupManageOpen(true)}
                 style={{
-                  fontSize: 22,
-                  fontWeight: 800,
-                  color: 'var(--text-primary)',
-                  fontFamily: 'var(--font-mono)',
-                  marginLeft: 10,
-                  cursor: 'pointer',
-                  userSelect: 'none',
+                  flexShrink: 0,
+                  marginRight: 6,
+                  color: 'var(--text-muted)',
+                  borderRadius: 'var(--radius-sm)',
+                  transition: 'all var(--transition-fast)'
                 }}
-              >
-                {hideAmount ? '****' : `¥${totalAsset.toLocaleString()}`}
-              </span>
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--accent-gold)';
+                  e.currentTarget.style.background = 'var(--bg-card)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--text-muted)';
+                  e.currentTarget.style.background = 'transparent';
+                }}
+              />
             </div>
 
-            <div style={{ display: 'flex', gap: 20, alignItems: 'baseline' }}>
-              <div>
-                <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 500 }}>当日收益</span>
-                <span className="number-tabular" style={{
-                  fontSize: 15,
-                  fontWeight: 700,
-                  color: totalDaily >= 0 ? 'var(--gain)' : 'var(--loss)',
-                  fontFamily: 'var(--font-mono)',
-                  marginLeft: 8,
-                }}>
-                  {hideAmount ? '****' : `${totalDaily >= 0 ? '+' : ''}¥${totalDaily.toFixed(2)}`}
+            {/* 汇总区（与分组同容器，用顶端分隔线区分） */}
+            <div className="portfolio-total-asset" style={{
+              padding: '16px 20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              flexWrap: 'wrap',
+              gap: 12,
+            }}>
+              <div style={{ marginBottom: 4 }}>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>总资产</span>
+                <span
+                  className="number-tabular"
+                  onClick={toggleHideAmount}
+                  style={{
+                    fontSize: 24,
+                    fontWeight: 800,
+                    color: 'var(--text-primary)',
+                    fontFamily: 'var(--font-mono)',
+                    marginLeft: 10,
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                >
+                  {hideAmount ? '****' : `¥${totalAsset.toLocaleString()}`}
                 </span>
               </div>
-              <div>
-                <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 500 }}>累计收益</span>
-                <span className="number-tabular" style={{
-                  fontSize: 15,
-                  fontWeight: 700,
-                  color: totalAccumulated >= 0 ? 'var(--gain)' : 'var(--loss)',
-                  fontFamily: 'var(--font-mono)',
-                  marginLeft: 8,
-                }}>
-                  {hideAmount ? '****' : `${totalAccumulated >= 0 ? '+' : ''}¥${totalAccumulated.toFixed(2)}`}
-                </span>
+
+              <div style={{ display: 'flex', gap: 20, alignItems: 'baseline' }}>
+                <div>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>当日收益</span>
+                  <span className="number-tabular" style={{
+                    fontSize: 16,
+                    fontWeight: 700,
+                    color: totalDaily >= 0 ? 'var(--gain)' : 'var(--loss)',
+                    fontFamily: 'var(--font-mono)',
+                    marginLeft: 8,
+                  }}>
+                    {hideAmount ? '****' : `${totalDaily >= 0 ? '+' : ''}¥${totalDaily.toFixed(2)}`}
+                  </span>
+                </div>
+                <div>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>累计收益</span>
+                  <span className="number-tabular" style={{
+                    fontSize: 16,
+                    fontWeight: 700,
+                    color: totalAccumulated >= 0 ? 'var(--gain)' : 'var(--loss)',
+                    fontFamily: 'var(--font-mono)',
+                    marginLeft: 8,
+                  }}>
+                    {hideAmount ? '****' : `${totalAccumulated >= 0 ? '+' : ''}¥${totalAccumulated.toFixed(2)}`}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -314,20 +309,28 @@ export default function PortfolioPage() {
           <div
             className="glass-card portfolio-table-header"
             style={{
-              margin: '8px 12px 4px',
-              padding: '10px 16px',
+              margin: '8px 10px 0',
+              padding: '12px 18px',
               borderRadius: 'var(--radius-md)',
               borderBottomLeftRadius: 0,
               borderBottomRightRadius: 0,
               borderBottom: 'none',
+              background: 'linear-gradient(135deg, var(--hero-gradient-start), var(--hero-gradient-end))',
+              border: '1px solid var(--hero-border-light)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+              position: 'sticky',
+              top: 0,
+              zIndex: 5,
+              backdropFilter: 'blur(16px) saturate(160%)',
+              WebkitBackdropFilter: 'blur(16px) saturate(160%)',
             }}
           >
             <div
               style={{
                 display: 'flex',
-                fontSize: 13,
+                fontSize: 15,
                 color: 'var(--text-secondary)',
-                fontWeight: 600,
+                fontWeight: 700,
               }}
             >
               {LIST_HEADER_COLS.map(col => (
@@ -351,10 +354,10 @@ export default function PortfolioPage() {
                   {col.key !== 'fund_name' && (
                     <span style={{ display: 'inline-flex', flexDirection: 'column', fontSize: 8, lineHeight: 0.85 }}>
                       <span style={{
-                        color: sortField === col.key && sortDir === 'asc' ? '#fbcc56' : 'var(--text-dim)',
+                        color: sortField === col.key && sortDir === 'asc' ? '#fbcc56' : 'var(--text-muted)',
                       }}>▲</span>
                       <span style={{
-                        color: sortField === col.key && sortDir === 'desc' ? '#fbcc56' : 'var(--text-dim)',
+                        color: sortField === col.key && sortDir === 'desc' ? '#fbcc56' : 'var(--text-muted)',
                       }}>▼</span>
                     </span>
                   )}
@@ -364,8 +367,11 @@ export default function PortfolioPage() {
           </div>
 
           {displayHoldings.map((fund, index) => (
-            <div key={fund.id || index} className="fund-list-item-wrapper">
-              <FundListItem fund={fund} />
+            <div key={fund.id || index} className="fund-list-item-wrapper" style={{
+              animation: 'staggerItemIn 0.4s ease-out both',
+              animationDelay: `${index * 0.05}s`,
+            }}>
+              <FundListItem fund={fund} index={index} />
             </div>
           ))}
 

@@ -93,19 +93,19 @@ export default function GroupSwitcher({ activeId, onChange }: GroupSwitcherProps
               padding: '8px 18px',
               borderRadius: 'var(--radius-full)',
               cursor: 'pointer',
-              fontWeight: isActive ? 600 : 500,
+              fontWeight: isActive ? 700 : 500,
               fontSize: 13,
               letterSpacing: '0.01em',
               background: isActive
                 ? 'linear-gradient(135deg, var(--accent-gold), #C49A3F)'
-                : 'var(--bg-glass)',
-              color: isActive ? '#0B1120' : 'var(--text-secondary)',
+                : 'var(--bg-card)',
+              color: isActive ? '#0B1120' : 'var(--text-primary)',
               border: isActive ? 'none' : '1px solid var(--border-subtle)',
               boxShadow: isActive
-                ? 'var(--shadow-glow-gold)'
-                : 'var(--shadow-sm)',
+                ? '0 0 0 1px rgba(184,134,11,0.3), 0 2px 8px rgba(184,134,11,0.25), 0 0 24px rgba(184,134,11,0.06), inset 0 1px 0 rgba(255,255,255,0.2)'
+                : '0 1px 2px rgba(0,0,0,0.03)',
               transition: 'all var(--transition-base)',
-              transform: isActive ? 'scale(1.02)' : 'scale(1)',
+              transform: isActive ? 'scale(1.05)' : 'scale(1)',
               whiteSpace: 'nowrap',
               animation: `fadeInUp 0.35s ease-out ${idx * 0.05}s both`,
             }}
@@ -114,17 +114,21 @@ export default function GroupSwitcher({ activeId, onChange }: GroupSwitcherProps
                 e.currentTarget.style.borderColor = 'var(--border-strong)';
                 e.currentTarget.style.background = 'var(--bg-card-hover)';
                 e.currentTarget.style.color = 'var(--text-primary)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.04)';
               }
             }}
             onMouseLeave={(e) => {
               if (!isActive) {
                 e.currentTarget.style.borderColor = 'var(--border-subtle)';
-                e.currentTarget.style.background = 'var(--bg-glass)';
-                e.currentTarget.style.color = 'var(--text-secondary)';
+                e.currentTarget.style.background = 'var(--bg-card)';
+                e.currentTarget.style.color = 'var(--text-primary)';
+                e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
               }
             }}
           >
-            <div style={{ lineHeight: 1.4 }}>{g.name}</div>
+            <div style={{ lineHeight: 1.4, color: isActive ? 'inherit' : 'var(--text-primary)' }}>{g.name}</div>
             <div className="group-amount" style={{ fontSize: 11, opacity: 0.75, marginTop: 1 }}>
               {g.total_asset != null && (
                 <span className="number-tabular">¥{Number(g.total_asset).toLocaleString()}</span>
@@ -134,52 +138,6 @@ export default function GroupSwitcher({ activeId, onChange }: GroupSwitcherProps
         );
       })}
 
-      {/* 移动端响应式优化 */}
-      <style>{`
-        .group-amount {
-          display: none !important;
-        }
-
-        .group-switcher-container {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-        }
-
-        .group-switcher-container::-webkit-scrollbar {
-          height: 6px;
-          width: 6px;
-        }
-
-        .group-switcher-container::-webkit-scrollbar-track {
-          background: transparent;
-          border-radius: 3px;
-        }
-
-        .group-switcher-container::-webkit-scrollbar-thumb {
-          background: var(--border-subtle);
-          border-radius: 3px;
-          transition: background 0.2s ease;
-        }
-
-        .group-switcher-container::-webkit-scrollbar-thumb:hover {
-          background: var(--border-strong);
-        }
-
-        @media screen and (max-width: 768px) {
-          .group-switcher-container {
-            padding: 8px 12px !important;
-            gap: 6px !important;
-            -webkit-overflow-scrolling: touch;
-            scroll-snap-type: x mandatory;
-          }
-
-          .group-switcher-container > div {
-            padding: 6px 14px !important;
-            font-size: 12px !important;
-            scroll-snap-align: start;
-          }
-        }
-      `}</style>
-    </div>
+      </div>
   );
 }

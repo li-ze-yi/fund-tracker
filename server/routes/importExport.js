@@ -4,6 +4,7 @@ const { authenticate } = require('../middlewares/auth');
 
 router.use(authenticate);
 router.post('/import', ctrl.importData);
+router.get('/template', ctrl.exportTemplate);
 router.get('/export', ctrl.exportData);
 
 module.exports = router;

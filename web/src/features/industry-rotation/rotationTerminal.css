@@ -273,12 +273,12 @@
    标签栏吸顶、市场温度与指数纵向堆叠、网格列数收缩、内边距压缩。
    =========================================================================== */
 @media (max-width: 768px) {
-  .rt-root { padding: 10px 8px 6px; font-size: 12px; }
+  .rt-root { padding: 10px 0 6px; font-size: 12px; }
   .rt-root .rt-head { margin-bottom: 8px; }
   .rt-root .rt-brand { font-size: 14px; }
   .rt-root .rt-brand .full { display: none; }
   .rt-root .rt-brand .mini { display: inline; }
-  .rt-root .rt-tabs { margin: 0 -8px 12px; padding: 8px 10px; }
+  .rt-root .rt-tabs { margin: 0 0 12px; padding: 8px 10px; }
   .rt-root .rt-tab { height: 32px; padding: 0 13px; font-size: 12px; }
   .rt-root .rt-rf { width: 34px; height: 34px; }
 
@@ -330,7 +330,7 @@
 }
 
 @media (max-width: 480px) {
-  .rt-root { padding: 8px 6px 4px; }
+  .rt-root { padding: 8px 0 4px; }
   .rt-root .rt-gauge-v { font-size: 24px; }
   .rt-root .rt-gauge-bar { width: 70px; }
   .rt-root .rt-idxchip { min-width: 96px; padding: 8px 10px; }

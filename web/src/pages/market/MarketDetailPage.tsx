@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, Button, Skeleton, Segmented } from 'antd';
 import { ArrowLeftOutlined, RiseOutlined, FallOutlined, LineChartOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
-import { fetchIndexData, fetchIntradayData, ALL_INDEX_META, type IntradayData } from '@/services/indexService';
+import EChart from '@/components/EChart';
+import { fetchIndexData, fetchIntradayData, fetchMarketStatus, ALL_INDEX_META, type IntradayData } from '@/services/indexService';
 import { useThemeStore } from '@/store/themeStore';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 interface IndexItem {
   code: string;
@@ -73,15 +74,30 @@ export default function MarketDetailPage() {
   const [intradayData, setIntradayData] = useState<IntradayData | null>(null);
   const [intradayLoading, setIntradayLoading] = useState(false);
 
+  // 60s 数据轮询定时器
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 最近一次已知的市场状态（避免重复启停）
+  const statusRef = useRef<boolean | null>(null);
+  // 5 分钟一次的市场状态复查定时器
+  const statusCheckTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
+    // 初始立即加载一次，保证有数据展示
     loadIndexData();
-    const timer = setInterval(loadIndexData, 60000);
-    return () => clearInterval(timer);
+    // 初始化市场状态，并按 5 分钟频率复查；开市才维持 60s 轮询
+    checkMarketStatus();
+    statusCheckTimerRef.current = setInterval(checkMarketStatus, 300000);
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      if (statusCheckTimerRef.current) clearInterval(statusCheckTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
     if (selectedIndex) {
-      loadIntradayData(selectedIndex);
+      let cancelled = false;
+      loadIntradayData(selectedIndex, () => cancelled);
+      return () => { cancelled = true; };
     }
   }, [selectedIndex]);
 
@@ -96,15 +112,36 @@ export default function MarketDetailPage() {
     }
   };
 
-  const loadIntradayData = async (code: string) => {
+  // 开市时启动 60s 轮询，闭市时停止（保留最后一次数据）
+  const setPolling = (enabled: boolean) => {
+    if (enabled && !pollTimerRef.current) {
+      pollTimerRef.current = setInterval(loadIndexData, 60000);
+    } else if (!enabled && pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  };
+
+  // 查询市场状态，状态翻转时启停轮询
+  const checkMarketStatus = async () => {
+    try {
+      const status = await fetchMarketStatus();
+      if (statusRef.current !== status.isMarketOpen) {
+        statusRef.current = status.isMarketOpen;
+        setPolling(status.isMarketOpen);
+      }
+    } catch {
+      // 状态查询失败时保持当前轮询状态
+    }
+  };
+
+  const loadIntradayData = async (code: string, isCancelled?: () => boolean) => {
     setIntradayLoading(true);
     try {
-      console.log(`📡 Fetching intraday data for: ${code}`);
       const data = await fetchIntradayData(code);
-      console.log(`📊 Intraday data received:`, data);
+      if (isCancelled && isCancelled()) return;
       if (data && data.prices && data.prices.length > 0) {
         setIntradayData(data);
-        console.log(`✅ Intraday data set: ${data.prices.length} points from ${data.source}`);
       } else {
         console.warn(`⚠️ Invalid intraday data received:`, data);
         setIntradayData(null);
@@ -113,14 +150,16 @@ export default function MarketDetailPage() {
       console.error('❌ Failed to fetch intraday data:', e);
       setIntradayData(null);
     } finally {
-      setIntradayLoading(false);
+      if (!(isCancelled && isCancelled())) {
+        setIntradayLoading(false);
+      }
     }
   };
 
   const currentIndex = indices.find(i => i.code === selectedIndex) || indices[0];
   const isUp = currentIndex ? (currentIndex.change ?? 0) >= 0 : true;
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+  const isMobile = useIsMobile();
   const themeMode = useThemeStore((s) => s.mode);
   const isLight = themeMode === 'light';
 
@@ -227,7 +266,8 @@ export default function MarketDetailPage() {
         if (currentPrice == null || Number.isNaN(currentPrice)) {
           return `<div style="color: #94A3B8;">尚未走到的时段</div>`;
         }
-        const basePrice = intradayData.prices[0];
+        // ★ 涨跌幅基准统一为昨收（与卡片一致），而非分时首点
+        const basePrice = prevClose > 0 ? prevClose : intradayData.prices[0];
         const changePercent = ((currentPrice - basePrice) / basePrice * 100).toFixed(2);
         const changeAmount = (currentPrice - basePrice).toFixed(2);
 
@@ -371,7 +411,7 @@ export default function MarketDetailPage() {
           silent: true,
           lineStyle: { color: isLight ? 'rgba(100,116,139,0.55)' : 'rgba(148,163,184,0.5)', type: 'dashed', width: 1 },
           data: [
-            ...(getLunchBreak(initialCode) ? [{ xAxis: getLunchBreak(initialCode), label: { show: false } }] : []),
+            ...(getLunchBreak(selectedIndex) ? [{ xAxis: getLunchBreak(selectedIndex), label: { show: false } }] : []),
             {
               yAxis: prevClose,
               label: { show: true, position: isMobile ? 'insideStartTop' : 'insideEndTop', formatter: `昨收 ${prevClose.toFixed(2)}`, fontSize: isMobile ? 9 : 10, color: isLight ? '#64748B' : '#94A3B8' },
@@ -679,7 +719,7 @@ export default function MarketDetailPage() {
         {intradayLoading && !intradayData ? (
           <Skeleton active paragraph={{ rows: 6 }} />
         ) : intradayData && intradayData.prices && intradayData.prices.length > 0 ? (
-          <ReactECharts option={chartOption} style={{ height: hasVolume ? 'clamp(300px, 60vw, 480px)' : 'clamp(260px, 46vw, 380px)' }} opts={{ renderer: 'canvas' }} />
+          <EChart option={chartOption} style={{ height: hasVolume ? 'clamp(300px, 60vw, 480px)' : 'clamp(260px, 46vw, 380px)' }} opts={{ renderer: 'canvas' }} />
         ) : (
           <div style={{
             height: 'clamp(240px, 42vw, 360px)',
