@@ -206,17 +206,14 @@ exports.getByCode = async (req, res, next) => {
 
     if (req.user) {
       if (holding) {
+        // ★ 持仓指标与持仓列表统一计算（复用 holdingService.calculateHoldingMetrics），
+        // 保证当日收益/累计收益/持仓金额/估算涨幅/净值/更新状态与持仓列表完全一致。
         const shares = parseFloat(holding.shares) || 0;
         const costPrice = parseFloat(holding.cost_price) || 0;
         const totalCost = shares * costPrice;
-        // ★ 优先使用确认净值计算市值和收益
-        const effectiveNav = result.net_value || (realTime ? realTime.netValue : 0);
-        let currentValue = shares * effectiveNav;
-        let dailyGain = 0;
 
-        // ★ 查询今日交易份额，排除当日交易对日收益的影响
-        // 昨日份额 = 当前份额 - 今日买入 + 今日卖出
-        let todayBuyShares = 0, todaySellShares = 0;
+        // ★ 查询今日交易份额（transaction_date=今天 AND confirmed），排除当日交易对日收益的影响
+        let todayTxShares = { buy: 0, sell: 0 };
         try {
           const today = getLocalToday();
           const [rows] = await pool.query(
@@ -226,32 +223,58 @@ exports.getByCode = async (req, res, next) => {
             [req.user.id, code, today]
           );
           rows.forEach(r => {
-            if (r.type === 'buy') todayBuyShares = parseFloat(r.total_shares) || 0;
-            if (r.type === 'sell') todaySellShares = parseFloat(r.total_shares) || 0;
+            if (r.type === 'buy') todayTxShares.buy = parseFloat(r.total_shares) || 0;
+            if (r.type === 'sell') todayTxShares.sell = parseFloat(r.total_shares) || 0;
           });
         } catch (e) { /* ignore */ }
-        const yesterdayShares = Math.max(0, shares - todayBuyShares + todaySellShares);
 
-        if (result.update_status === 'confirmed' && effectiveNav > 0) {
-          // 确认净值后：仅用昨日份额计算当日收益
-          if (result.estimated_change != null) {
-            const yesterdayValue = yesterdayShares * effectiveNav;
-            dailyGain = yesterdayValue * result.estimated_change / (100 + result.estimated_change);
-          }
-        } else if (realTime && realTime.netValue) {
-          currentValue = shares * realTime.netValue;
-          if (realTime.gainPercent) {
-            const yesterdayValue = yesterdayShares * realTime.netValue;
-            dailyGain = yesterdayValue * realTime.gainPercent / (100 + realTime.gainPercent);
-          }
+        // ★ 占位持仓判定（与持仓列表一致：存在 pending 买入且 confirmed_nav 为空）
+        let isPendingPurchase = false;
+        if (holding.confirmed_nav === null) {
+          try {
+            const [pendingRows] = await pool.query(
+              `SELECT COUNT(*) as cnt FROM transactions
+               WHERE user_id = ? AND fund_code = ? AND status = 'pending' AND type = 'buy'`,
+              [req.user.id, code]
+            );
+            isPendingPurchase = (parseInt(pendingRows[0]?.cnt || 0, 10)) > 0;
+          } catch (e) { /* ignore */ }
         }
 
-        result.shares = shares;
-        result.cost_price = costPrice;
+        // ★ 确认净值基准（缓存→DB→API，与持仓列表 resolveConfirmedNav 一致）；
+        // 盘中（今日净值未公布）解析出昨日确认净值，保证持仓金额/累计收益盘中稳定
+        let baseNav = parseFloat(confirmedNav) || 0;
+        if (baseNav <= 0) {
+          try {
+            const resolved = await holdingService.resolveConfirmedNav(code, holding, null, realTime);
+            baseNav = resolved.nav > 0 ? resolved.nav : (parseFloat(holding.confirmed_nav) || 0);
+          } catch (e) { /* ignore */ }
+        }
+
+        const metrics = holdingService.calculateHoldingMetrics(
+          holding,
+          realTime,
+          isConfirmed,
+          baseNav,
+          effectiveMarketStatus,
+          yesterdayNav,
+          todayTxShares,
+          isPendingPurchase
+        );
+
+        // ★ 合并指标字段（与持仓列表口径一致）
+        result.shares = metrics.shares;
+        result.cost_price = metrics.cost_price;
         result.total_cost = parseFloat(holding.total_cost) || totalCost;
-        result.market_value = Math.round(currentValue * 100) / 100;
-        result.accumulated_profit = Math.round((currentValue - totalCost) * 100) / 100;
-        result.daily_profit = Math.round(dailyGain * 100) / 100;
+        result.market_value = metrics.market_value;
+        result.accumulated_profit = metrics.accumulated_profit;
+        result.daily_profit = metrics.daily_profit;
+        result.net_value = metrics.net_value;
+        result.estimated_change = metrics.estimated_change;
+        result.update_status = metrics.update_status;
+        result.data_source = metrics.data_source;
+        result.is_fresh = metrics.is_fresh;
+        if (metrics.day_of_week) result.day_of_week = metrics.day_of_week;
         result.holding_id = holding.id;
       }
 
