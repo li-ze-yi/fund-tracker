@@ -81,6 +81,30 @@ async function checkMarketStatus(holdings) {
     const cacheKey = 'market_status';
     
     return await globalCache.getOrFetch(cacheKey, async () => {
+      const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+      // ★ 权威信号：以交易日历（isTradingDay）判定全局开市/休市（与 enrichHoldingsWithRealTimeData 的
+      // isFullDayClosed、routes/market.js /status 口径一致）。不再依赖抽样基金的确认净值日期陈旧度
+      // 判定全局休市——纳斯达克/QDII 基金确认净值日期（date-only）合法滞后 A 股 1-2 天，若据此判定
+      // 全局休市，会导致新购该类基金后所有基金短暂显示「休市」。单只基金自身的休市/陈旧仍由
+      // getFundMarketStatus 按单只判定，不影响其他基金。
+      try {
+        const trading = await holidayService.isTradingDay(getLocalToday());
+        if (!trading) {
+          return {
+            isMarketOpen: false,
+            reason: 'holiday',
+            dayOfWeek: dayNames[now.getDay()],
+            message: '非交易日'
+          };
+        }
+        return { isMarketOpen: true, reason: 'normal' };
+      } catch (e) {
+        // 节假日 API 失败 → 回退下方抽样兜底（fail-safe，不因单只 date-only 陈旧误判全局休市）
+        logger.warn(`交易日历判定失败，回退抽样检测: ${e.message}`);
+      }
+
+      // ─── isTradingDay 不可用时的抽样兜底检测（仅实时估值广泛陈旧/数据全空才可能判定全局休市）───
       // 缓存未命中时才执行实际检测
       const sampleCodes = holdings.slice(0, 3).map(h => h.fund_code);
       const results = await Promise.allSettled(
@@ -112,7 +136,6 @@ async function checkMarketStatus(holdings) {
         }
       }
 
-      const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
       let status;
 
       if (validDataCount === 0 && emptyDataCount > 0) {
@@ -145,7 +168,9 @@ async function checkMarketStatus(holdings) {
           status = { isMarketOpen: true, reason: 'unknown' };
         }
       } else if (latestUpdateTime) {
-        // 检查 updateTime 是否为纯日期格式（确认净值，如 "2026-07-21"）
+        // 仅「含时间戳的实时估值」可判定全局休市（作为 isTradingDay 不可用时的兜底）；
+        // date-only 确认净值陈旧属正常（当日净值未公布 / QDII 滞后 1-2 天），单只基金是否休市
+        // 由 getFundMarketStatus 按单只判定，不据此判定全局休市。
         const sampleUpdateStr = results.find(r => r.status === 'fulfilled' && r.value?.updateTime)?.value?.updateTime || '';
         const isDateOnly = !sampleUpdateStr.includes(' ');
 
@@ -153,17 +178,7 @@ async function checkMarketStatus(holdings) {
         const isInTradingHours = hour >= 9 && hour < 15;
         let isStale = false;
 
-        if (isDateOnly) {
-          // 纯日期格式（确认净值）：按日历天数判断
-          // 交易日盘中，昨日确认净值是正常的（当日净值尚未公布）
-          const updateDate = new Date(latestUpdateTime.getFullYear(), latestUpdateTime.getMonth(), latestUpdateTime.getDate());
-          const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          const dayDiff = Math.round((todayDate - updateDate) / (24 * 60 * 60 * 1000));
-          const dayOfWeek = now.getDay();
-          // 周一允许3天差值（周五数据），其他交易日允许1天差值
-          const maxNormalDiff = dayOfWeek === 1 ? 3 : 1;
-          isStale = dayDiff > maxNormalDiff;
-        } else {
+        if (!isDateOnly) {
           // 含时间格式（实时估值）：按小时判断
           const timeDiff = now - latestUpdateTime;
           const hoursDiff = timeDiff / (1000 * 60 * 60);
