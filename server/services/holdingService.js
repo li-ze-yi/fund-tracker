@@ -2,6 +2,7 @@ const fundService = require('./fundService');
 const globalCache = require('./globalCache');
 const holidayService = require('./holidayService');
 const Holding = require('../models/holding');
+const Fund = require('../models/fund');
 const pool = require('../config/database');
 const { createLogger } = require('../utils/logger');
 const { getLocalToday, normalizeDateStr } = require('../utils/date');
@@ -11,6 +12,82 @@ const logger = createLogger('HoldingService');
 function isWeekend(date) {
   const day = date.getDay();
   return day === 0 || day === 6;
+}
+
+/**
+ * 日期字符串减 n 天（本地时区，避免 UTC 偏移）
+ * @param {string} dateStr - YYYY-MM-DD
+ * @param {number} n - 回退天数
+ * @returns {string} YYYY-MM-DD
+ */
+function subDays(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() - n);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * 计算"最新确认净值应属的交易日"锚点（从今天前一天开始回溯最近交易日）
+ * - 周末/节假日休市 → 回溯到节前最后一个交易日
+ * - 交易日盘中 → 当天净值尚未确认，锚点为上一个交易日
+ * 以该锚点校验 DB 确认净值日期，消除固定 4 天窗口导致的旧净值误差。
+ * 返回 null 表示交易日历不可用（调用方回退原 4 天窗口，兼容网络故障）。
+ * @param {string} todayStr - YYYY-MM-DD
+ * @returns {Promise<string|null>} 最近交易日 YYYY-MM-DD
+ */
+async function getLatestTradingDayAnchor(todayStr) {
+  let current = todayStr;
+  const MAX_LOOP = 30; // 最长节假日连休也不会超过 30 天
+  for (let i = 0; i < MAX_LOOP; i++) {
+    current = subDays(current, 1);
+    try {
+      if (await holidayService.isTradingDay(current)) return current;
+    } catch (e) {
+      logger.warn(`回溯最近交易日失败: date=${current}, err=${e.message}`);
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * 计算历史净值兜底拉取的起始日期（锚点感知 + 15 天兜底）
+ * startDate = min(锚点 − 1, 今天 − 15)：
+ * - 取更早者保证必然覆盖真实锚点——最长节假日连休（春节约 10 天）也不会漏
+ * - 15 天兜底窗口不依赖逐日节假日 API，锚点即便被 timor 429 限流算错也无害（免疫限流）
+ * @param {string} todayStr - YYYY-MM-DD
+ * @returns {Promise<string>} YYYY-MM-DD 兜底拉取 startDate
+ */
+async function getHistoryFallbackStartDate(todayStr) {
+  // 15 天兜底窗口基于传入的 todayStr 计算（避免 Date.now() 与 todayStr 不一致时 min 逻辑失效）
+  const todayMs = new Date(todayStr + 'T00:00:00').getTime();
+  const fifteenDaysAgo = normalizeDateStr(new Date(todayMs - 15 * 24 * 60 * 60 * 1000));
+  try {
+    const anchor = await getLatestTradingDayAnchor(todayStr);
+    if (anchor) {
+      const anchorStart = subDays(anchor, 1);
+      return anchorStart < fifteenDaysAgo ? anchorStart : fifteenDaysAgo;
+    }
+  } catch (e) {
+    logger.warn(`计算兜底拉取窗口失败，回退 15 天: err=${e.message}`);
+  }
+  return fifteenDaysAgo;
+}
+
+/**
+ * 判定基金是否为 QDII/海外基金（东财 fundcode_search.js 类型体系）
+ * QDII 确认净值合法滞后 A 股 1-2 天，新鲜度校验需放宽滞后窗口：
+ *   - 'QDII-*'（如 QDII-混合偏股、QDII-普通股票、QDII-纯债）
+ *   - '指数型-海外股票'（纳指/恒生/标普/全球油气等海外指数 ETF，不含 QDII 字样）
+ * A 股类型（股票型/混合型-偏股/指数型-股票/债券型-* 等）不含这些词，不会误伤。
+ * @param {string|null} type funds.type
+ * @returns {boolean}
+ */
+function isQdiiFundType(type) {
+  return !!type && /QDII|海外/.test(type);
 }
 
 /**
@@ -257,9 +334,25 @@ async function resolveConfirmedNav(fundCode, holding, historyData, realTimeData,
     // 盘后正常拉取到历史：日期须与最近确认交易日一致
     dbFresh = dbNavDate === latestHistoryDate;
   } else {
-    // 盘中跳过拉取后无历史数据：改用日期启发式，覆盖周末/节假日（距今不超过 4 天视为新鲜）
-    dbFresh = dbNav > 0 && dbNavDate && dbNavDate < todayStr &&
-      (new Date(todayStr) - new Date(dbNavDate)) / (24 * 3600 * 1000) <= 4;
+    // 盘中/休市跳过拉取后无历史数据：以"最近交易日"为权威锚点，DB 确认净值必须对齐到
+    // 最近一个交易日的净值才算新鲜，消除固定 4 天窗口导致的旧净值误差。
+    // 交易日历不可用（API 失败）时回退原 4 天窗口（兼容网络故障）。
+    if (dbNav > 0 && dbNavDate && dbNavDate < todayStr) {
+      const anchor = await getLatestTradingDayAnchor(todayStr);
+      if (anchor) {
+        if (options.isQDII) {
+          // QDII/海外基金（纳指/港股/美股等）确认净值合法滞后 A 股 1-2 天：
+          // 允许 dbNavDate ∈ [anchor−2, anchor]，避免真实最新净值被误判不新鲜
+          const anchorMs = new Date(anchor).getTime();
+          const dbMs = new Date(dbNavDate).getTime();
+          dbFresh = dbNavDate <= anchor && (anchorMs - dbMs) / (24 * 3600 * 1000) <= 2;
+        } else {
+          dbFresh = dbNavDate === anchor;
+        }
+      } else {
+        dbFresh = (new Date(todayStr) - new Date(dbNavDate)) / (24 * 3600 * 1000) <= 4;
+      }
+    }
   }
   if (dbNav > 0 && dbFresh) {
     const data = { nav: dbNav, date: dbNavDate, source: 'db' };
@@ -293,8 +386,9 @@ async function resolveConfirmedNav(fundCode, holding, historyData, realTimeData,
   if (apiNav <= 0 && !options.skipApiFallback) {
     try {
       const todayStr4 = getLocalToday();
-      const threeDaysAgo4 = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
-      const fetched = await fundService.getHistoryNetValues(fundCode, threeDaysAgo4, todayStr4);
+      // ★ 锚点感知兜底窗口：startDate = 最近交易日 − 1 天，覆盖长假（3 天窗口在长假中拉不到节前最后交易日净值）
+      const startDate4 = await getHistoryFallbackStartDate(todayStr4);
+      const fetched = await fundService.getHistoryNetValues(fundCode, startDate4, todayStr4);
       if (fetched && fetched.length > 0) {
         const first = fetched[0];
         if (parseFloat(first.nav) > 0) {
@@ -335,6 +429,17 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
   const startTime = Date.now();
   const fundCodes = holdings.map(h => h.fund_code);
   logger.info(`开始批量处理 ${holdings.length} 只基金... (强制刷新: ${forceRefresh}, 全局方法: ${valuationMethod})`);
+
+  // ★ 批量查询基金类型（识别 QDII/海外基金，供确认净值新鲜度校验放宽滞后窗口）
+  let fundTypeMap = {};
+  try {
+    const fundRows = await Fund.findByCodes(fundCodes);
+    for (const f of fundRows) {
+      if (f && f.code) fundTypeMap[f.code] = f.type;
+    }
+  } catch (e) {
+    logger.warn(`批量查询基金类型失败，QDII 识别降级为严格校验: ${e.message}`);
+  }
 
   const marketStatus = await checkMarketStatus(holdings);
 
@@ -514,7 +619,10 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
     const latestHistoryNav = historyData && historyData.length > 0 ? parseFloat(historyData[0].nav) || 0 : 0;
     const latestHistoryDate = historyData && historyData.length > 0 ? historyData[0].date : null;
-    const isConfirmed = latestHistoryDate === today;
+    // ★ QDII/海外基金确认净值合法滞后 A 股 1-2 天：最新净值日期距今 ≤2 天视为已确认，参与日收益与展示
+    const isQDII = isQdiiFundType(fundTypeMap[fundCode]);
+    const isConfirmed = latestHistoryDate === today ||
+      (isQDII && latestHistoryDate && (new Date(today) - new Date(latestHistoryDate)) / (24 * 3600 * 1000) <= 2);
     const yesterdayNav = historyData && historyData.length > 1 ? parseFloat(historyData[1].nav) || 0 : 0;
 
     const dbConfirmedNav = parseFloat(holding.confirmed_nav) || 0;
@@ -522,15 +630,16 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
     // ★ 确认净值来源解析（缓存 → 数据库 → API），盘中估算以解析出的确认净值为基准
     // 真实请求按 checkCache 统计（命中 hit / 未命中 miss），获取后由 resolveConfirmedNav 写回缓存
-    const resolvedNav = await resolveConfirmedNav(fundCode, holding, historyData, realTimeData);
+    const resolvedNav = await resolveConfirmedNav(fundCode, holding, historyData, realTimeData, { isQDII });
     const effectiveNav = resolvedNav.nav > 0 ? resolvedNav.nav : dbConfirmedNav;
 
     // ★ 全天休市（周末/节假日）+ 确认净值同步兜底失败（缓存/DB/API 均不可用）
     // → 仅对该基金做定向修复拉取：写回 DB confirmed_nav 并填充 3d 历史缓存。
     // 不阻塞响应（fire-and-forget），不抛错。
     if (isFullDayClosed && resolvedNav.source === 'none') {
-      const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
-      fundService.getHistoryNetValues(fundCode, threeDaysAgo, today)
+      // ★ 锚点感知兜底窗口：startDate = 最近交易日 − 1 天，覆盖长假（3 天窗口在长假中拉不到节前最后交易日净值）
+      getHistoryFallbackStartDate(today)
+        .then(startDateFix => fundService.getHistoryNetValues(fundCode, startDateFix, today))
         .then(historyData => {
           if (!historyData || !historyData.length) return;
           const latest = historyData[0];
@@ -861,5 +970,7 @@ module.exports = {
   clearAllCache,
   getFundMarketStatus,
   resolveConfirmedNav,
-  resolveUpdateStatus
+  resolveUpdateStatus,
+  getHistoryFallbackStartDate,
+  isQdiiFundType
 };
