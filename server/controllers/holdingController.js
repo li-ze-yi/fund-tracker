@@ -315,9 +315,11 @@ exports.purchase = async (req, res, next) => {
     logger.info(`新购基金: fund=${fundCode}, amount=${amt}, purchaseDate=${purchaseDate}, after3pm=${!!after3pm}, feeRate=${fee}, navDate=${navDate}`);
 
     // 3. 按 NAV 日期获取确认净值（统一结算场景 NAV 解析，缓存优先 + 精确日期匹配）
+    // 新购可任选历史日期（补录），拉到的可能是买入日历史净值，不写回 confirmed_nav 缓存，
+    // 避免污染「最新确认净值」缓存导致市值被钉在买入日 → 累计收益≈0。
     let confirmedNav = 0;
     try {
-      const { nav } = await settlementService.getConfirmedNavByDate(fundCode, navDate);
+      const { nav } = await settlementService.getConfirmedNavByDate(fundCode, navDate, { skipCacheWrite: true });
       confirmedNav = nav > 0 ? nav : 0;
     } catch (e) {
       logger.warn(`获取确认净值失败: ${e.message}`);

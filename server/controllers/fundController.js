@@ -76,7 +76,7 @@ exports.getByCode = async (req, res, next) => {
     let realTime = null;
     if (isFullDayClosed || isPreMarket) {
       // ★ 统一确认净值链：confirmed_nav 缓存 → 持仓 DB → history_3d 缓存 → API 兜底（复用 resolveConfirmedNav）
-      const resolved = await holdingService.resolveConfirmedNav(code, holding, null, null);
+      const resolved = await holdingService.resolveConfirmedNav(code, holding, null, null, { isQDII: holdingService.isQdiiFundType(fund?.type) });
       if (resolved && resolved.nav > 0) {
         realTime = {
           netValue: resolved.nav,
@@ -246,7 +246,7 @@ exports.getByCode = async (req, res, next) => {
         let baseNav = parseFloat(confirmedNav) || 0;
         if (baseNav <= 0) {
           try {
-            const resolved = await holdingService.resolveConfirmedNav(code, holding, null, realTime);
+            const resolved = await holdingService.resolveConfirmedNav(code, holding, null, realTime, { isQDII: holdingService.isQdiiFundType(fund?.type) });
             baseNav = resolved.nav > 0 ? resolved.nav : (parseFloat(holding.confirmed_nav) || 0);
           } catch (e) { /* ignore */ }
         }
@@ -317,7 +317,8 @@ exports.batchGetInfo = async (req, res, next) => {
 
     // ★ 批量获取实时数据（核心优化：1次新浪请求 + 并行确认净值）
     const today = getLocalToday();
-    const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+    // ★ 锚点感知兜底窗口（覆盖长假）：startDate = 最近交易日 − 1 天；交易日历不可用时回退 today-3
+    const fallbackStartDate = await holdingService.getHistoryFallbackStartDate(today);
 
     // ★ 全天休市检测（周末/法定节假日）：权威信号为 isTradingDay === false，
     // 不能以 marketStatus.reason==='holiday' 判定（交易日盘后也会返回该值）
@@ -386,7 +387,7 @@ exports.batchGetInfo = async (req, res, next) => {
         }
       }
       if (needFetch.length > 0) {
-        const freshMap = await fundService.batchGetHistoryNetValues(needFetch, threeDaysAgo, today);
+        const freshMap = await fundService.batchGetHistoryNetValues(needFetch, fallbackStartDate, today);
         for (const code of needFetch) {
           const data = freshMap[code];
           if (data && data.length > 0) {
@@ -425,7 +426,7 @@ exports.batchGetInfo = async (req, res, next) => {
       const needFetch = [];
       for (const code of fundCodes) {
         const holding = holdingMap[code] || null;
-        const resolved = await holdingService.resolveConfirmedNav(code, holding, null, null, { skipApiFallback: true });
+        const resolved = await holdingService.resolveConfirmedNav(code, holding, null, null, { skipApiFallback: true, isQDII: holdingService.isQdiiFundType(fundMap[code]?.type) });
         if (resolved && resolved.nav > 0) {
           displayNavMap[code] = { nav: resolved.nav, date: resolved.date };
         } else {
@@ -435,13 +436,13 @@ exports.batchGetInfo = async (req, res, next) => {
       // ② 批量拉取确需兜底的基金，写回 history_3d 后二次回调 resolveConfirmedNav（回写 confirmed_nav 缓存 + DB）
       if (needFetch.length > 0) {
         logger.info(`休市/待开市确认净值批量拉取: ${needFetch.join(',')}`);
-        const freshMap = await fundService.batchGetHistoryNetValues(needFetch, threeDaysAgo, today);
+        const freshMap = await fundService.batchGetHistoryNetValues(needFetch, fallbackStartDate, today);
         for (const code of needFetch) {
           const data = freshMap[code];
           if (data && data.length > 0 && parseFloat(data[0].nav) > 0) {
             globalCache.set(`history_${code}_3d_${today}`, data, 'history_recent');
             const holding = holdingMap[code] || null;
-            const resolved = await holdingService.resolveConfirmedNav(code, holding, data, null, { skipApiFallback: true });
+            const resolved = await holdingService.resolveConfirmedNav(code, holding, data, null, { skipApiFallback: true, isQDII: holdingService.isQdiiFundType(fundMap[code]?.type) });
             if (resolved && resolved.nav > 0) {
               displayNavMap[code] = { nav: resolved.nav, date: resolved.date };
             }
