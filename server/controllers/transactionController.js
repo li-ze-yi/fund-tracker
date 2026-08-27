@@ -55,7 +55,8 @@ exports.buy = async (req, res, next) => {
     }
 
     // 尝试获取确认净值（统一结算场景 NAV 解析，缓存优先 + 精确日期匹配）
-    const { nav: confirmedNav } = await settlementService.getConfirmedNavByDate(fundCode, navDate);
+    // 加仓可任选历史日期（补录），不写回 confirmed_nav 缓存，避免买入日历史净值污染「最新确认净值」缓存
+    const { nav: confirmedNav } = await settlementService.getConfirmedNavByDate(fundCode, navDate, { skipCacheWrite: true });
     logger.info(`查询确认净值: fundCode=${fundCode}, navDate=${navDate}, confirmedNav=${confirmedNav}`);
 
     if (confirmedNav > 0) {
@@ -137,7 +138,8 @@ exports.sell = async (req, res, next) => {
     }
 
     // 尝试获取确认净值（统一结算场景 NAV 解析，缓存优先 + 精确日期匹配）
-    const { nav: confirmedNav } = await settlementService.getConfirmedNavByDate(fundCode, navDate);
+    // 卖出可任选历史日期（补录），不写回 confirmed_nav 缓存，避免卖出日历史净值污染「最新确认净值」缓存
+    const { nav: confirmedNav } = await settlementService.getConfirmedNavByDate(fundCode, navDate, { skipCacheWrite: true });
     logger.info(`查询确认净值: fundCode=${fundCode}, navDate=${navDate}, confirmedNav=${confirmedNav}`);
 
     if (confirmedNav > 0) {
