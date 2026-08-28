@@ -341,11 +341,12 @@ async function resolveConfirmedNav(fundCode, holding, historyData, realTimeData,
       const anchor = await getLatestTradingDayAnchor(todayStr);
       if (anchor) {
         if (options.isQDII) {
-          // QDII/海外基金（纳指/港股/美股等）确认净值合法滞后 A 股 1-2 天：
-          // 允许 dbNavDate ∈ [anchor−2, anchor]，避免真实最新净值被误判不新鲜
+          // QDII/海外基金确认净值相对中国最近交易日正常滞后 1 天（如最新确认日为 anchor−1）：
+          // 允许 dbNavDate ∈ [anchor−1, anchor]。不得放宽到 [anchor−2, anchor]——新购/加仓补录
+          // 写入的"买入日净值"（滞后 2 天）会被误判新鲜，导致盘中估算基准用旧净值而非最新确认净值。
           const anchorMs = new Date(anchor).getTime();
           const dbMs = new Date(dbNavDate).getTime();
-          dbFresh = dbNavDate <= anchor && (anchorMs - dbMs) / (24 * 3600 * 1000) <= 2;
+          dbFresh = dbNavDate <= anchor && (anchorMs - dbMs) / (24 * 3600 * 1000) <= 1;
         } else {
           dbFresh = dbNavDate === anchor;
         }
@@ -619,10 +620,14 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
     const latestHistoryNav = historyData && historyData.length > 0 ? parseFloat(historyData[0].nav) || 0 : 0;
     const latestHistoryDate = historyData && historyData.length > 0 ? historyData[0].date : null;
-    // ★ QDII/海外基金确认净值合法滞后 A 股 1-2 天：最新净值日期距今 ≤2 天视为已确认，参与日收益与展示
+    // ★ 确认判定：
+    // - A 股：仅当天净值已公布才算已确认（latestHistoryDate === today），盘中/盘后均同
+    // - QDII：盘中（<15 点，今天净值未公布）显示估算中；盘后（≥15 点）最新净值日期已推进到昨天
+    //   （晚间 QDII 净值已公布，确认净值日期合法滞后 1 天）视为已确认，避免净值滞后导致永远"待确认"
     const isQDII = isQdiiFundType(fundTypeMap[fundCode]);
+    const hour = new Date().getHours();
     const isConfirmed = latestHistoryDate === today ||
-      (isQDII && latestHistoryDate && (new Date(today) - new Date(latestHistoryDate)) / (24 * 3600 * 1000) <= 2);
+      (isQDII && hour >= 15 && latestHistoryDate === subDays(today, 1));
     const yesterdayNav = historyData && historyData.length > 1 ? parseFloat(historyData[1].nav) || 0 : 0;
 
     const dbConfirmedNav = parseFloat(holding.confirmed_nav) || 0;
