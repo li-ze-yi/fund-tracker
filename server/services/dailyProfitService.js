@@ -282,12 +282,14 @@ class DailyProfitService {
         const fundCode = holding.fund_code;
         const history = historyMap[fundCode] || [];
         const latestHistoryDate = history.length > 0 ? history[0].date : null;
-        // ★ QDII/海外基金确认净值合法滞后 A 股 1-2 天：最新净值日期距今 ≤2 天视为已确认，参与日收益
+        // ★ QDII/海外基金：与展示"盘后已确认"口径一致——最新净值日期 = 昨天（今晚已公布）才视为确认参与。
+        // 不再用 ≤2 天放宽：美股节假日/净值停滞时最新净值日 ≠ 昨天，今天确无新增确认收益，不参与。
         const isQDII = holdingService.isQdiiFundType(fundTypeMap[fundCode]);
+        const yesterdayStr = normalizeDateStr(new Date(new Date(today + 'T00:00:00').getTime() - 24 * 3600 * 1000));
         const isConfirmed = latestHistoryDate === today ||
-          (isQDII && latestHistoryDate && (new Date(today) - new Date(latestHistoryDate)) / (24 * 3600 * 1000) <= 2);
+          (isQDII && latestHistoryDate === yesterdayStr);
 
-        // 未确认基金（A 股最新净值 < 今天；QDII 滞后超 2 天）不参与计算
+        // 未确认基金（A 股最新净值 < 今天；QDII 最新净值日 ≠ 昨天）不参与计算
         if (!isConfirmed) {
           unconfirmedFunds.push(holding);
           continue;
