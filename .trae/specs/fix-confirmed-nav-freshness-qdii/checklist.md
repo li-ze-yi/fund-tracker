@@ -29,3 +29,27 @@
 - [x] 去重仅作用于 `isQDII`，A 股保持原逻辑（每天按当天净值覆盖重算，不受影响）
 - [x] 隔离验证三场景：QDII 参与（profit=10）/ 净值停滞去重跳过 / 净值推进正常计入，全部符合
 - [x] `npm test`（7/7）通过；`node --check` 各改动文件通过；服务启动无报错
+
+## QDII 盘中/盘后状态判定
+
+- [x] `enrichHoldingsWithRealTimeData` 的 `isConfirmed` 恢复严格（A 股 `=== today`），QDII 盘中不误判"已确认"
+- [x] 隔离验证：QDII 盘中（isConfirmed=false）→ `update_status='estimating'`、`is_confirmed=false`；当天已公布（true）→ `confirmed`
+- [x] QDII 盘后（≥15 点）最新净值日期=昨天 → `isConfirmed=true` → `update_status='confirmed'`（避免净值滞后永远"待确认"）
+- [x] QDII 盘后最新净值未推进（美股节假日）→ `isConfirmed=false` → `pending_confirm`
+- [x] 判定表达式 6 场景验证全部正确（A 股严格 / QDII 盘中不确认 / QDII 盘后按最新净值 / 净值停滞待确认）
+
+## QDII 新购估算基准（窗口收窄）
+
+- [x] QDII 盘中 DB 新鲜度窗口从 `[anchor−2, anchor]` 收窄为 `[anchor−1, anchor]`（防新购/加仓补录的买入日净值被误判新鲜）
+- [x] 真实数据验证（006479）：新购 08-24（navDate=08-25）修复前基准=08-25(7.9504)，修复后基准=08-26(7.9526) 最新确认净值
+- [x] 正常 QDII 持仓（基准日期=锚点−1）仍判新鲜，不增加 API 请求
+
+## 年度节假日接口（免疫 429）
+
+- [x] `getHolidayYearData(year)` / `parseHolidayYear` 新增：timor `year/{year}/` 一次拉整年（键 `MM-DD`），缓存 24h
+- [x] `isHoliday` 优先年度缓存，年度不可用回退单日接口
+- [x] 真实验证：9 天长假回溯（国庆 10-01~10-09）仅 1 次年接口、0 次单日请求（原第 4 个请求即 429）
+- [x] 9 组节假日判定全部正确（元旦/春节/国庆放假、补班工作日、普通工作日）
+- [x] `isTradingDay` 保持周末短路（A 股周末无论是否补班均不开市），补班信息对股市判定无意义
+- [x] 外部调用点审计（15 处）：全部通过 isTradingDay/nextTradingDay/ensureTradingDay → isHoliday → 年度缓存，无绕过
+- [x] `npm test`（7/7）通过

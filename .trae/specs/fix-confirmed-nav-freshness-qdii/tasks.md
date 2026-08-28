@@ -48,8 +48,27 @@
 - [x] SubTask 4.4: 去重限定 `isQDII`，确认 A 股不受影响（保持每天按当天净值覆盖重算的原行为）
 - [x] SubTask 4.5: `npm test`（7/7）、`node --check` 各改动文件、服务启动验证通过
 
+## Task 5: QDII 盘中/盘后状态判定细化 + 新购估算基准窗口收窄
+
+- [x] SubTask 5.1: `enrichHoldingsWithRealTimeData` 的 `isConfirmed` 恢复严格（A 股 `=== today`），移除 QDII ≤2 天统一放宽——修复盘中 QDII 被误判"已确认"（update_status=confirmed）的回归
+- [x] SubTask 5.2: QDII 盘中/盘后细化：`isConfirmed = latestHistoryDate === today || (isQDII && hour ≥ 15 && latestHistoryDate === subDays(today, 1))`——盘中估算中、盘后按最新净值判已确认
+- [x] SubTask 5.3: `resolveConfirmedNav` QDII 盘中 DB 新鲜度窗口从 `[anchor−2, anchor]` 收窄为 `[anchor−1, anchor]`——防新购/加仓补录的买入日净值被误判新鲜
+- [x] SubTask 5.4: 隔离验证 isConfirmed 判定表达式 6 场景（A 股严格 / QDII 盘中 / QDII 盘后按最新 / 净值停滞）全部正确
+- [x] SubTask 5.5: 真实数据验证新购 QDII（006479 新购 08-24→navDate 08-25）：修复后估算基准=08-26 最新确认净值（7.9526）而非买入日 08-25（7.9504）
+
+## Task 6: 年度节假日接口（免疫 timor 429 限流）
+
+- [x] SubTask 6.1: `holidayService` 新增 `getHolidayYearData(year)` + `parseHolidayYear`：调用 timor `year/{year}/` 一次拉整年（键 `MM-DD`，`holiday=true/false`），缓存 24h
+- [x] SubTask 6.2: `isHoliday` 优先年度缓存判定，年度接口不可用（返回 null）回退原单日接口
+- [x] SubTask 6.3: 真实验证 9 天长假回溯（国庆 10-01~10-09）：仅 1 次年接口、0 次单日请求（原第 4 个请求即 429）；9 组节假日判定全部正确
+- [x] SubTask 6.4: 确认 `isTradingDay` 保持周末短路（A 股周末无论是否调休补班均不开市），补班信息对股市判定无意义
+- [x] SubTask 6.5: 外部调用点审计（15 处）全部通过 isTradingDay/nextTradingDay/ensureTradingDay → isHoliday → 年度缓存，无绕过
+- [x] SubTask 6.6: `npm test`（7/7）通过
+
 # Task Dependencies
 
 - Task 1、Task 2、Task 3 有先后依赖：Task 1 锚点校验依赖 Task 3 的 QDII 识别（`options.isQDII`）；Task 2 兜底窗口依赖 Task 1 的锚点回溯
 - Task 4 依赖 Task 3（`isQdiiFundType`）与 Task 1 的口径（QDII 滞后 ≤2 天），实现顺序在 Task 1/3 之后
+- Task 5 修正 Task 1/4 的 QDII 口径（展示 isConfirmed 与日收益参与判定分离、DB 新鲜度窗口收窄），验证阶段发现后补充实施
+- Task 6 独立于 Task 1-5（日历数据源增强），全部调用点自动受益
 - 各 Task 验证独立执行（隔离脚本 stub 外部依赖，不污染真实数据）
