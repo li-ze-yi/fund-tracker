@@ -23,11 +23,14 @@
 
 ## QDII 参与每日收益
 
-- [x] `enrichHoldingsWithRealTimeData` 与 `calculateAndSaveDailyProfitFromConfirmedNav` 的 `isConfirmed` 对 QDII 放宽（最新净值日距今天 ≤2 天）
+- [x] `calculateAndSaveDailyProfitFromConfirmedNav` 的 `isConfirmed`：QDII 与展示"盘后已确认"口径一致（`latestHistoryDate === yesterday`），A 股严格 `=== today`
 - [x] QDII 每日盈亏按最新两条确认净值差计算（`yesterdayShares × (todayNav − yesterdayNav)`）
 - [x] 净值日去重：`fundsDetails` 记录 `nav_date`；QDII 净值停滞（美股节假日）时按上次 `nav_date` 跳过防重复
 - [x] 去重仅作用于 `isQDII`，A 股保持原逻辑（每天按当天净值覆盖重算，不受影响）
 - [x] 隔离验证三场景：QDII 参与（profit=10）/ 净值停滞去重跳过 / 净值推进正常计入，全部符合
+- [x] QDII 日收益参与判定与展示口径统一：`latestHistoryDate === yesterday`（不再 ≤2 天放宽）——美股节假日净值停滞（≠昨天）时不参与
+- [x] 隔离验证（today=2026-08-28）：QDII=昨天+A股=今天 均参与 / QDII=前天 不参与 / QDII=昨天+A股=昨天（QDII参与、A股严格不参与），全部符合
+- [x] 盘中路径不误判：QDII 盘中（<15 点）is_confirmed=false 不参与日收益；盘后（≥15 点）最新净值日=昨天才参与
 - [x] `npm test`（7/7）通过；`node --check` 各改动文件通过；服务启动无报错
 
 ## QDII 盘中/盘后状态判定

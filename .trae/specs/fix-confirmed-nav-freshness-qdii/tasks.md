@@ -47,6 +47,9 @@
   - 上次 nav_date=08-24 且净值推进到 08-25：正常计入 profit=10
 - [x] SubTask 4.4: 去重限定 `isQDII`，确认 A 股不受影响（保持每天按当天净值覆盖重算的原行为）
 - [x] SubTask 4.5: `npm test`（7/7）、`node --check` 各改动文件、服务启动验证通过
+- [x] SubTask 4.6: QDII 日收益参与判定统一为 `latestHistoryDate === yesterday`（与展示"盘后已确认"口径完全一致），移除 ≤2 天放宽——美股节假日/净值停滞时（≠昨天）不参与
+- [x] SubTask 4.7: 隔离验证（today=2026-08-28）三场景：QDII=昨天+A股=今天 均参与 / QDII=前天 不参与 / QDII=昨天+A股=昨天（QDII参与、A股严格不参与），全部符合
+- [x] SubTask 4.8: 确认盘中路径（`calculateAndSaveDailyProfit` 按 is_confirmed 分组）不误判：QDII 盘中（<15 点）is_confirmed=false 不参与；盘后（≥15 点）最新净值日=昨天才参与
 
 ## Task 5: QDII 盘中/盘后状态判定细化 + 新购估算基准窗口收窄
 

@@ -34,7 +34,7 @@
   - `getByCode` 两处（休市/开市分支）与 `batchGetInfo` 两处：`resolveConfirmedNav` 传入 `{ isQDII: isQdiiFundType(fund.type) }`。
   - `batchGetInfo` 批量历史兜底：`startDate` 改用 `getHistoryFallbackStartDate`（锚点 + 15 天），替换 `today-3`。
 - `server/services/dailyProfitService.js`（兜底直算 `calculateAndSaveDailyProfitFromConfirmedNav`）：
-  - 批量查基金类型识别 QDII；`isConfirmed` 对 QDII 放宽（最新净值日距今天 ≤2 天视为已确认）。
+  - 批量查基金类型识别 QDII；`isConfirmed` 判定与展示"盘后已确认"口径一致——A 股 `latestHistoryDate === today`、QDII `latestHistoryDate === yesterday`（不再使用 ≤2 天放宽，美股节假日净值停滞时不参与）。
   - **净值日去重（仅 QDII）**：读取最近一条日收益记录中各基金已计入的 `nav_date`，QDII 最新净值日期未推进（美股节假日净值停滞）时跳过，防止重复计入同一净值差。
   - `fundsDetails` 记录 `nav_date`（本次计入的最新净值日），供下次去重。
   - 去重仅作用于 `isQDII`，A 股保持原逻辑（每天按当天净值覆盖重算，不受影响）。
@@ -154,24 +154,24 @@
 - **WHEN** 盘后查看 QDII 持仓，最新净值日期未推进（仍为前天，美股节假日净值停滞）
 - **THEN** `isConfirmed=false` → `update_status='pending_confirm'`（待确认）
 
-### Requirement: QDII 参与每日收益（含净值日去重）
+### Requirement: QDII 参与每日收益（确认口径与展示一致）
 
-日收益统计 SHALL 允许 QDII/海外基金参与：最新净值日期距今天 ≤2 天视为已确认（A 股仍要求 `=== today`），每日盈亏按最新两条确认净值差计算并计入当天记录。QDII 净值停滞（美股节假日）时 SHALL 按"最近一次已计入的 `nav_date`"去重跳过，防止重复计入同一净值差。去重仅作用于 QDII，A 股保持原逻辑。
+日收益统计 SHALL 允许 QDII/海外基金参与，确认判定与展示"盘后已确认"口径完全一致：A 股要求 `latestHistoryDate === today`；QDII 要求 `latestHistoryDate === yesterday`（今晚已公布最新确认净值，正常滞后 1 天）。**不使用 ≤2 天放宽**——美股节假日/净值停滞时最新净值日 ≠ 昨天，今天确无新增确认收益，不参与。每日盈亏按最新两条确认净值差计算并计入当天记录。净值日去重（`nav_date`）仅对 QDII 生效，作为防御性冗余保留（改为 =昨天 判定后正常场景不再触发）。
 
 #### Scenario: QDII 参与兜底直算
 
-- **WHEN** 23:55 兜底直算，QDII 最新净值日 = 今天−2（滞后 2 天），无上次记录
-- **THEN** QDII 判已确认参与，`dailyProfit = 份额 × (最新净值 − 前一净值)`，计入当天记录（fundsDetails 含 `nav_date`）；A 股滞后 1 天不参与（严格判定）
+- **WHEN** 23:55 兜底直算，QDII 最新净值日 = 昨天（今晚已公布），A 股最新净值日 = 今天
+- **THEN** QDII 判已确认参与，`dailyProfit = 份额 × (最新净值 − 前一净值)` 计入当天记录；A 股同步参与（严格判定）
 
-#### Scenario: QDII 净值停滞去重（美股节假日）
+#### Scenario: QDII 净值停滞不参与（美股节假日）
 
-- **WHEN** 美股节假日（A 股开市），QDII 最新净值日期未推进（等于上次已计入的 `nav_date`）
-- **THEN** 该 QDII 被去重跳过，不重复计入同一净值差
+- **WHEN** 美股节假日（A 股开市），QDII 最新净值日期未推进（= 前天，≠ 昨天，今天无新确认净值）
+- **THEN** QDII 不参与当天日收益（合理：确无新增确认收益），A 股正常参与
 
-#### Scenario: QDII 净值推进正常计入
+#### Scenario: QDII 与 A 股口径分离
 
-- **WHEN** QDII 最新净值日期较上次已计入日期推进（如 08-24 → 08-25）
-- **THEN** 正常计入，`dailyProfit = 100 × (1.5 − 1.4) = 10`，`nav_date` 更新为 08-25
+- **WHEN** QDII 最新净值日 = 昨天、A 股最新净值日 = 昨天（A 股今天净值未公布）
+- **THEN** QDII 参与（=昨天）、A 股不参与（严格 =今天），两口径互不干扰
 
 ---
 
@@ -185,9 +185,9 @@
 
 原固定 3 天历史窗口 SHALL 被"锚点 + 15 天兜底"（`getHistoryFallbackStartDate`）替代，覆盖长假场景并免疫节假日 API 限流。
 
-### Requirement: 每日收益 QDII 确认判定放宽
+### Requirement: 每日收益 QDII 确认判定与展示口径一致
 
-原 `isConfirmed = latestHistoryDate === today` 对 QDII 恒假导致其从不计入日收益 SHALL 被修正：QDII 最新净值日距今天 ≤2 天视为已确认参与（仅在 `dailyProfitService` 兜底直算生效），并配净值日去重。
+原 `isConfirmed = latestHistoryDate === today` 对 QDII 恒假导致其从不计入日收益 SHALL 被修正；且 QDII 判定 SHALL 与展示"盘后已确认"口径完全一致（`latestHistoryDate === yesterday`），不再使用 ≤2 天放宽——美股节假日/净值停滞时今天确无新增确认收益，不参与。净值日去重保留为防御性冗余。
 
 ### Requirement: QDII 展示 isConfirmed 与日收益参与判定分离
 
