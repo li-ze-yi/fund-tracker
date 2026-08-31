@@ -96,7 +96,9 @@ exports.getByCode = async (req, res, next) => {
       if (cached.hit) {
         realTime = cached.data;
       } else {
-        realTime = await fundService.getRealTimeValueWithMethod(code, valuationMethod).catch(() => null);
+        realTime = await fundService.getRealTimeValueWithMethod(code, valuationMethod, {
+          isQDII: holdingService.isQdiiFundType(fund?.type),
+        }).catch(() => null);
         if (realTime) {
           globalCache.set(cacheKey, realTime, 'realtime');
         }
@@ -340,6 +342,10 @@ exports.batchGetInfo = async (req, res, next) => {
       logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值（不查询缓存）(${fundCodes.length} 只)`);
     } else {
       // 开市：逐只查缓存，未命中按 effectiveMethod 分组批量拉取，拉取后写回
+      // QDII 类型标记（供持仓穿透板块化/成分加权分支；纯 A 股基金不受影响）
+      const qdiiTypeRows = await Fund.findByCodes(fundCodes).catch(() => []);
+      const isQdiiMap = {};
+      for (const f of qdiiTypeRows) if (f) isQdiiMap[f.code] = holdingService.isQdiiFundType(f.type || '');
       const fetchGroups = {}; // effectiveMethod -> [fundCodes]
       for (const code of fundCodes) {
         const effectiveMethod = valuationOverrides[code] || valuationMethod || 'holdings';
@@ -357,7 +363,7 @@ exports.batchGetInfo = async (req, res, next) => {
       for (const method of fetchMethods) {
         const codes = fetchGroups[method];
         fetchCount += codes.length;
-        const freshMap = await fundService.batchGetRealTimeValuesWithMethod(codes, method);
+        const freshMap = await fundService.batchGetRealTimeValuesWithMethod(codes, method, { isQdiiMap });
         for (const code of codes) {
           const data = freshMap[code];
           if (data) {

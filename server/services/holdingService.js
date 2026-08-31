@@ -540,7 +540,10 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
     if (needFetch.length > 0) {
       batchPromises.push(
-        fundService.batchGetRealTimeValuesWithMethod(needFetch, method).then(map => {
+        fundService.batchGetRealTimeValuesWithMethod(needFetch, method, {
+          // QDII 类型标记（供持仓穿透板块化/成分加权分支；纯 A 股基金不受影响）
+          isQdiiMap: Object.fromEntries(needFetch.map(c => [c, isQdiiFundType(fundTypeMap[c] || '')])),
+        }).then(map => {
           // 存入缓存
           for (const [code, data] of Object.entries(map)) {
             const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
