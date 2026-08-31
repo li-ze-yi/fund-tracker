@@ -143,9 +143,12 @@ async function applySellHolding({ userId, fundCode, sellShares, netAmount }) {
  *   ③ 兜底：外部历史净值接口（单日精确查询；回写 confirmed_nav 缓存）
  * @param {string} fundCode 基金代码
  * @param {string} navDate 目标成交/确认日期（YYYY-MM-DD）
+ * @param {object} [options] 可选配置
+ * @param {boolean} [options.skipCacheWrite=false] 为 true 时不写回 confirmed_nav 缓存。
+ *   新购基金（holdingController.purchase）入口使用：用户可任选历史日期，避免买入日历史净值污染「最新确认净值」缓存。
  * @returns {Promise<{ nav: number, source: 'cache_3d'|'cache_confirmed_nav'|'api' }>} nav<=0 表示该日期净值尚未确认
  */
-async function getConfirmedNavByDate(fundCode, navDate) {
+async function getConfirmedNavByDate(fundCode, navDate, options = {}) {
   const today = getLocalToday();
 
   // ① 3d 历史缓存（含确认净值）
@@ -169,7 +172,11 @@ async function getConfirmedNavByDate(fundCode, navDate) {
     // 仅当缓存中无更新净值时写回，避免旧交易日的净值覆盖较新的已确认净值
     const existing = globalCache.peekCache(`confirmed_nav_${fundCode}`, 'history_recent');
     if (!existing.hit || !existing.data || !existing.data.date || existing.data.date <= newDate) {
-      globalCache.set(`confirmed_nav_${fundCode}`, { nav, date: newDate, source: 'api' }, 'history_recent');
+      // ★ 新购基金（skipCacheWrite=true）不写回：用户可任选历史日期，拉到的可能是买入日历史净值，
+      // 写入「最新确认净值」缓存会把市值钉在买入日 → 累计收益≈0。其他结算场景（当天/近期日期）保持写回。
+      if (!options.skipCacheWrite) {
+        globalCache.set(`confirmed_nav_${fundCode}`, { nav, date: newDate, source: 'api' }, 'history_recent');
+      }
     }
   }
   return { nav, source: 'api' };

@@ -5,7 +5,9 @@ const { createLogger } = require('../utils/logger');
 const logger = createLogger('HolidayService');
 
 // timor.tech 节假日查询 API
-const HOLIDAY_API_BASE = 'http://timor.tech/api/holiday/info';
+const HOLIDAY_API_BASE = 'https://timor.tech/api/holiday/info';
+// timor.tech 年度节假日接口（一次返回整年，路径末尾需带 /{year}/）
+const HOLIDAY_YEAR_API_BASE = 'https://timor.tech/api/holiday/year';
 // 复用 history_chart 类型获得固定 24 小时 TTL（节假日信息一旦确定不会变化）
 const HOLIDAY_CACHE_TYPE = 'history_chart';
 // 防死循环最大次数（最长的节假日连休也不会超过 30 天）
@@ -81,8 +83,57 @@ async function fetchHolidayFromApi(dateStr) {
 }
 
 /**
+ * 解析年度节假日接口响应为 { 'MM-DD': boolean } 查询表
+ * 年度接口返回的日期键为 MM-DD（不含年份），holiday=true 放假、holiday=false 调休补班（工作日）
+ * @param {object} data 年度接口响应 { code, holiday: { 'MM-DD': { holiday, name, wage } } }
+ * @returns {object|null}
+ */
+function parseHolidayYear(data) {
+  if (!data || typeof data !== 'object' || !data.holiday || typeof data.holiday !== 'object') return null;
+  const map = {};
+  for (const [mmdd, info] of Object.entries(data.holiday)) {
+    if (info && typeof info.holiday === 'boolean') map[mmdd] = info.holiday;
+  }
+  return map;
+}
+
+/**
+ * 获取指定年份的节假日查询表（一次请求拿整年，带 24h 缓存）
+ * 解决长假回溯最近交易日时逐日请求 timor 单日接口触发 429 限流的问题。
+ * @param {string} year - YYYY
+ * @returns {Promise<object|null>} { 'MM-DD': boolean }；失败返回 null（调用方回退单日接口）
+ */
+async function getHolidayYearData(year) {
+  const cacheKey = `holiday_year_${year}`;
+  const cached = globalCache.checkCache(cacheKey, HOLIDAY_CACHE_TYPE);
+  if (cached.hit && cached.data) return cached.data;
+
+  const url = `${HOLIDAY_YEAR_API_BASE}/${year}/`;
+  try {
+    const response = await axios.get(url, {
+      timeout: 8000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+    if (response.data && response.data.code === 0) {
+      const map = parseHolidayYear(response.data);
+      if (map && Object.keys(map).length > 0) {
+        globalCache.set(cacheKey, map, HOLIDAY_CACHE_TYPE);
+        logger.info(`年度节假日缓存完成: year=${year}, 条目=${Object.keys(map).length}`);
+        return map;
+      }
+    }
+    logger.warn(`年度节假日接口响应异常: year=${year}, body=${String(response.data).slice(0, 200)}`);
+  } catch (e) {
+    logger.warn(`年度节假日接口调用失败: year=${year}, err=${e.message}`);
+  }
+  return null;
+}
+
+/**
  * 判断指定日期是否为法定节假日（带 24 小时缓存）
- * API 失败时（超时、非 200、异常 JSON）降级为非节假日并返回 false，不缓存降级结果
+ * 优先年度节假日缓存（一次拉整年），未命中/失败回退单日接口；单日接口也失败时降级为非节假日
  * @param {string} dateStr - YYYY-MM-DD
  * @returns {Promise<boolean>}
  */
@@ -96,8 +147,20 @@ async function isHoliday(dateStr) {
     return cached.data.isHoliday;
   }
 
-  // 缓存未命中 → 调用 API
-  logger.info(`缓存未命中，查询 API: date=${dateStr}`);
+  // ★ 优先年度节假日缓存：一次拉整年，长假回溯不再逐日请求单日接口（免疫 timor 429 限流）
+  const year = dateStr.slice(0, 4);
+  const mmdd = dateStr.slice(5);
+  const yearMap = await getHolidayYearData(year);
+  if (yearMap) {
+    // 年度表仅含节假日与调休补班：true=放假、false=补班工作日（非节假日）；不在表中=普通工作日
+    const isHolidayVal = yearMap[mmdd] === true;
+    logger.info(`年度节假日判定: date=${dateStr}, isHoliday=${isHolidayVal}`);
+    globalCache.set(cacheKey, { isHoliday: isHolidayVal }, HOLIDAY_CACHE_TYPE);
+    return isHolidayVal;
+  }
+
+  // 年度接口不可用 → 回退单日接口（原逻辑）
+  logger.info(`年度节假日不可用，查询单日 API: date=${dateStr}`);
   try {
     const result = await fetchHolidayFromApi(dateStr);
     globalCache.set(cacheKey, result, HOLIDAY_CACHE_TYPE);

@@ -1,6 +1,7 @@
 const DailyProfit = require('../models/dailyProfit');
 const Holding = require('../models/holding');
 const Transaction = require('../models/transaction');
+const Fund = require('../models/fund');
 const pool = require('../config/database');
 const globalCache = require('./globalCache');
 const holdingService = require('./holdingService');
@@ -223,6 +224,35 @@ class DailyProfitService {
         logger.info(`历史净值: 全部缓存命中 ${fundCodes.length}/${fundCodes.length}`);
       }
 
+      // ★ 批量查询基金类型（识别 QDII/海外：其确认净值合法滞后 A 股 1-2 天，需放宽"已确认"判定）
+      let fundTypeMap = {};
+      try {
+        const fundRows = await Fund.findByCodes(fundCodes);
+        for (const f of fundRows) {
+          if (f && f.code) fundTypeMap[f.code] = f.type;
+        }
+      } catch (e) {
+        logger.warn(`批量查询基金类型失败，QDII 识别降级为严格判定: ${e.message}`);
+      }
+
+      // ★ 读取最近一条日收益记录中各基金已计入的净值日期（nav_date）：
+      // QDII 净值停滞（美股节假日等）时最新净值日期未推进 → 跳过防重复计入
+      let prevNavDateMap = {};
+      try {
+        const prevRecord = await DailyProfit.findLatestByUserId(userId);
+        if (prevRecord && prevRecord.details) {
+          let pd = prevRecord.details;
+          if (typeof pd === 'string') pd = JSON.parse(pd);
+          if (pd && Array.isArray(pd.funds)) {
+            for (const f of pd.funds) {
+              if (f && f.fund_code && f.nav_date) prevNavDateMap[f.fund_code] = f.nav_date;
+            }
+          }
+        }
+      } catch (e) {
+        logger.warn(`读取最近记录失败，跳过净值日去重: ${e.message}`);
+      }
+
       // ★ 查询今日交易份额（复用 holdingService.enrichHoldingsWithRealTimeData 中的逻辑）
       let todayTxSharesMap = {};
       try {
@@ -252,10 +282,24 @@ class DailyProfitService {
         const fundCode = holding.fund_code;
         const history = historyMap[fundCode] || [];
         const latestHistoryDate = history.length > 0 ? history[0].date : null;
-        const isConfirmed = latestHistoryDate === today;
+        // ★ QDII/海外基金：与展示"盘后已确认"口径一致——最新净值日期 = 昨天（今晚已公布）才视为确认参与。
+        // 不再用 ≤2 天放宽：美股节假日/净值停滞时最新净值日 ≠ 昨天，今天确无新增确认收益，不参与。
+        const isQDII = holdingService.isQdiiFundType(fundTypeMap[fundCode]);
+        const yesterdayStr = normalizeDateStr(new Date(new Date(today + 'T00:00:00').getTime() - 24 * 3600 * 1000));
+        const isConfirmed = latestHistoryDate === today ||
+          (isQDII && latestHistoryDate === yesterdayStr);
 
-        // 未确认基金（最新净值日期 < 今天）：不参与计算，不回退估值
+        // 未确认基金（A 股最新净值 < 今天；QDII 最新净值日 ≠ 昨天）不参与计算
         if (!isConfirmed) {
+          unconfirmedFunds.push(holding);
+          continue;
+        }
+
+        // ★ 净值日去重（仅 QDII）：净值停滞（美股节假日等）时最新净值日期未推进 → 跳过，防止重复计入同一净值差。
+        // 仅对 QDII 生效；A 股最新净值日总是今天，保持原逻辑（每天按当天净值覆盖重算，不受去重影响）
+        const prevNavDate = prevNavDateMap[fundCode];
+        if (isQDII && prevNavDate && latestHistoryDate && latestHistoryDate <= prevNavDate) {
+          logger.debug(`${fundCode}: 最新净值日 ${latestHistoryDate} 未推进(上次计入 ${prevNavDate})，跳过防重复`);
           unconfirmedFunds.push(holding);
           continue;
         }
@@ -322,7 +366,8 @@ class DailyProfitService {
           daily_profit: Math.round(dailyProfit * 100) / 100,
           gain_percent: Math.round(gainPercent * 10000) / 10000,
           data_source: 'actual',
-          update_status: 'confirmed'
+          update_status: 'confirmed',
+          nav_date: latestHistoryDate
         });
       }
 
