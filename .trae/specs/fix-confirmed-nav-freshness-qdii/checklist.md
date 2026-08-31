@@ -1,4 +1,4 @@
-# Checklist
+﻿# Checklist
 
 ## 确认净值新鲜度交易日锚点校验
 
@@ -56,3 +56,14 @@
 - [x] `isTradingDay` 保持周末短路（A 股周末无论是否补班均不开市），补班信息对股市判定无意义
 - [x] 外部调用点审计（15 处）：全部通过 isTradingDay/nextTradingDay/ensureTradingDay → isHoliday → 年度缓存，无绕过
 - [x] `npm test`（7/7）通过
+
+## Task 7: 节假日接口并发去重 + 独立 TTL
+
+- [x] inflightYearPromises Map：同一 year 年度接口请求在飞时后续并发合并（实测：10 并发缓存 miss → 年度 API 只发 1 次）
+- [x] inflightHolidayPromises Map：同一 dateStr isHoliday 请求在飞时后续并发合并（实测：年度 429 后 10 并发 → 年度+单日 API 各只发 1 次）
+- [x] ailedYearTimestamps Map + 5min TTL：年度接口 429/网络失败后 5 分钟内跳过该 year（实测：429 后再调 5 次 → 年度 API 调用次数 = 0）
+- [x] holiday_year（30 天 TTL）+ holiday_day（3 天 TTL）独立缓存 type，从 history_chart 解耦
+- [x] getTTL('holiday_year') = 30d、getTTL('holiday_day') = 3d，验证通过
+- [x] 
+ode --check holidayService.js + globalCache.js 通过；
+pm test（7/7）通过
