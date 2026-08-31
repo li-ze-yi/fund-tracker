@@ -8,8 +8,10 @@ const logger = createLogger('HolidayService');
 const HOLIDAY_API_BASE = 'https://timor.tech/api/holiday/info';
 // timor.tech 年度节假日接口（一次返回整年，路径末尾需带 /{year}/）
 const HOLIDAY_YEAR_API_BASE = 'https://timor.tech/api/holiday/year';
-// 复用 history_chart 类型获得固定 24 小时 TTL（节假日信息一旦确定不会变化）
-const HOLIDAY_CACHE_TYPE = 'history_chart';
+// 年度节假日表缓存 type（30 天 TTL：全年固定不变）
+const HOLIDAY_YEAR_CACHE_TYPE = 'holiday_year';
+// 单日节假日判定结果缓存 type（24h TTL：单日判定一旦确定全年不变）
+const HOLIDAY_DAY_CACHE_TYPE = 'holiday_day';
 // 防死循环最大次数（最长的节假日连休也不会超过 30 天）
 const MAX_LOOP = 30;
 
@@ -114,8 +116,8 @@ function parseHolidayYear(data) {
 async function getHolidayYearData(year) {
   const cacheKey = `holiday_year_${year}`;
 
-  // 1. 正常缓存命中（24h TTL）
-  const cached = globalCache.checkCache(cacheKey, HOLIDAY_CACHE_TYPE);
+  // 1. 正常缓存命中（30 天 TTL）
+  const cached = globalCache.checkCache(cacheKey, HOLIDAY_YEAR_CACHE_TYPE);
   if (cached.hit && cached.data) return cached.data;
 
   // 2. 最近失败（429/网络异常），5 分钟内不再请求同一 year
@@ -144,7 +146,7 @@ async function getHolidayYearData(year) {
       if (response.data && response.data.code === 0) {
         const map = parseHolidayYear(response.data);
         if (map && Object.keys(map).length > 0) {
-          globalCache.set(cacheKey, map, HOLIDAY_CACHE_TYPE);
+          globalCache.set(cacheKey, map, HOLIDAY_YEAR_CACHE_TYPE);
           logger.info(`年度节假日缓存完成: year=${year}, 条目=${Object.keys(map).length}`);
           failedYearTimestamps.delete(year); // 成功了，清掉失败标记
           return map;
@@ -175,7 +177,7 @@ async function isHoliday(dateStr) {
   const cacheKey = `holiday_${dateStr}`;
 
   // 1. 正常缓存命中 → 直接返回（fast path，不走并发合并）
-  const cached = globalCache.checkCache(cacheKey, HOLIDAY_CACHE_TYPE);
+  const cached = globalCache.checkCache(cacheKey, HOLIDAY_DAY_CACHE_TYPE);
   if (cached.hit) {
     logger.info(`缓存命中: date=${dateStr}, isHoliday=${cached.data.isHoliday}`);
     return cached.data.isHoliday;
@@ -197,13 +199,13 @@ async function isHoliday(dateStr) {
       if (yearMap) {
         const isHolidayVal = yearMap[mmdd] === true;
         logger.info(`年度节假日判定: date=${dateStr}, isHoliday=${isHolidayVal}`);
-        globalCache.set(cacheKey, { isHoliday: isHolidayVal }, HOLIDAY_CACHE_TYPE);
+        globalCache.set(cacheKey, { isHoliday: isHolidayVal }, HOLIDAY_DAY_CACHE_TYPE);
         return isHolidayVal;
       }
       // 年度不可用 → 回退单日接口
       logger.info(`年度节假日不可用，查询单日 API: date=${dateStr}`);
       const result = await fetchHolidayFromApi(dateStr);
-      globalCache.set(cacheKey, result, HOLIDAY_CACHE_TYPE);
+      globalCache.set(cacheKey, result, HOLIDAY_DAY_CACHE_TYPE);
       return result.isHoliday;
     } catch (error) {
       logger.warn(`API 调用失败，回退周末判断: date=${dateStr}, error=${error.message}`);

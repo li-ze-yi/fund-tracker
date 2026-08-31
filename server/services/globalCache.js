@@ -388,7 +388,13 @@ class GlobalCache {
         
       case 'market_status':   // 市场开闭状态
         return 60 * 1000;     // ✨ 1分钟（原15秒，适度延长）
-        
+
+      case 'holiday_year':    // 年度节假日表（timor.tech 一次拉整年）全年固定不变
+        return 30 * 24 * 60 * 60 * 1000;  // ✨ 30天（覆盖整个年度，次年1月初自然过期刷新）
+
+      case 'holiday_day':     // 单日节假日判定结果（年度接口失败时回退的单日结果）
+        return 24 * 60 * 60 * 1000;  // ✨ 24小时（单日判定一旦确定全年不变）
+
       default:
         return 60 * 1000;  // ✨ 默认1分钟（原30秒）
     }
