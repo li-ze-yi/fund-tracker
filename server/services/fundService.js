@@ -509,6 +509,39 @@ function subDaysStr(dateStr, days) {
 }
 
 /**
+ * 判断是否为美股休市日（周末 + 美股固定/浮动节假日）。
+ * 覆盖：元旦/六月节/独立日/圣诞 + 马丁路德金(1月第3周一)/总统日(2月第3周一)/
+ * 阵亡将士纪念日(5月最后周一)/劳动节(9月第1周一)/感恩节(11月第4周四)。
+ * 耶稣受难日未纳入：按保守处理（估算为 0，避免重复计入）。
+ */
+function isUsMarketHoliday(dateStr) {
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  const dow = dt.getDay();
+  if (dow === 0 || dow === 6) return true; // 周末
+  if ((m === 1 && d === 1) || (m === 6 && d === 19) || (m === 7 && d === 4) || (m === 12 && d === 25)) return true;
+  if (m === 1 && dow === 1 && d >= 15 && d <= 21) return true;  // 马丁路德金日（1月第3周一）
+  if (m === 2 && dow === 1 && d >= 15 && d <= 21) return true;  // 总统日（2月第3周一）
+  if (m === 5 && dow === 1 && d >= 25) return true;             // 阵亡将士纪念日（5月最后周一）
+  if (m === 9 && dow === 1 && d <= 7) return true;              // 劳动节（9月第1周一）
+  if (m === 11 && dow === 4 && d >= 22 && d <= 28) return true; // 感恩节（11月第4周四）
+  return false;
+}
+
+/**
+ * 返回 dateStr 之前的最近一个美股交易日（跳过周末与美股节假日）
+ * 用于确认净值滞后判定：D 应等于 T 的前一个美股交易日，而非自然日减一
+ */
+function getPrevUsTradingDay(dateStr) {
+  let cur = dateStr;
+  for (let i = 0; i < 10; i++) {
+    cur = subDaysStr(cur, 1);
+    if (cur && !isUsMarketHoliday(cur)) return cur;
+  }
+  return null;
+}
+
+/**
  * 通用指数实时涨跌幅（腾讯 qt.gtimg.cn/q=indexCode，与A股字段布局一致：[3]现价、[30]时间、[32]涨跌幅）
  * @returns {{changePercent: number, date: string}|null} date=最新交易日（date-only，YYYY-MM-DD）
  */
@@ -1013,7 +1046,7 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
     usIndexData = benchmarks.usIndex || (await getIndexChange('usNDX').catch(() => null));
     const T = usIndexData?.date || null;
     const D = options.confirmedNavDate || null;
-    usZeroed = !(D && T && String(D) === subDaysStr(T, 1)); // 仅 D==T-1 时不禁用美股增量
+    usZeroed = !(D && T && String(D) === getPrevUsTradingDay(T)); // 仅 D==T的前一美股交易日时不禁用美股增量
     if (usIndexData) logger.info(`${fundCode} 美股交易日T=${T} 确认净值日D=${D} usZeroed=${usZeroed}`);
   }
 
