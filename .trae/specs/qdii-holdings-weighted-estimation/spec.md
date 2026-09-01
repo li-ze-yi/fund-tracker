@@ -21,7 +21,7 @@ QDII/跨境基金（含 ETF 联接、纯美股 QDII、主动型 QDII）的盘中
   - `getFundHoldings`：过滤正则放宽为 `^(?:\d{5,6}|[A-Z]{1,6})$`（允许美股字母）；**仅 QDII/海外类型（`isQdiiFundType`）**且 `fundStocks` 为空但有 `ETFCODE` 时**递归拉母ETF成分**（012870→159696→10 只纳指成分，实测可行）；非 QDII 的 A 股 ETF 联接不递归，维持原路径。
   - 新增 `getIndexChange(indexCode)`：通用指数行情（腾讯 `qt.gtimg.cn/q=`，解析 `[32]` 涨跌幅），复用 `usNDX / usINX / usDJI / hkHSI / hkHSTECH`；新增 `getNikkeiIndexChange()`（新浪 `int_nikkei`，当日数据）。
   - `getHoldingsEstimatedOverlay`（**仅 QDII 类进入新分支，A 股基金零改动**）：
-    - 板块识别（仅 QDII）：持仓含字母→美股基金（缺失用 usNDX）；持仓含 5 位数字→港股基金（缺失用 hkHSI）；**非 QDII 基金（含港股通）维持原缺失填充（沪深300/国债）**。**日/韩不特判**（保留原逻辑）。
+    - 板块识别（仅 QDII）：持仓含字母→美股基金（缺失用**按基金名称关键词映射的指数**：纳斯达克/纳指→usNDX、标普/500→usINX、道琼斯/道指→usDJI，默认 usNDX）；持仓含 5 位数字→港股基金（缺失用 hkHSI）；**非 QDII 基金（含港股通）维持原缺失填充（沪深300/国债）**。**日/韩不特判**（保留原逻辑）。
     - **美股增量规则**：解析 us 指数时间戳得到最新美股交易日 T；比较基金确认净值日 D（D 取"T 的前一个美股交易日"，跳过周末/美股节假日，而非自然日减一）：
       - `D == T` → 美股部分增量 = 0（美股涨跌已计入确认净值，白天恒定）
       - `D == T 的前一美股交易日` → 增量 = 美股指数 changePercent（确认净值未含最近美股交易日）
@@ -95,6 +95,20 @@ QDII/跨境基金（含 ETF 联接、纯美股 QDII、主动型 QDII）的盘中
 
 - **WHEN** 港股通基金（非 QDII，type=指数型-股票）持仓 5 位数字代码部分无行情
 - **THEN** 缺失部分维持原沪深300填充，行为与现状一致
+
+### Requirement: 美股板块指数按基金名称关键词映射
+
+美股方向 QDII 的缺失填充指数 SHALL 按基金名称关键词映射：`纳斯达克|纳指|NDX` → usNDX；`标普|SP500|S&P|500指数` → usINX；`道琼斯|道指|工业指数|DJI` → usDJI；无匹配默认 usNDX。批量场景由 `getBenchmarks` 一次性预取 usNDX/usINX/usDJI 后按映射复用（纯 A 股批量不预取）。调用方（fundController/holdingService）传入 `fundName`/`fundNameMap`。
+
+#### Scenario: 标普500基金缺失用标普指数
+
+- **WHEN** 017641（摩根标普500指数 QDII 人民币A）缺失权重 64.7%
+- **THEN** 名称匹配"标普" → 缺失部分按 usINX 当日涨跌填充（而非默认 usNDX），估算更贴近跟踪指数
+
+#### Scenario: 纳指基金仍用纳指
+
+- **WHEN** 012753/012870（名称含"纳斯达克100"）缺失或占位填充
+- **THEN** 映射 usNDX，与修复前默认一致
 
 ### Requirement: 美股增量白天保持恒定（避免重复计入）
 

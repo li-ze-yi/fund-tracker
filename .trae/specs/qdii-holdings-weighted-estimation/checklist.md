@@ -24,7 +24,11 @@
 
 - [x] 新增 `getIndexChange(indexCode)`（腾讯，解析 [32] 涨跌幅 + 时间戳日期）
 - [x] 新增日经指数获取（新浪 `int_nikkei`）
-- [x] QDII 美股基金缺失 → usNDX；QDII 港股基金缺失 → hkHSI；非 QDII → 沪深300/国债原逻辑
+- [x] 新增 `getFundUsIndexCode(fundName)` 名称关键词映射：纳指/纳斯达克→usNDX、标普/500→usINX、道琼斯→usDJI、默认 usNDX
+- [x] `getBenchmarks` 批量预取 usNDX+usINX+usDJI+hkHSI，按 `usIndexMap` 复用
+- [x] 调用方（fundController/holdingService）传入 `fundName`/`fundNameMap`
+- [x] 验证 017641（标普500）→ usINX（-0.27% vs 修复前默认 usNDX 的 -0.01%）；012753/012870（纳指）→ usNDX
+- [x] QDII 美股基金缺失 → 映射指数；QDII 港股基金缺失 → hkHSI；非 QDII → 沪深300/国债原逻辑
 - [x] 指数获取失败时回退原沪深300/国债（fail-safe）
 - [ ] 韩国 KOSPI 不可用：韩股缺失填充指数（待产品确认，默认不新增指数源）
 

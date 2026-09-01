@@ -498,6 +498,18 @@ function isQdiiFundType(type) {
 }
 
 /**
+ * 按基金名称关键词映射美股板块指数（用于缺失持仓的板块填充近似）
+ * 匹配优先级：纳斯达克/纳指 → usNDX；标普/500 → usINX；道琼斯/道指/工业 → usDJI；默认 usNDX
+ */
+function getFundUsIndexCode(fundName = '') {
+  const n = fundName || '';
+  if (/纳斯达克|纳指|NDX/i.test(n)) return 'usNDX';
+  if (/标普|SP500|\bS&P\b|500指数/i.test(n)) return 'usINX';
+  if (/道琼斯|道指|工业指数|DJI/i.test(n)) return 'usDJI';
+  return 'usNDX';
+}
+
+/**
  * 日期减法（date-only 字符串）：返回 YYYY-MM-DD，处理跨月/跨年
  */
 function subDaysStr(dateStr, days) {
@@ -1029,25 +1041,26 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
   logger.info(`${fundCode} 行情: ${successCount}/${holdings.length}只成功`);
 
   // 3.5 板块识别（仅 QDII）：
-  //     - 持仓含字母代码 → 美股方向（缺失用纳斯达克100 usNDX）
+  //     - 持仓含字母代码 → 美股方向（缺失用基金跟踪指数 usNDX/usINX/usDJI，按名称关键词映射）
   //     - 否则持仓含 5 位数字 → 港股方向（缺失用恒生指数 hkHSI）
   //     - 纯 A 股持仓（6 位数字）/ 非 QDII → 维持沪深300原逻辑
   const isUsFund = holdings.some(h => /^[A-Z]/.test(h.code));
   const isHkFund = !isUsFund && holdings.some(h => /^\d{5}$/.test(h.code));
+  const usIndexCode = isUsFund ? getFundUsIndexCode(options.fundName) : null;
 
   // 3.6 美股增量规则（避免重复计入昨晚已计入确认净值的涨跌）：
   //     解析美股指数时间戳得最新美股交易日 T；比较确认净值日 D：
-  //       D == T   → 美股部分增量 0（白天美股未开盘，最新变动已计入确认净值，估算恒定）
-  //       D == T-1 → 美股部分增量 = 最近交易日涨跌（确认净值尚未包含）
-  //       D < T-1  → 不叠加（回退展示最新确认净值）
+  //       D == T        → 美股部分增量 0（白天美股未开盘，最新变动已计入确认净值，估算恒定）
+  //       D == T 的前一美股交易日 → 美股部分增量 = 最近交易日涨跌（确认净值尚未包含）
+  //       D 更早         → 不叠加（回退展示最新确认净值）
   let usZeroed = false;
   let usIndexData = null;
   if (isQdii && isUsFund) {
-    usIndexData = benchmarks.usIndex || (await getIndexChange('usNDX').catch(() => null));
+    usIndexData = benchmarks?.usIndexMap?.[usIndexCode] || benchmarks?.usIndex || (await getIndexChange(usIndexCode).catch(() => null));
     const T = usIndexData?.date || null;
     const D = options.confirmedNavDate || null;
     usZeroed = !(D && T && String(D) === getPrevUsTradingDay(T)); // 仅 D==T的前一美股交易日时不禁用美股增量
-    if (usIndexData) logger.info(`${fundCode} 美股交易日T=${T} 确认净值日D=${D} usZeroed=${usZeroed}`);
+    if (usIndexData) logger.info(`${fundCode} 板块指数=${usIndexCode} 美股交易日T=${T} 确认净值日D=${D} usZeroed=${usZeroed}`);
   }
 
   // 4. 计算已覆盖贡献 & 缺失股票权重（usZeroed 时美股个股权重增量置0）
@@ -1070,8 +1083,8 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
   let benchmarkReturn = 0;
   if (missingStockWeight > 0 || (isQdii && (isUsFund || isHkFund))) {
     if (isQdii && isUsFund) {
-      benchmarkReturn = usZeroed ? 0 : (benchmarks.usIndex?.changePercent ?? usIndexData?.changePercent ?? 0);
-      logger.info(`${fundCode} 缺失股票权重=${missingStockWeight.toFixed(2)}%, 纳斯达克100=${benchmarkReturn}%`);
+      benchmarkReturn = usZeroed ? 0 : (benchmarks?.usIndexMap?.[usIndexCode]?.changePercent ?? usIndexData?.changePercent ?? 0);
+      logger.info(`${fundCode} 缺失股票权重=${missingStockWeight.toFixed(2)}%, ${usIndexCode}=${benchmarkReturn}%`);
     } else if (isQdii && isHkFund) {
       const hkIndexData = benchmarks.hkIndex || (await getIndexChange('hkHSI').catch(() => null));
       benchmarkReturn = hkIndexData?.changePercent ?? 0;
@@ -1223,9 +1236,10 @@ async function getRealTimeValueWithMethod(fundCode, method = 'sina', options = {
   logger.info(`${fundCode} 确认净值=${confirmed?.netValue ?? 'null'}`);
 
   // 根据用户选择的数据源获取盘中估算
-  // 透传 QDII 标记与确认净值日期（美股增量规则需要 D）
+  // 透传 QDII 标记、基金名称（指数按名称关键词映射）与确认净值日期（美股增量规则需要 D）
   const overlayOptions = {
     isQDII: !!options.isQDII,
+    fundName: options.fundName || '',
     confirmedNavDate: confirmed?.updateTime || null,
   };
   let estimated = null;
@@ -1518,11 +1532,20 @@ async function getBenchmarks(needsUsHk = false) {
     getBondBenchmarkChange().catch(() => 0),
   ];
   if (needsUsHk) {
+    // 美股板块指数全量预取（usNDX/usINX/usDJI + 恒生），单次批量内去向固定
     tasks.push(getIndexChange('usNDX').catch(() => null));
+    tasks.push(getIndexChange('usINX').catch(() => null));
+    tasks.push(getIndexChange('usDJI').catch(() => null));
     tasks.push(getIndexChange('hkHSI').catch(() => null));
   }
-  const [benchmarkReturn, bondBenchmarkChange, usIndex, hkIndex] = await Promise.all(tasks);
-  return { benchmarkReturn, bondBenchmarkChange, usIndex, hkIndex };
+  const [benchmarkReturn, bondBenchmarkChange, usNDX, usINX, usDJI, hkIndex] = await Promise.all(tasks);
+  return {
+    benchmarkReturn,
+    bondBenchmarkChange,
+    usIndex: usNDX,
+    usIndexMap: { usNDX, usINX, usDJI }, // 供按基金名称映射的指数选择
+    hkIndex,
+  };
 }
 
 /**
@@ -1536,8 +1559,9 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina', opti
   const result = {};
   if (!fundCodes || !fundCodes.length) return result;
 
-  // 调用方传入 QDII 标记映射（{ code: boolean }）；纯 A 股批量不请求 us/hk 指数
+  // 调用方传入 QDII 标记映射（{ code: boolean }）与基金名称映射（{ code: name }，指数按名称映射）
   const isQdiiMap = options.isQdiiMap || {};
+  const fundNameMap = options.fundNameMap || {};
   const needsUsHk = fundCodes.some(c => isQdiiMap[c]);
 
   const startTime = Date.now();
@@ -1555,6 +1579,7 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina', opti
       try {
         return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue, benchmarks, {
           isQDII: !!isQdiiMap[code],
+          fundName: fundNameMap[code] || '',
           confirmedNavDate: mobapiMap[code]?.updateTime || null,
         }) };
       } catch { return { code, data: null }; }
@@ -1574,6 +1599,7 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina', opti
         try {
           return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue, benchmarks, {
             isQDII: !!isQdiiMap[code],
+            fundName: fundNameMap[code] || '',
             confirmedNavDate: mobapiMap[code]?.updateTime || null,
           }) };
         } catch { return { code, data: null }; }

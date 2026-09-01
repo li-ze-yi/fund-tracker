@@ -25,10 +25,11 @@
 
 - [x] SubTask 3.1: 新增 `getIndexChange(indexCode)`（腾讯，时间戳+[32] 解析），复用 usNDX/usINX/usDJI/hkHSI/hkHSTECH
 - [x] SubTask 3.2: 新增日经指数获取（新浪 `int_nikkei`，当日数据）
-- [x] SubTask 3.3: `getHoldingsEstimatedOverlay` 板块识别（仅 QDII）：含字母→美股、5位数字→港股、否则 A 股；缺失填充分别用 usNDX / hkHSI / 沪深300（原逻辑）
-- [x] SubTask 3.4: 指数获取失败回退原沪深300/国债（fail-safe）
-- [ ] SubTask 3.5: 韩国 KOSPI 缺失：确认无可用源，缺失填充指数写入 spec 待定项（默认不填充新指数）
-- [x] SubTask 3.6: 验证非 QDII（A 股、港股通）缺失填充维持沪深300/国债
+- [x] SubTask 3.3: `getHoldingsEstimatedOverlay` 板块识别（仅 QDII）：含字母→美股、5位数字→港股、否则 A 股；缺失填充分别用映射指数 / hkHSI / 沪深300（原逻辑）
+- [x] SubTask 3.4: 新增 `getFundUsIndexCode(fundName)` 名称关键词映射（纳指→usNDX、标普/500→usINX、道琼斯→usDJI、默认 usNDX），且 `getBenchmarks` 预取三指数按 `usIndexMap` 复用
+- [x] SubTask 3.5: 指数获取失败回退原沪深300/国债（fail-safe）
+- [ ] SubTask 3.6: 韩国 KOSPI 缺失：确认无可用源，缺失填充指数写入 spec 待定项（默认不填充新指数）
+- [x] SubTask 3.7: 验证非 QDII（A 股、港股通）缺失填充维持沪深300/国债；017641 标普500 命中 usINX
 
 ## Task 4: 美股增量白天保持恒定
 
