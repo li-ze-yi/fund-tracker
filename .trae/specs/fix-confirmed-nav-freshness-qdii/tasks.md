@@ -1,4 +1,4 @@
-# Tasks
+﻿# Tasks
 
 ## Task 1: 确认净值新鲜度以交易日锚点为权威校验
 
@@ -75,3 +75,24 @@
 - Task 5 修正 Task 1/4 的 QDII 口径（展示 isConfirmed 与日收益参与判定分离、DB 新鲜度窗口收窄），验证阶段发现后补充实施
 - Task 6 独立于 Task 1-5（日历数据源增强），全部调用点自动受益
 - 各 Task 验证独立执行（隔离脚本 stub 外部依赖，不污染真实数据）
+
+## Task 7: 节假日接口并发去重 + 独立 TTL
+
+**Status**: ✅ done
+
+**SubTasks**:
+- [x] inflightYearPromises Map：getHolidayYearData 并发合并（缓存 miss 后查 inflight，请求完 finally 删除）
+- [x] inflightHolidayPromises Map：isHoliday 并发合并（缓存 hit fast path 不合并；miss 后查 inflight，finally 删除）
+- [x] ailedYearTimestamps Map + FAILURE_CACHE_TTL_MS = 5min：年度接口 catch 里 set，请求前检查，成功时 delete
+- [x] 失败降级路径保留：年度跳过 → 单日 fallback → 单日也失败 → 降级为非节假日（周末短路仍生效）
+- [x] globalCache.getTTL 新增 holiday_year（30 天）+ holiday_day（3 天）
+- [x] holidayService 常量从 HOLIDAY_CACHE_TYPE = 'history_chart' 拆分为 HOLIDAY_YEAR_CACHE_TYPE / HOLIDAY_DAY_CACHE_TYPE
+- [x] 
+ode --check + 
+pm test（7/7）通过
+- [x] 真实场景验证：10 并发 API 调用次数从 20+（每只基金年度+单日）降到 2（年度 1 + 单日 1）；429 后再调 5 次年度 API 调用次数 = 0
+- [x] 提交并推送： 25ab48（并发去重）、163e6e6（独立 TTL 30d/24h）、9669d1（holiday_day 3 天）
+
+---
+
+- Task 7 独立于 Task 1-6（日历数据源进一步增强），解决 cache stampede 与缓存 type 耦合问题

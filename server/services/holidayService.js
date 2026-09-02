@@ -8,10 +8,20 @@ const logger = createLogger('HolidayService');
 const HOLIDAY_API_BASE = 'https://timor.tech/api/holiday/info';
 // timor.tech 年度节假日接口（一次返回整年，路径末尾需带 /{year}/）
 const HOLIDAY_YEAR_API_BASE = 'https://timor.tech/api/holiday/year';
-// 复用 history_chart 类型获得固定 24 小时 TTL（节假日信息一旦确定不会变化）
-const HOLIDAY_CACHE_TYPE = 'history_chart';
+// 年度节假日表缓存 type（30 天 TTL：全年固定不变）
+const HOLIDAY_YEAR_CACHE_TYPE = 'holiday_year';
+// 单日节假日判定结果缓存 type（24h TTL：单日判定一旦确定全年不变）
+const HOLIDAY_DAY_CACHE_TYPE = 'holiday_day';
 // 防死循环最大次数（最长的节假日连休也不会超过 30 天）
 const MAX_LOOP = 30;
+
+// ★ 并发去重：同一个 year 的请求合并为一次（cache stampede 防御）
+const inflightYearPromises = new Map();
+// ★ 并发去重：同一个 dateStr 的 isHoliday 请求合并为一次（年度失败后回退单日也可能并发击穿）
+const inflightHolidayPromises = new Map();
+// ★ 失败时间戳：429/网络临时失败时，5 分钟内不再请求同一 year（避免反复炸 API）
+const failedYearTimestamps = new Map();
+const FAILURE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
  * 格式化 Date 对象为 YYYY-MM-DD 字符串
@@ -105,30 +115,56 @@ function parseHolidayYear(data) {
  */
 async function getHolidayYearData(year) {
   const cacheKey = `holiday_year_${year}`;
-  const cached = globalCache.checkCache(cacheKey, HOLIDAY_CACHE_TYPE);
+
+  // 1. 正常缓存命中（30 天 TTL）
+  const cached = globalCache.checkCache(cacheKey, HOLIDAY_YEAR_CACHE_TYPE);
   if (cached.hit && cached.data) return cached.data;
 
-  const url = `${HOLIDAY_YEAR_API_BASE}/${year}/`;
-  try {
-    const response = await axios.get(url, {
-      timeout: 8000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    });
-    if (response.data && response.data.code === 0) {
-      const map = parseHolidayYear(response.data);
-      if (map && Object.keys(map).length > 0) {
-        globalCache.set(cacheKey, map, HOLIDAY_CACHE_TYPE);
-        logger.info(`年度节假日缓存完成: year=${year}, 条目=${Object.keys(map).length}`);
-        return map;
-      }
-    }
-    logger.warn(`年度节假日接口响应异常: year=${year}, body=${String(response.data).slice(0, 200)}`);
-  } catch (e) {
-    logger.warn(`年度节假日接口调用失败: year=${year}, err=${e.message}`);
+  // 2. 最近失败（429/网络异常），5 分钟内不再请求同一 year
+  const failedAt = failedYearTimestamps.get(year);
+  if (failedAt && (Date.now() - failedAt) < FAILURE_CACHE_TTL_MS) {
+    logger.debug(`年度节假日 ${year} 最近请求失败，跳过 (${Math.ceil((FAILURE_CACHE_TTL_MS - (Date.now() - failedAt)) / 1000)}s 后重试)`);
+    return null;
   }
-  return null;
+
+  // 3. 并发去重：同一 year 已有请求在飞，直接合并到那个 promise
+  if (inflightYearPromises.has(year)) {
+    logger.debug(`年度节假日 ${year} 请求已在飞，合并并发调用`);
+    return inflightYearPromises.get(year);
+  }
+
+  // 4. 发起请求（自执行 async，存入 inflightMap 防止并发击穿）
+  const promise = (async () => {
+    const url = `${HOLIDAY_YEAR_API_BASE}/${year}/`;
+    try {
+      const response = await axios.get(url, {
+        timeout: 8000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+      });
+      if (response.data && response.data.code === 0) {
+        const map = parseHolidayYear(response.data);
+        if (map && Object.keys(map).length > 0) {
+          globalCache.set(cacheKey, map, HOLIDAY_YEAR_CACHE_TYPE);
+          logger.info(`年度节假日缓存完成: year=${year}, 条目=${Object.keys(map).length}`);
+          failedYearTimestamps.delete(year); // 成功了，清掉失败标记
+          return map;
+        }
+      }
+      logger.warn(`年度节假日接口响应异常: year=${year}, body=${String(response.data).slice(0, 200)}`);
+    } catch (e) {
+      logger.warn(`年度节假日接口调用失败: year=${year}, err=${e.message}`);
+    } finally {
+      inflightYearPromises.delete(year); // 无论成功失败，都从 inflight 中移除（允许下次请求）
+    }
+    // 走到这里 = 失败，记录失败时间戳（5min TTL 内不再请求）
+    failedYearTimestamps.set(year, Date.now());
+    return null;
+  })();
+
+  inflightYearPromises.set(year, promise);
+  return promise;
 }
 
 /**
@@ -140,36 +176,47 @@ async function getHolidayYearData(year) {
 async function isHoliday(dateStr) {
   const cacheKey = `holiday_${dateStr}`;
 
-  // 先检查缓存，命中时直接返回（避免 getOrFetch 内部 debug 日志不可见）
-  const cached = globalCache.checkCache(cacheKey, HOLIDAY_CACHE_TYPE);
+  // 1. 正常缓存命中 → 直接返回（fast path，不走并发合并）
+  const cached = globalCache.checkCache(cacheKey, HOLIDAY_DAY_CACHE_TYPE);
   if (cached.hit) {
     logger.info(`缓存命中: date=${dateStr}, isHoliday=${cached.data.isHoliday}`);
     return cached.data.isHoliday;
   }
 
-  // ★ 优先年度节假日缓存：一次拉整年，长假回溯不再逐日请求单日接口（免疫 timor 429 限流）
-  const year = dateStr.slice(0, 4);
-  const mmdd = dateStr.slice(5);
-  const yearMap = await getHolidayYearData(year);
-  if (yearMap) {
-    // 年度表仅含节假日与调休补班：true=放假、false=补班工作日（非节假日）；不在表中=普通工作日
-    const isHolidayVal = yearMap[mmdd] === true;
-    logger.info(`年度节假日判定: date=${dateStr}, isHoliday=${isHolidayVal}`);
-    globalCache.set(cacheKey, { isHoliday: isHolidayVal }, HOLIDAY_CACHE_TYPE);
-    return isHolidayVal;
+  // 2. 并发去重：同一 dateStr 已有请求在飞 → 合并
+  if (inflightHolidayPromises.has(dateStr)) {
+    logger.debug(`isHoliday(${dateStr}) 请求已在飞，合并并发调用`);
+    return inflightHolidayPromises.get(dateStr);
   }
 
-  // 年度接口不可用 → 回退单日接口（原逻辑）
-  logger.info(`年度节假日不可用，查询单日 API: date=${dateStr}`);
-  try {
-    const result = await fetchHolidayFromApi(dateStr);
-    globalCache.set(cacheKey, result, HOLIDAY_CACHE_TYPE);
-    return result.isHoliday;
-  } catch (error) {
-    // 降级：API 失败时视为非节假日（退化为周末判断），不缓存降级结果
-    logger.warn(`API 调用失败，回退周末判断: date=${dateStr}, error=${error.message}`);
-    return false;
-  }
+  // 3. 发起请求并记录 inflight
+  const promise = (async () => {
+    // ★ 优先年度节假日缓存：一次拉整年，长假回溯不再逐日请求单日接口（免疫 timor 429 限流）
+    const year = dateStr.slice(0, 4);
+    const mmdd = dateStr.slice(5);
+    try {
+      const yearMap = await getHolidayYearData(year);
+      if (yearMap) {
+        const isHolidayVal = yearMap[mmdd] === true;
+        logger.info(`年度节假日判定: date=${dateStr}, isHoliday=${isHolidayVal}`);
+        globalCache.set(cacheKey, { isHoliday: isHolidayVal }, HOLIDAY_DAY_CACHE_TYPE);
+        return isHolidayVal;
+      }
+      // 年度不可用 → 回退单日接口
+      logger.info(`年度节假日不可用，查询单日 API: date=${dateStr}`);
+      const result = await fetchHolidayFromApi(dateStr);
+      globalCache.set(cacheKey, result, HOLIDAY_DAY_CACHE_TYPE);
+      return result.isHoliday;
+    } catch (error) {
+      logger.warn(`API 调用失败，回退周末判断: date=${dateStr}, error=${error.message}`);
+      return false; // 降级
+    } finally {
+      inflightHolidayPromises.delete(dateStr);
+    }
+  })();
+
+  inflightHolidayPromises.set(dateStr, promise);
+  return promise;
 }
 
 /**

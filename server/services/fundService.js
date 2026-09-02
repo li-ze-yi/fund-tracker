@@ -374,11 +374,12 @@ async function getTencentValue(fundCode) {
 const holdingsCache = createTtlCache({ ttl: 4 * 60 * 60 * 1000 });
 
 function getStockPrefix(code) {
+  if (/^[A-Z]/.test(code)) return 'us'; // 美股（字母代码，如 NVDA）
   if (code.length === 5) return 'hk'; // 港股
   return code.startsWith('6') ? 'sh' : 'sz'; // A股
 }
 
-async function getFundHoldings(fundCode) {
+async function getFundHoldings(fundCode, isQDII = false) {
   const now = Date.now();
   const cached = holdingsCache.get(fundCode);
   if (cached && (now - cached.ts) < 4 * 60 * 60 * 1000) {
@@ -408,12 +409,23 @@ async function getFundHoldings(fundCode) {
       const stockName = s.GPJC;
       const ratio = parseFloat(s.JZBL);
 
-      // 过滤非数字代码（美股 SNDK/MU 等字母代码）和无效占比
-      if (!stockCode || !/^\d{5,6}$/.test(stockCode)) continue;
-      if (isNaN(ratio) || ratio <= 0) continue;
+      // 过滤空代码和无效占比；只接受 5-6 位数字（A股/港股）或 1-6 位大写字母（美股）
+      if (!stockCode || isNaN(ratio) || ratio <= 0) continue;
+      if (!/^(?:\d{5,6}|[A-Z]{1,6})$/.test(stockCode.trim())) continue;
 
       holdings.push({ code: stockCode, name: stockName, ratio });
       totalStockRatio += ratio;
+    }
+
+    // QDII ETF联接基金：fundStocks 为空但披露了母ETF（ETFCODE）时，递归拉取母ETF成分参与加权
+    // 仅 QDII/海外类型触发（A 股 ETF 联接保持原"母ETF场内价"路径，不递归）
+    if (!holdings.length && etfCode && isQDII) {
+      logger.info(`${fundCode} 持仓为空但为QDII联接(母ETF=${etfCode})，递归拉取母ETF成分`);
+      const etfRes = await getFundHoldings(etfCode, false);
+      if (etfRes.holdings.length) {
+        holdings.push(...etfRes.holdings);
+        totalStockRatio = etfRes.totalStockRatio;
+      }
     }
 
     const result = {
@@ -471,6 +483,117 @@ async function getBondBenchmarkChange() {
       const fields = content?.split('~');
       // 腾讯字段: [32]涨跌幅%
       const changePercent = parseFloat(fields?.[32]);
+      if (!isNaN(changePercent)) return changePercent;
+    }
+  } catch (e) { /* fall through */ }
+  return 0;
+}
+
+/**
+ * QDII/海外基金类型判定（与 holdingService.isQdiiFundType /QDII|海外/ 保持一致的轻量实现，
+ * 避免 fundService 反向 require holdingService 造成循环依赖）
+ */
+function isQdiiFundType(type) {
+  return !!type && /QDII|海外/.test(type);
+}
+
+/**
+ * 按基金名称关键词映射美股板块指数（用于缺失持仓的板块填充近似）
+ * 匹配优先级：纳斯达克/纳指 → usNDX；标普/500 → usINX；道琼斯/道指/工业 → usDJI；默认 usNDX
+ */
+function getFundUsIndexCode(fundName = '') {
+  const n = fundName || '';
+  if (/纳斯达克|纳指|NDX/i.test(n)) return 'usNDX';
+  if (/标普|SP500|\bS&P\b|500指数/i.test(n)) return 'usINX';
+  if (/道琼斯|道指|工业指数|DJI/i.test(n)) return 'usDJI';
+  return 'usNDX';
+}
+
+/**
+ * 日期减法（date-only 字符串）：返回 YYYY-MM-DD，处理跨月/跨年
+ */
+function subDaysStr(dateStr, days) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d - days);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * 判断是否为美股休市日（周末 + 美股固定/浮动节假日）。
+ * 覆盖：元旦/六月节/独立日/圣诞 + 马丁路德金(1月第3周一)/总统日(2月第3周一)/
+ * 阵亡将士纪念日(5月最后周一)/劳动节(9月第1周一)/感恩节(11月第4周四)。
+ * 耶稣受难日未纳入：按保守处理（估算为 0，避免重复计入）。
+ */
+function isUsMarketHoliday(dateStr) {
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  const dow = dt.getDay();
+  if (dow === 0 || dow === 6) return true; // 周末
+  if ((m === 1 && d === 1) || (m === 6 && d === 19) || (m === 7 && d === 4) || (m === 12 && d === 25)) return true;
+  if (m === 1 && dow === 1 && d >= 15 && d <= 21) return true;  // 马丁路德金日（1月第3周一）
+  if (m === 2 && dow === 1 && d >= 15 && d <= 21) return true;  // 总统日（2月第3周一）
+  if (m === 5 && dow === 1 && d >= 25) return true;             // 阵亡将士纪念日（5月最后周一）
+  if (m === 9 && dow === 1 && d <= 7) return true;              // 劳动节（9月第1周一）
+  if (m === 11 && dow === 4 && d >= 22 && d <= 28) return true; // 感恩节（11月第4周四）
+  return false;
+}
+
+/**
+ * 返回 dateStr 之前的最近一个美股交易日（跳过周末与美股节假日）
+ * 用于确认净值滞后判定：D 应等于 T 的前一个美股交易日，而非自然日减一
+ */
+function getPrevUsTradingDay(dateStr) {
+  let cur = dateStr;
+  for (let i = 0; i < 10; i++) {
+    cur = subDaysStr(cur, 1);
+    if (cur && !isUsMarketHoliday(cur)) return cur;
+  }
+  return null;
+}
+
+/**
+ * 通用指数实时涨跌幅（腾讯 qt.gtimg.cn/q=indexCode，与A股字段布局一致：[3]现价、[30]时间、[32]涨跌幅）
+ * @returns {{changePercent: number, date: string}|null} date=最新交易日（date-only，YYYY-MM-DD）
+ */
+async function getIndexChange(indexCode) {
+  try {
+    const { data } = await axios.get(`http://qt.gtimg.cn/q=${indexCode}`, {
+      timeout: 2000,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      responseType: 'text',
+    });
+    const line = data.split('\n').find(l => l.includes(`v_${indexCode}`));
+    if (line) {
+      const content = line.split('="')[1]?.replace(/";$/, '');
+      const fields = content?.split('~');
+      const changePercent = parseFloat(fields?.[32]);
+      const rawTime = fields?.[30] || '';
+      // 腾讯时间戳格式：ISO(2026-08-27 17:15:59) 或 斜杠(2026/08/28 17:44:31)，统一归一
+      const date = rawTime.replace(/\//g, '-').slice(0, 10) || null;
+      if (!isNaN(changePercent)) return { changePercent, date };
+    }
+  } catch (e) { /* fall through */ }
+  return null;
+}
+
+/**
+ * 获取日经225指数当日涨跌（新浪 int_nikkei），用于日股缺失持仓的近似填充
+ * 新浪格式: name,现价,涨跌额,涨跌幅
+ * 超时2秒，失败返回 null
+ */
+async function getNikkeiIndexChange() {
+  try {
+    const { data } = await axios.get('http://hq.sinajs.cn/list=int_nikkei', {
+      timeout: 2000,
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/' },
+      responseType: 'text',
+    });
+    const match = data.match(/int_nikkei="([^"]*)"/);
+    if (match) {
+      const fields = match[1].split(',');
+      const changePercent = parseFloat(fields[3]);
       if (!isNaN(changePercent)) return changePercent;
     }
   } catch (e) { /* fall through */ }
@@ -553,7 +676,7 @@ async function getStocksRealtimeBatch(stockCodes) {
     const result = {};
     const lines = data.split('\n').filter(l => l.includes('="'));
     for (const line of lines) {
-      const codeMatch = line.match(/v_(?:sh|sz|hk)(\d+)="(.+)"/);
+      const codeMatch = line.match(/v_(?:sh|sz|hk|us)([0-9A-Z.]+)="(.+)"/);
       if (!codeMatch) continue;
       const stockCode = codeMatch[1];
       const fields = codeMatch[2].split('~');
@@ -888,11 +1011,15 @@ async function getFundAssetAllocation(fundCode) {
 
 
 
-async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = {}) {
+async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = {}, options = {}) {
   logger.info(`${fundCode} 进入持仓穿透估值`);
 
-  // 1. 获取全部持仓 + 总股票仓位比例 + 报告期
-  const { holdings, totalStockRatio, reportDate, etfCode } = await getFundHoldings(fundCode);
+  // 0. 仅 QDII/海外类型进入板块化/成分加权新分支；纯 A 股基金永远走原逻辑
+  //    options: { isQDII: boolean, confirmedNavDate: string|null (确认净值日期 YYYY-MM-DD) }
+  const isQdii = !!options.isQDII;
+
+  // 1. 获取全部持仓 + 总股票仓位比例 + 报告期（QDII联接基金在 getFundHoldings 内递归母ETF成分）
+  const { holdings, totalStockRatio, reportDate, etfCode } = await getFundHoldings(fundCode, isQdii);
   logger.info(`${fundCode} 持仓: ${holdings.length}只, 覆盖率=${totalStockRatio}%, 报告期=${reportDate}, etfCode=${etfCode || 'null'}`);
 
   // 2. 无持仓且非ETF联接基金 → 无法估值
@@ -913,14 +1040,38 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
   }
   logger.info(`${fundCode} 行情: ${successCount}/${holdings.length}只成功`);
 
-  // 4. 计算已覆盖贡献 & 缺失股票权重
+  // 3.5 板块识别（仅 QDII）：
+  //     - 持仓含字母代码 → 美股方向（缺失用基金跟踪指数 usNDX/usINX/usDJI，按名称关键词映射）
+  //     - 否则持仓含 5 位数字 → 港股方向（缺失用恒生指数 hkHSI）
+  //     - 纯 A 股持仓（6 位数字）/ 非 QDII → 维持沪深300原逻辑
+  const isUsFund = holdings.some(h => /^[A-Z]/.test(h.code));
+  const isHkFund = !isUsFund && holdings.some(h => /^\d{5}$/.test(h.code));
+  const usIndexCode = isUsFund ? getFundUsIndexCode(options.fundName) : null;
+
+  // 3.6 美股增量规则（避免重复计入昨晚已计入确认净值的涨跌）：
+  //     解析美股指数时间戳得最新美股交易日 T；比较确认净值日 D：
+  //       D == T        → 美股部分增量 0（白天美股未开盘，最新变动已计入确认净值，估算恒定）
+  //       D == T 的前一美股交易日 → 美股部分增量 = 最近交易日涨跌（确认净值尚未包含）
+  //       D 更早         → 不叠加（回退展示最新确认净值）
+  let usZeroed = false;
+  let usIndexData = null;
+  if (isQdii && isUsFund) {
+    usIndexData = benchmarks?.usIndexMap?.[usIndexCode] || benchmarks?.usIndex || (await getIndexChange(usIndexCode).catch(() => null));
+    const T = usIndexData?.date || null;
+    const D = options.confirmedNavDate || null;
+    usZeroed = !(D && T && String(D) === getPrevUsTradingDay(T)); // 仅 D==T的前一美股交易日时不禁用美股增量
+    if (usIndexData) logger.info(`${fundCode} 板块指数=${usIndexCode} 美股交易日T=${T} 确认净值日D=${D} usZeroed=${usZeroed}`);
+  }
+
+  // 4. 计算已覆盖贡献 & 缺失股票权重（usZeroed 时美股个股权重增量置0）
   let coveredContribution = 0;
   let missingStockWeight = 0;
 
   for (const h of holdings) {
     const q = stockQuotes[h.code];
     if (q && q.changePercent != null) {
-      coveredContribution += h.ratio * q.changePercent;
+      const cp = (usZeroed && /^[A-Z]/.test(h.code)) ? 0 : q.changePercent;
+      coveredContribution += h.ratio * cp;
     } else {
       missingStockWeight += h.ratio;
     }
@@ -928,12 +1079,22 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
 
   // 5. 获取基准指数涨跌幅用于填补缺失股票 + 国债指数用于债券部分
   //    批量入口可传入已计算好的基准，避免每只基金重复请求
+  //    QDII（仅）：美股方向缺失用纳斯达克100（usZeroed 时为0）、港股方向用恒生指数；非 QDII 维持沪深300
   let benchmarkReturn = 0;
-  if (missingStockWeight > 0) {
-    benchmarkReturn = benchmarks.benchmarkReturn != null
-      ? benchmarks.benchmarkReturn
-      : await getBenchmarkChange();
-    logger.info(`${fundCode} 缺失股票权重=${missingStockWeight.toFixed(2)}%, 沪深300=${benchmarkReturn}%`);
+  if (missingStockWeight > 0 || (isQdii && (isUsFund || isHkFund))) {
+    if (isQdii && isUsFund) {
+      benchmarkReturn = usZeroed ? 0 : (benchmarks?.usIndexMap?.[usIndexCode]?.changePercent ?? usIndexData?.changePercent ?? 0);
+      logger.info(`${fundCode} 缺失股票权重=${missingStockWeight.toFixed(2)}%, ${usIndexCode}=${benchmarkReturn}%`);
+    } else if (isQdii && isHkFund) {
+      const hkIndexData = benchmarks.hkIndex || (await getIndexChange('hkHSI').catch(() => null));
+      benchmarkReturn = hkIndexData?.changePercent ?? 0;
+      logger.info(`${fundCode} 缺失股票权重=${missingStockWeight.toFixed(2)}%, 恒生指数=${benchmarkReturn}%`);
+    } else if (missingStockWeight > 0) {
+      benchmarkReturn = benchmarks.benchmarkReturn != null
+        ? benchmarks.benchmarkReturn
+        : await getBenchmarkChange();
+      logger.info(`${fundCode} 缺失股票权重=${missingStockWeight.toFixed(2)}%, 沪深300=${benchmarkReturn}%`);
+    }
   }
   const bondBenchmarkChange = benchmarks.bondBenchmarkChange != null
     ? benchmarks.bondBenchmarkChange
@@ -946,24 +1107,38 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
   let missingContribution = 0;
   let bondContribution = 0;
   let etfContribution = 0;
+  // QDII ETF联接（已递归成分）时跳过基础公式，最终涨跌由"母ETF占比 × 母ETF成分加权变动"给出
+  let etfConstituentFinal = false;
 
   // ETF联接基金：用资产配置区分债券/现金/母ETF
   if (etfCode && assetAlloc) {
     const { stockRatio, bondRatio, cashRatio } = assetAlloc;
     const etfWeight = Math.max(0, 100 - stockRatio - bondRatio - cashRatio); // 母ETF占比
 
-    bondWeight = bondRatio;
-    missingContribution = missingStockWeight * benchmarkReturn;
-    bondContribution = bondWeight * bondBenchmarkChange;
+    if (isQdii && holdings.length > 0) {
+      // QDII ETF联接（已递归母ETF成分）：主导 = 成分加权 + 板块指数补缺
+      // 母ETF变动 ≈ (已覆盖成分 + 缺失成分×板块指数 + 母ETF内非披露部分×板块指数) / 100
+      // 联接基金变动 = 母ETF占比 × 母ETF变动（替代场内价折溢价口径）
+      const etfBondWeight = Math.max(0, 100 - totalStockRatio);
+      const etfChange = (coveredContribution + missingStockWeight * benchmarkReturn + etfBondWeight * benchmarkReturn) / 100;
+      etfContribution = etfWeight * etfChange;
+      etfConstituentFinal = true;
+      logger.info(`${fundCode} QDII联接成分加权: 母ETF=${etfCode} 变动=${etfChange.toFixed(2)}% 占比=${etfWeight.toFixed(2)}%`);
+    } else {
+      // A 股 ETF 联接 / QDII 联接递归失败：维持原"母ETF场内价"逻辑
+      bondWeight = bondRatio;
+      missingContribution = missingStockWeight * benchmarkReturn;
+      bondContribution = bondWeight * bondBenchmarkChange;
 
-    // 母ETF贡献
-    if (etfWeight > 0) {
-      const etfQuote = await getETFRealtimeQuote(etfCode).catch(() => null);
-      if (etfQuote && etfQuote.estimatedChange != null) {
-        etfContribution = etfWeight * etfQuote.estimatedChange;
-        logger.info(`${fundCode} 母ETF=${etfCode} 涨跌幅=${etfQuote.estimatedChange}% 占比=${etfWeight.toFixed(2)}%`);
-      } else {
-        logger.warn(`${fundCode} 母ETF行情获取失败: etfCode=${etfCode}`);
+      // 母ETF贡献
+      if (etfWeight > 0) {
+        const etfQuote = await getETFRealtimeQuote(etfCode).catch(() => null);
+        if (etfQuote && etfQuote.estimatedChange != null) {
+          etfContribution = etfWeight * etfQuote.estimatedChange;
+          logger.info(`${fundCode} 母ETF=${etfCode} 涨跌幅=${etfQuote.estimatedChange}% 占比=${etfWeight.toFixed(2)}%`);
+        } else {
+          logger.warn(`${fundCode} 母ETF行情获取失败: etfCode=${etfCode}`);
+        }
       }
     }
   } else if (etfCode && !assetAlloc) {
@@ -983,16 +1158,19 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
     }
     return null;
   } else {
-    // 普通基金（保持现有行为）
+    // 普通基金
     bondWeight = Math.max(0, 100 - totalStockRatio);
     missingContribution = missingStockWeight * benchmarkReturn;
-    bondContribution = bondWeight * bondBenchmarkChange;
+    // QDII 缺失/非披露部分与板块指数高度相关，用板块指数而非国债指数；非 QDII 维持国债
+    bondContribution = isQdii && (isUsFund || isHkFund) ? bondWeight * benchmarkReturn : bondWeight * bondBenchmarkChange;
   }
 
   logger.info(`${fundCode} 贡献: 股票已覆盖=${coveredContribution.toFixed(2)} 缺失股票=${missingContribution.toFixed(2)} 债券=${bondContribution.toFixed(2)}${etfCode ? ` 母ETF=${etfContribution.toFixed(2)}` : ''}`);
   
   // 7. 新公式：精确计算各组成部分贡献
-  const estimatedChange = (coveredContribution + missingContribution + bondContribution + etfContribution) / 100;
+  const estimatedChange = etfConstituentFinal
+    ? etfContribution / 100
+    : (coveredContribution + missingContribution + bondContribution + etfContribution) / 100;
 
   // 8. 计算估算价格
   //    若调用方提供了 confirmedNav（正数），直接使用，跳过 lsjz 调用（避免冗余请求）
@@ -1050,7 +1228,7 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
 // 统一入口：确认净值（东方财富）+ 盘中估算（新浪/持仓穿透）
 // method: 'sina' | 'holdings'（控制盘中估算方式，两个数据源互不回退）
 // ═══════════════════════════════════════════
-async function getRealTimeValueWithMethod(fundCode, method = 'sina') {
+async function getRealTimeValueWithMethod(fundCode, method = 'sina', options = {}) {
   logger.info(`${fundCode} 估值入口 method=${method}`);
 
   // 获取东方财富确认净值作为基准
@@ -1058,16 +1236,22 @@ async function getRealTimeValueWithMethod(fundCode, method = 'sina') {
   logger.info(`${fundCode} 确认净值=${confirmed?.netValue ?? 'null'}`);
 
   // 根据用户选择的数据源获取盘中估算
+  // 透传 QDII 标记、基金名称（指数按名称关键词映射）与确认净值日期（美股增量规则需要 D）
+  const overlayOptions = {
+    isQDII: !!options.isQDII,
+    fundName: options.fundName || '',
+    confirmedNavDate: confirmed?.updateTime || null,
+  };
   let estimated = null;
   if (method === 'holdings') {
     // 持仓穿透法：股票持仓加权计算 + ETF联接基金母ETF估值
-    estimated = await getHoldingsEstimatedOverlay(fundCode, confirmed?.netValue).catch(() => null);
+    estimated = await getHoldingsEstimatedOverlay(fundCode, confirmed?.netValue, {}, overlayOptions).catch(() => null);
   } else if (method === 'auto') {
     // 自动模式：先尝试新浪，失败回退持仓穿透
     estimated = await getSinaEstimatedValue(fundCode).catch(() => null);
     if (!estimated) {
       logger.info(`${fundCode} 新浪失败，回退持仓穿透`);
-      estimated = await getHoldingsEstimatedOverlay(fundCode, confirmed?.netValue).catch(() => null);
+      estimated = await getHoldingsEstimatedOverlay(fundCode, confirmed?.netValue, {}, overlayOptions).catch(() => null);
     }
   } else {
     // 新浪财经盘中估值
@@ -1339,14 +1523,29 @@ async function batchGetHistoryNetValues(fundCodes, startDate, endDate) {
 }
 
 /**
- * 批量获取基准涨跌幅（沪深300 + 国债指数），供多只基金复用，避免每只重复请求
+ * 批量获取基准涨跌幅（沪深300 + 国债指数 + 按需 us/hk 指数），供多只基金复用
+ * @param {boolean} needsUsHk 批量列表是否含 QDII/跨市场基金——纯 A 股批量不请求 us/hk 指数
  */
-async function getBenchmarks() {
-  const [benchmarkReturn, bondBenchmarkChange] = await Promise.all([
+async function getBenchmarks(needsUsHk = false) {
+  const tasks = [
     getBenchmarkChange().catch(() => 0),
     getBondBenchmarkChange().catch(() => 0),
-  ]);
-  return { benchmarkReturn, bondBenchmarkChange };
+  ];
+  if (needsUsHk) {
+    // 美股板块指数全量预取（usNDX/usINX/usDJI + 恒生），单次批量内去向固定
+    tasks.push(getIndexChange('usNDX').catch(() => null));
+    tasks.push(getIndexChange('usINX').catch(() => null));
+    tasks.push(getIndexChange('usDJI').catch(() => null));
+    tasks.push(getIndexChange('hkHSI').catch(() => null));
+  }
+  const [benchmarkReturn, bondBenchmarkChange, usNDX, usINX, usDJI, hkIndex] = await Promise.all(tasks);
+  return {
+    benchmarkReturn,
+    bondBenchmarkChange,
+    usIndex: usNDX,
+    usIndexMap: { usNDX, usINX, usDJI }, // 供按基金名称映射的指数选择
+    hkIndex,
+  };
 }
 
 /**
@@ -1355,10 +1554,15 @@ async function getBenchmarks() {
  * 盘中估算根据 method 选择数据源，两个数据源互不回退
  * 返回 { fundCode: { netValue, gainPercent, estimatedValue, estimatedChange, ... } }
  */
-async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina') {
+async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina', options = {}) {
   logger.info(`批量估值入口 count=${fundCodes.length} method=${method}`);
   const result = {};
   if (!fundCodes || !fundCodes.length) return result;
+
+  // 调用方传入 QDII 标记映射（{ code: boolean }）与基金名称映射（{ code: name }，指数按名称映射）
+  const isQdiiMap = options.isQdiiMap || {};
+  const fundNameMap = options.fundNameMap || {};
+  const needsUsHk = fundCodes.some(c => isQdiiMap[c]);
 
   const startTime = Date.now();
 
@@ -1370,10 +1574,15 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina') {
   if (method === 'holdings') {
     // 持仓穿透法：并行调用
     // 基准涨跌幅只计算一次，供所有基金复用，避免每只基金重复请求
-    const benchmarks = await getBenchmarks();
+    const benchmarks = await getBenchmarks(needsUsHk);
     const promises = fundCodes.map(async (code) => {
-      try { return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue, benchmarks) }; }
-      catch { return { code, data: null }; }
+      try {
+        return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue, benchmarks, {
+          isQDII: !!isQdiiMap[code],
+          fundName: fundNameMap[code] || '',
+          confirmedNavDate: mobapiMap[code]?.updateTime || null,
+        }) };
+      } catch { return { code, data: null }; }
     });
     const responses = await Promise.allSettled(promises);
     for (const resp of responses) {
@@ -1385,10 +1594,15 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina') {
     const fallbackCodes = fundCodes.filter(code => !estimatedMap[code]);
     if (fallbackCodes.length) {
       logger.info(`${fallbackCodes.length}只基金回退持仓穿透`);
-      const benchmarks = await getBenchmarks();
+      const benchmarks = await getBenchmarks(needsUsHk);
       const fallbackPromises = fallbackCodes.map(async (code) => {
-        try { return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue, benchmarks) }; }
-        catch { return { code, data: null }; }
+        try {
+          return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue, benchmarks, {
+            isQDII: !!isQdiiMap[code],
+            fundName: fundNameMap[code] || '',
+            confirmedNavDate: mobapiMap[code]?.updateTime || null,
+          }) };
+        } catch { return { code, data: null }; }
       });
       const responses = await Promise.allSettled(fallbackPromises);
       for (const resp of responses) {

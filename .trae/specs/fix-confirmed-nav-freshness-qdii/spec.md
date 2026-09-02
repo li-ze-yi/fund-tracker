@@ -2,7 +2,7 @@
 
 ## Why
 
-围绕"确认净值新鲜度判定"与"QDII/海外基金适配"发现的四类问题：
+围绕"确认净值新鲜度判定"与"QDII/海外基金适配"发现的多类问题：
 
 1. **盘中 DB 确认净值最多 4 天误差**：`resolveConfirmedNav` 盘中/休市分支（无历史数据时）用固定启发式"DB 日期距今天 ≤ 4 天视为新鲜"。若 DB 存的是用户任选历史买入日/未自愈的旧确认净值，盘中估算与持仓金额会基于 4 天前的旧净值作为基准，产生最多 4 天误差。
 
@@ -19,6 +19,10 @@
 7. **QDII 盘后恒为"待确认"**：严格 `isConfirmed = latestHistoryDate === today` 对 QDII 恒假（净值日期永远滞后 1 天）→ 即使晚间净值已公布（最新净值日期推进到昨天）也永远显示 `pending_confirm`，与"净值已更新"的展示不一致。
 
 8. **新购 QDII 估算基准误用买入日净值**：QDII 盘中 DB 新鲜度窗口 `[anchor−2, anchor]` 过宽，新购/加仓补录写入的"买入日净值"（滞后 2 天，如 08-25 vs 锚点 08-27）被判新鲜 → `resolveConfirmedNav` 第②步采用并写回缓存 → 盘中估算基准用买入日净值而非最新确认净值（实测 7.9504 vs 7.9526）。
+
+9. **节假日 API cache stampede 导致 429 刷屏**：年度节假日缓存（`holiday_year_2026`）过期/服务重启 → 缓存 miss 时，并发接口路径（如 `enrichHoldingsWithRealTimeData` 对每只基金调 `getLatestTradingDayAnchor`）**并发 10+ 个** `isTradingDay/isHoliday` → 同时发起年度接口请求 → timor.tech 429。失败时缓存没写入 → 后续并发继续 miss → 每次调用链都触发一波 429 刷屏（日志里一秒内几十条 WARN）。
+
+10. **节假日缓存 type 与 TTL 不匹配**：之前节假日缓存（年度表 + 单日结果）复用 `history_chart` type（24h TTL）。年度节假日全年固定不变，单日判定确定后也全年不变，24h TTL 过短会导致不必要的过期刷新；且与走势图缓存共用 type，cleanup 按 type 批量清理时互相干扰。
 
 ## What Changes
 
@@ -39,9 +43,14 @@
   - `fundsDetails` 记录 `nav_date`（本次计入的最新净值日），供下次去重。
   - 去重仅作用于 `isQDII`，A 股保持原逻辑（每天按当天净值覆盖重算，不受影响）。
 - `server/services/holidayService.js`：
-  - 新增年度节假日接口 `getHolidayYearData(year)` + `parseHolidayYear(year)`：一次请求 timor `year/{year}/` 返回整年节假日（键为 `MM-DD`，`holiday=true` 放假、`false` 调休补班），缓存 24h。
+  - 新增年度节假日接口 `getHolidayYearData(year)` + `parseHolidayYear(year)`：一次请求 timor `year/{year}/` 返回整年节假日（键为 `MM-DD`，`holiday=true` 放假、`false` 调休补班）。
   - `isHoliday` 优先查年度缓存（含整年判定），年度接口不可用时回退原单日接口——长假回溯最近交易日不再逐日请求单日接口（免疫 timor 429 限流）。
   - `isTradingDay` 保持周末短路（A 股周末无论是否调休补班均不开市），年度表 `holiday: false`（补班）对股市判定无意义。
+  - **并发去重（cache stampede 防御）**：新增模块级 `inflightYearPromises` / `inflightHolidayPromises` Map，同一 year 的年度接口请求在飞时后续并发合并到同一个 promise；同一 dateStr 的 isHoliday 请求同理。
+  - **429 失败标记**：新增 `failedYearTimestamps` Map + 5min TTL，年度接口 429/网络失败后 5 分钟内跳过该 year 的年度请求（避免反复炸 API）。
+  - **独立缓存 type**：从复用 `history_chart` 解耦——`holiday_year`（30 天 TTL，年度表全年固定不变）、`holiday_day`（3 天 TTL，单日结果年度失败时回退写入，作为冗余覆盖）。
+- `server/services/globalCache.js`：
+  - `getTTL` switch 新增 `holiday_year` 和 `holiday_day` 两个 case。
 - 不涉及前端改动，不涉及数据库 schema 变更。
 
 ## Impact
@@ -172,6 +181,41 @@
 
 - **WHEN** QDII 最新净值日 = 昨天、A 股最新净值日 = 昨天（A 股今天净值未公布）
 - **THEN** QDII 参与（=昨天）、A 股不参与（严格 =今天），两口径互不干扰
+
+### Requirement: 年度节假日接口 inflight 去重
+
+`getHolidayYearData(year)` SHALL 在同一 year 的请求在飞时，将后续并发调用合并到同一个 promise（`inflightYearPromises` Map），避免对 timor.tech 发起重复请求。
+
+#### Scenario: 并发 10 次首次调用
+
+- **WHEN** 10 个并发 `isTradingDay('2026-08-28')` 请求同时到达，且 `holiday_year_2026` 缓存 miss
+- **THEN** 年度接口**只发 1 次**请求，10 个调用共享同一个 response（实测：年度 API 调用次数 = 1）
+
+### Requirement: isHoliday inflight 去重 + 429 失败标记
+
+`isHoliday(dateStr)` SHALL 对同一 dateStr 的请求做 inflight 合并（`inflightHolidayPromises` Map），确保年度接口失败回退单日时也只发 1 次请求。年度接口 429/网络失败后 SHALL 在 `failedYearTimestamps` 中记录时间戳，5 分钟内跳过该 year 的年度请求，直接走单日接口（若也失败则降级为非节假日）。
+
+#### Scenario: 年度接口 429 后并发 10 次
+
+- **WHEN** 年度接口 429 失败，10 个并发 `isTradingDay` 同时到达
+- **THEN** 年度接口**只发 1 次**（之后 inflight 共享同一个失败 promise），单日接口**也只发 1 次**（isHoliday inflight 合并）
+
+#### Scenario: 429 后 5 分钟内再调
+
+- **WHEN** 年度接口 429 后 5 分钟内再次收到并发请求
+- **THEN** 年度接口**完全跳过**（失败标记生效），单日接口走 inflight 合并只发 1 次，不再反复炸 API
+
+### Requirement: 节假日缓存独立 TTL
+
+节假日相关缓存 SHALL 使用独立缓存 type，从 `history_chart` 解耦：
+
+- `holiday_year`（年度表）：**30 天 TTL**（全年固定不变，次年 1 月自然过期刷新）
+- `holiday_day`（单日结果）：**3 天 TTL**（年度接口失败时回退写入，作为冗余覆盖）
+
+#### Scenario: 年度表缓存过期刷新
+
+- **WHEN** 2027 年 1 月 2 日首次调用 `isTradingDay`
+- **THEN** `holiday_year_2026`（30 天 TTL 已过）miss → 自动拉取 `holiday_year_2027` 并存入（新 type，30 天 TTL）
 
 ---
 

@@ -431,12 +431,16 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
   const fundCodes = holdings.map(h => h.fund_code);
   logger.info(`开始批量处理 ${holdings.length} 只基金... (强制刷新: ${forceRefresh}, 全局方法: ${valuationMethod})`);
 
-  // ★ 批量查询基金类型（识别 QDII/海外基金，供确认净值新鲜度校验放宽滞后窗口）
+  // ★ 批量查询基金类型与名称（识别 QDII/海外基金 + 指数名称映射，供确认净值新鲜度放宽与持仓穿透板块识别）
   let fundTypeMap = {};
+  let fundNameMap = {};
   try {
     const fundRows = await Fund.findByCodes(fundCodes);
     for (const f of fundRows) {
-      if (f && f.code) fundTypeMap[f.code] = f.type;
+      if (f && f.code) {
+        fundTypeMap[f.code] = f.type;
+        fundNameMap[f.code] = f.name || '';
+      }
     }
   } catch (e) {
     logger.warn(`批量查询基金类型失败，QDII 识别降级为严格校验: ${e.message}`);
@@ -540,7 +544,11 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
     if (needFetch.length > 0) {
       batchPromises.push(
-        fundService.batchGetRealTimeValuesWithMethod(needFetch, method).then(map => {
+        fundService.batchGetRealTimeValuesWithMethod(needFetch, method, {
+          // QDII 类型标记与基金名称（供持仓穿透板块化/成分加权分支；纯 A 股基金不受影响）
+          isQdiiMap: Object.fromEntries(needFetch.map(c => [c, isQdiiFundType(fundTypeMap[c] || '')])),
+          fundNameMap: Object.fromEntries(needFetch.map(c => [c, fundNameMap[c] || ''])),
+        }).then(map => {
           // 存入缓存
           for (const [code, data] of Object.entries(map)) {
             const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
