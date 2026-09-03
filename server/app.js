@@ -42,6 +42,11 @@ if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
 
 const app = express();
 
+// 信任一层反向代理（nginx），使 req.ip 使用 X-Forwarded-For 中的真实客户端 IP。
+// 缺少此配置时 express-rate-limit 会报 ERR_ERL_UNEXPECTED_X_FORWARDED_FOR，
+// 且所有经 nginx 的用户被识别为同一 IP，登录/注册限流变为全站共享计数。
+app.set('trust proxy', 1); // 生产部署为 nginx 直接反代本服务；如有多层代理需相应调大
+
 app.use(helmet()); // 设置安全相关的 HTTP 响应头（默认隐藏 x-powered-by）
 app.disable('x-powered-by'); // 显式隐藏 x-powered-by，防止泄露框架信息
 
