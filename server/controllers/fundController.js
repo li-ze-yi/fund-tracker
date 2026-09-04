@@ -32,7 +32,16 @@ exports.search = async (req, res, next) => {
     if (!keyword || !keyword.trim()) {
       return res.json([]);
     }
-    const funds = await Fund.search(keyword.trim());
+    const kw = keyword.trim();
+    // ★ 搜索结果缓存（fund_list 类型 6h TTL）：搜索关键词复用率高，
+    // 原实现每次请求都全表扫描 2.7 万行（LIKE 前导 % 无法走索引）；
+    // globalCache 自带在途请求去重，高并发同一关键词只打一次数据库
+    const cacheKey = `search_${kw}`;
+    const funds = await globalCache.getOrFetch(
+      cacheKey,
+      () => Fund.search(kw),
+      { type: 'fund_list' }
+    );
     res.json(funds);
   } catch (err) {
     next(err);

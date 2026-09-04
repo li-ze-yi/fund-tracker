@@ -3,8 +3,9 @@ const pool = require('../config/database');
 const Fund = {
   async search(keyword) {
     const like = `%${keyword}%`;
+    // 投影只取前端需要的 code/name/type：压下全表扫描搬运的数据量（LIKE 前导 % 无法走索引）
     const [rows] = await pool.query(
-      'SELECT * FROM funds WHERE code LIKE ? OR name LIKE ? LIMIT 20',
+      'SELECT code, name, type FROM funds WHERE code LIKE ? OR name LIKE ? LIMIT 20',
       [like, like]
     );
     return rows;
