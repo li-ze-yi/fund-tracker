@@ -305,14 +305,18 @@ exports.deleteFeedback = async (req, res, next) => {
   }
 };
 
-// 数据库连接池健康检查（读内部连接状态，mysql2/promise 私有字段仅长度统计，只读安全）
+// 数据库连接池健康检查（只读池内部状态；兼容 mysql2 v2 数组与 v3 Denque 队列）
 exports.dbHealth = async (req, res, next) => {
   try {
+    const inner = pool.pool || pool; // mysql2/promise 的底层池对象
+    const len = (d) => (d && typeof d.length === 'number') ? d.length : 0;
+
     // 连接池水位
-    const allConnections = pool.pool._allConnections.length;
-    const freeConnections = pool.pool._freeConnections.length;
+    const allConnections = len(inner._allConnections);
+    const freeConnections = len(inner._freeConnections);
     const activeConnections = allConnections - freeConnections;
-    const queue = pool.pool._queue.length;
+    // mysql2 v3 排队字段为 _connectionQueue；v2 为 _queue（只会有其一生效）
+    const queueLen = Math.max(len(inner._connectionQueue), len(inner._queue));
 
     // 额外查询 MySQL 当前线程占用（验证是否真的占满）
     let mysqlThreads = null;
@@ -331,7 +335,7 @@ exports.dbHealth = async (req, res, next) => {
         allConnections,
         freeConnections,
         activeConnections,
-        queuedRequests: queue,
+        queuedRequests: queueLen,
         // 水位百分比：当前活跃连接占比
         utilizationPercent: configLimit > 0 ? Math.round((activeConnections / configLimit) * 1000) / 10 : 0,
       },
