@@ -304,3 +304,42 @@ exports.deleteFeedback = async (req, res, next) => {
     next(err);
   }
 };
+
+// 数据库连接池健康检查（读内部连接状态，mysql2/promise 私有字段仅长度统计，只读安全）
+exports.dbHealth = async (req, res, next) => {
+  try {
+    // 连接池水位
+    const allConnections = pool.pool._allConnections.length;
+    const freeConnections = pool.pool._freeConnections.length;
+    const activeConnections = allConnections - freeConnections;
+    const queue = pool.pool._queue.length;
+
+    // 额外查询 MySQL 当前线程占用（验证是否真的占满）
+    let mysqlThreads = null;
+    try {
+      const [rows] = await pool.query('SHOW STATUS LIKE "Threads_connected"');
+      mysqlThreads = rows[0].Value;
+    } catch (e) {
+      // 不影响主响应，只丢警告
+    }
+
+    const configLimit = pool.CONNECTION_LIMIT || 0;
+
+    res.json({
+      connectionPool: {
+        configuredLimit: configLimit,
+        allConnections,
+        freeConnections,
+        activeConnections,
+        queuedRequests: queue,
+        // 水位百分比：当前活跃连接占比
+        utilizationPercent: configLimit > 0 ? Math.round((activeConnections / configLimit) * 1000) / 10 : 0,
+      },
+      mysqlThreadsConnected: mysqlThreads ? parseInt(mysqlThreads, 10) : null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
