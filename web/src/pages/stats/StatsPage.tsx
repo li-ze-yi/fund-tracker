@@ -1204,12 +1204,8 @@ export default function StatsPage() {
   return (
     <div className="stats-page-container" style={{ padding: '20px 8px', paddingBottom: 100 }}>
       {/* 页面标题 */}
-      <div className="stats-page-title" style={{
-        fontSize: 22,
-        fontWeight: 700,
-        color: 'var(--text-primary)',
+      <div className="stats-page-title page-title-gold" style={{
         marginBottom: 20,
-        letterSpacing: '-0.01em',
       }}>
         收益统计
       </div>
@@ -1220,9 +1216,9 @@ export default function StatsPage() {
         style={{
           marginBottom: 20,
           background: isLight
-            ? 'linear-gradient(135deg, rgba(46, 139, 123, 0.04), rgba(255, 255, 255, 0.9))'
+            ? 'linear-gradient(135deg, rgba(184, 134, 11, 0.05), rgba(255, 255, 255, 0.9))'
             : 'linear-gradient(135deg, rgba(212, 168, 75, 0.05), rgba(17, 24, 39, 0.8))',
-          borderColor: isLight ? 'rgba(46, 139, 123, 0.12)' : 'rgba(212, 168, 75, 0.15)',
+          borderColor: isLight ? 'rgba(184, 134, 11, 0.12)' : 'rgba(212, 168, 75, 0.15)',
           boxShadow: 'var(--shadow-lg)',
         }}
         styles={{ body: { padding: '20px' } }}

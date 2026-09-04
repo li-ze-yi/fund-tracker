@@ -309,7 +309,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           alignItems: 'center',
           padding: '14px 16px',
           margin: '0 10px 2px',
-          borderRadius: 'var(--radius-sm)',
+          borderRadius: 'var(--radius-md)',
           cursor: 'pointer',
           background: isEvenRow ? 'var(--bg-row-even)' : 'var(--bg-row-odd)',
           border: '1px solid var(--border-subtle)',
@@ -320,14 +320,16 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           overflow: 'hidden',
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.borderColor = 'var(--border-default)';
+          e.currentTarget.style.borderColor = 'var(--accent-gold-dim)';
           e.currentTarget.style.background = 'var(--bg-row-hover)';
           e.currentTarget.style.transform = 'translateX(2px)';
+          e.currentTarget.style.boxShadow = '0 2px 10px rgba(212, 168, 75, 0.12), 0 0 0 1px var(--accent-gold-dim)';
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.borderColor = 'var(--border-subtle)';
           e.currentTarget.style.background = isEvenRow ? 'var(--bg-row-even)' : 'var(--bg-row-odd)';
           e.currentTarget.style.transform = 'translateX(0)';
+          e.currentTarget.style.boxShadow = 'none';
         }}
       >
         {/* 左侧涨跌色带 */}
@@ -381,7 +383,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
                 lineHeight: '16px',
                 padding: '0 5px',
                 background: 'var(--accent-gold-dim)',
-                color: 'var(--accent-gold-light)',
+                color: 'var(--gold-deep)',
                 border: 'none',
                 borderRadius: 3,
                 fontWeight: 500,
@@ -485,7 +487,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
         alignItems: 'center',
         padding: '13px 16px',
         margin: '0 10px 2px',
-        borderRadius: 'var(--radius-sm)',
+        borderRadius: 'var(--radius-md)',
         cursor: 'pointer',
         background: isEvenRow ? 'var(--bg-row-even)' : 'var(--bg-row-odd)',
         backdropFilter: 'blur(8px)',
@@ -498,10 +500,10 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
         overflow: 'hidden',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = 'var(--border-default)';
+        e.currentTarget.style.borderColor = 'var(--accent-gold-dim)';
         e.currentTarget.style.background = 'var(--bg-row-hover)';
         e.currentTarget.style.transform = 'translateX(2px)';
-        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)';
+        e.currentTarget.style.boxShadow = '0 2px 10px rgba(212, 168, 75, 0.12), 0 0 0 1px var(--accent-gold-dim)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.borderColor = 'var(--border-subtle)';
