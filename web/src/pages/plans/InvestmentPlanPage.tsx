@@ -105,7 +105,7 @@ export default function InvestmentPlanPage() {
   return (
     <div className="investment-plan-page" style={{ padding: 16 }}>
       <div className="plan-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <span className="plan-page-title" style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>定投计划</span>
+        <span className="plan-page-title page-title-gold" style={{ fontSize: 18 }}>定投计划</span>
         <Button className="plan-create-btn" type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>新建定投</Button>
       </div>
 

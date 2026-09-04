@@ -11,6 +11,7 @@ import { settingService, type SettingsData } from '@/services/settingService';
 import type { FundInfo } from '@/services/fundService';
 import AddHoldingModal from '@/components/modals/AddHoldingModal';
 import ImageImportModal from '@/components/modals/ImageImportModal';
+import BrandBadge from '@/components/BrandBadge';
 
 export default function Header() {
   const { user, logout } = useAuthStore();
@@ -224,7 +225,7 @@ export default function Header() {
                       lineHeight: isMobile ? '16px' : '18px',
                       padding: isMobile ? '0 5px' : '0 6px',
                       background: 'var(--accent-gold-dim)',
-                      color: 'var(--accent-gold-light)',
+                      color: 'var(--gold-deep)',
                       border: 'none',
                       borderRadius: 4,
                     }}
@@ -279,7 +280,7 @@ export default function Header() {
           background: 'var(--bg-header)',
           backdropFilter: 'blur(20px) saturate(180%)',
           WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-          boxShadow: '0 1px 0 var(--border-subtle), 0 4px 24px -4px rgba(0,0,0,0.06)',
+          boxShadow: '0 4px 24px -4px rgba(0,0,0,0.06)',
           zIndex: 100,
         }}
       >
@@ -288,18 +289,28 @@ export default function Header() {
           onClick={() => navigate('/portfolio')}
           className="header-title"
           style={{
-            fontWeight: 800,
-            fontSize: 19,
-            letterSpacing: '-0.02em',
+            display: 'inline-flex',
+            alignItems: 'center',
             cursor: 'pointer',
             whiteSpace: 'nowrap',
-            background: 'linear-gradient(135deg, var(--accent-gold), var(--accent-gold-light))',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
           }}
         >
-          养基发财
+          {/* 品牌徽章：金色渐变圆角标 + 趋势线 */}
+          <BrandBadge size={isMobile ? 26 : 30} />
+          <span
+            style={{
+              fontWeight: 800,
+              fontSize: 19,
+              letterSpacing: '-0.02em',
+              marginLeft: 8,
+              background: 'linear-gradient(135deg, var(--accent-gold), var(--accent-gold-light))',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+            }}
+          >
+            养基发财
+          </span>
         </span>
 
         <Dropdown
@@ -498,6 +509,17 @@ export default function Header() {
         </div>
 
         </div>
+        {/* 底部金色渐变发丝高光线 */}
+        <div style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 1,
+          background: 'linear-gradient(90deg, transparent, var(--accent-gold), transparent)',
+          opacity: 0.4,
+          pointerEvents: 'none',
+        }} />
       </div>
 
       <AddHoldingModal

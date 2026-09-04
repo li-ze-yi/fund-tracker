@@ -33,7 +33,7 @@ export default function BottomTabBar() {
         background: 'var(--bg-tabbar)',
         backdropFilter: 'blur(20px) saturate(180%)',
         WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-        boxShadow: '0 -1px 0 var(--border-subtle), 0 -4px 24px -4px rgba(0,0,0,0.06)',
+        boxShadow: '0 -4px 24px -4px rgba(0,0,0,0.06)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-around',
@@ -41,6 +41,17 @@ export default function BottomTabBar() {
         paddingBottom: 'env(safe-area-inset-bottom)',
       }}
     >
+      {/* 顶部金色渐变发丝高光线 */}
+      <div style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 1,
+        background: 'linear-gradient(90deg, transparent, var(--accent-gold), transparent)',
+        opacity: 0.4,
+        pointerEvents: 'none',
+      }} />
       {tabs.map((tab) => {
         // 前缀匹配：进入 /fund/:code、/market/rotation 等子路由时保持对应 tab 高亮。
         // 根路径 '/' 需精确匹配，避免吞掉其它所有路径。
@@ -63,7 +74,9 @@ export default function BottomTabBar() {
               transition: 'all var(--transition-base)',
               minWidth: 64,
               minHeight: 48,
-              background: active ? 'var(--accent-gold-dim)' : 'transparent',
+              background: active ? 'linear-gradient(135deg, var(--accent-gold-dim), rgba(255,255,255,0.06))' : 'transparent',
+              border: active ? '1px solid var(--accent-gold-dim)' : '1px solid transparent',
+              boxShadow: active ? '0 2px 10px rgba(212, 168, 75, 0.18), inset 0 1px 0 rgba(255,255,255,0.06)' : 'none',
               transform: active ? 'translateY(-2px)' : 'translateY(0)',
             }}
             onMouseEnter={(e) => {
@@ -85,6 +98,7 @@ export default function BottomTabBar() {
               transition: 'all var(--transition-base)',
               lineHeight: 1,
               display: 'block',
+              transform: active ? 'scale(1.06)' : 'scale(1)',
               filter: active ? 'drop-shadow(0 2px 4px rgba(212,168,75,0.3))' : 'none',
             }}>
               {tab.icon}

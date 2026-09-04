@@ -1,0 +1,31 @@
+# 验收清单
+
+- [x] 新分支 `feature/premium-ui-overhaul` 已从 `main` 创建，工作区干净
+- [x] 金色品牌色统一：浅色/深色均为金色体系，App.css 与 App.tsx token 一致
+- [x] DESIGN_SYSTEM.md 浅色主题品牌色已更正为暖金（v3.3），版本号与变更记录已更新
+- [x] 全局氛围背景：深色/浅色各一套径向光晕 + 噪点颗粒，`background-attachment: fixed` 生效
+- [x] 移动端/减少动态偏好下光晕噪点为静态渲染，无性能问题
+- [x] 全局 Card 精致化：圆角/描边/阴影/hover 上浮+金色光晕
+- [x] 全局 Table 精致化：表头金底、行 hover、容器圆角描边
+- [x] 全局 Button 精致化：主按钮金色渐变+光晕，hover/active 反馈
+- [x] 全局 Modal 精致化：大圆角、标题金色竖条、遮罩微晕
+- [x] 全局 Input/Select/Picker 精致化：金色聚焦环、圆角
+- [x] Segmented/Tabs/Tag/Dropdown/List/Empty 与金色体系一致
+- [x] Header 品牌标识升级：金色徽章（BrandBadge）+ 渐变文字
+- [x] Header 底部金色渐变发丝高光线
+- [x] Header 沙漏/主题/用户三按钮尺寸圆角统一
+- [x] BottomTabBar 金色激活药丸 + 图标光晕 + 顶部金色发丝线
+- [x] 持仓页汇总面板金色奢华渐变 + 金色发丝高光 + 内发光
+- [x] 总资产金色渐变大数字 + 计数动画（500ms，尊重 reduced-motion）
+- [x] 当日/累计收益语义色圆点 + 字号提升至 18px
+- [x] 隐藏金额：`****` 继承新字体字号，计数动画不触发
+- [x] FundListItem 行卡片质感：圆角/边框/hover 金色微光，涨跌色带保留
+- [x] 登录/注册页：品牌氛围背景 + 玻璃卡片 + 品牌徽章 + 标语 + 金色发丝高光
+- [x] 自选/统计/详情/定投/设置页：页面标题统一（page-title-gold）+ 卡片/图表继承新令牌
+- [x] 行业轮动 theme.css 金色体系对齐（语义变量天然跟随 var(--accent-gold)）
+- [x] 动效体系：计数动画 + 全局 prefers-reduced-motion 生效
+- [x] `npm run build` 通过（tsc --noEmit + vite build，50s）
+- [x] `npm run dev` 启动，HTTP 200 冒烟通过
+- [ ] 人工视觉回归：深色/浅色双主题全页面 + 弹窗 + 移动端宽度
+- [x] 既有功能（搜索/刷新/排序/分组/增删改/主题切换/路由/状态标记）逻辑未改动
+- [x] 金色文字双主题对比度（主按钮采用深金渐变起色保证 ≥3:1）

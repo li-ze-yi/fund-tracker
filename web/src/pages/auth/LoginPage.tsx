@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Card, Form, Input, Button, App } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import BrandBadge from '@/components/BrandBadge';
 import { authService } from '@/services/authService';
 import { useAuthStore } from '@/store/authStore';
 
@@ -28,24 +29,50 @@ export default function LoginPage() {
   return (
     <Card
       className="login-card"
-      title="登录 养基发财"
       style={{
+        position: 'relative',
         width: 420,
         maxWidth: '100%',
-        background: 'var(--bg-elevated)',
+        background: 'var(--bg-glass)',
+        backdropFilter: 'blur(20px) saturate(160%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(160%)',
         borderColor: 'var(--border-default)',
-        boxShadow: 'var(--shadow-lg)',
-      }}
-      styles={{
-        title: {
-          textAlign: 'center',
-          fontSize: 22,
-          fontWeight: 700,
-          color: 'var(--text-primary)',
-          letterSpacing: '-0.01em',
-        },
+        boxShadow: 'var(--shadow-lg), 0 0 0 1px var(--accent-gold-dim)',
+        borderRadius: 'var(--radius-xl)',
+        overflow: 'hidden',
       }}
     >
+      {/* 顶部金色发丝高光 */}
+      <div style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 1.5,
+        background: 'linear-gradient(90deg, transparent, var(--accent-gold), transparent)',
+        opacity: 0.6,
+        pointerEvents: 'none',
+      }} />
+
+      {/* 品牌标识 + 标语 */}
+      <div style={{ textAlign: 'center', marginBottom: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 10 }}>
+          <BrandBadge size={34} />
+          <span style={{
+            fontSize: 24,
+            fontWeight: 800,
+            letterSpacing: '-0.02em',
+            background: 'linear-gradient(135deg, var(--accent-gold), var(--accent-gold-light))',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text',
+          }}>
+            养基发财
+          </span>
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', letterSpacing: '0.04em' }}>让每一笔投资清晰可见</div>
+      </div>
+
       <Form onFinish={onSubmit} layout="vertical" size="large">
         <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
           <Input prefix={<UserOutlined style={{ color: 'var(--text-muted)' }} />} placeholder="用户名" />
@@ -61,12 +88,12 @@ export default function LoginPage() {
           />
         </Form.Item>
         <Form.Item>
-          <Button type="primary" htmlType="submit" loading={loading} block style={{ height: 46, fontSize: 15, fontWeight: 600 }}>
+          <Button type="primary" htmlType="submit" loading={loading} block style={{ height: 46, fontSize: 15, fontWeight: 600, borderRadius: 'var(--radius-md)' }}>
             登录
           </Button>
         </Form.Item>
         <div className="login-register-link" style={{ textAlign: 'center', fontSize: 14, color: 'var(--text-secondary)' }}>
-          还没有账号？<Link to="/register" style={{ color: 'var(--accent-gold-light)', fontWeight: 500 }}>去注册</Link>
+          还没有账号？<Link to="/register" style={{ color: 'var(--accent-gold)', fontWeight: 500 }}>去注册</Link>
         </div>
       </Form>
     </Card>

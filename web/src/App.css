@@ -9,11 +9,11 @@
   --bg-elevated: #FFFFFF;
   --bg-card: rgba(255, 255, 255, 0.85);
   --bg-card-hover: rgba(241, 245, 249, 0.9);
-  --bg-glass: rgba(255, 255, 255, 0.6);
+  --bg-glass: rgba(255, 255, 255, 0.55);
   --bg-input: rgba(248, 250, 252, 0.95);
   --bg-content-area: #F8FAFC;
-  --bg-header: rgba(255, 255, 255, 0.82);
-  --bg-tabbar: rgba(255, 255, 255, 0.85);
+  --bg-header: rgba(255, 255, 255, 0.60);
+  --bg-tabbar: rgba(255, 255, 255, 0.64);
   --bg-row-even: rgba(255, 255, 255, 0.7);
   --bg-row-odd: rgba(238, 241, 246, 0.5);
   --bg-row-hover: rgba(220, 226, 236, 0.6);
@@ -28,10 +28,17 @@
   --text-muted: #78859B;
   --text-dim: #94A3B8;
 
-  --accent-gold: #B8860B;
-  --accent-gold-light: #D4A84B;
-  --accent-gold-dim: rgba(184, 134, 11, 0.10);
-  --primary: #B8860B;
+  --accent-gold: #8F6A06;
+  --accent-gold-light: #A5710A;
+  --accent-gold-dim: rgba(143, 106, 6, 0.12);
+  --primary: #8F6A06;
+
+  /* 金色奢华风扩展令牌（浅色=鎏金，值已按 WCAG AA 对比度校准） */
+  --btn-gold-a: #8F6A06;            /* 主按钮渐变起色（深金，白字 4.96:1） */
+  --btn-gold-b: #B8860B;            /* 主按钮渐变止色（白字 3.25:1） */
+  --grad-num-a: #8F6A06;            /* 金色大数字渐变起色（大字 4.62:1） */
+  --grad-num-b: #B8860B;            /* 金色大数字渐变止色（大字 3.03:1） */
+  --noise-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
 
   --gain: #DC2626;
   --gain-bg: rgba(220, 38, 38, 0.06);
@@ -46,10 +53,10 @@
   --accent-green: #16A34A;
   --accent-green-dim: rgba(22, 163, 74, 0.08);
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255,255,255,0.5);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06), 0 0 0 1px var(--border-subtle);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.08), 0 0 0 1px var(--border-subtle);
-  --shadow-glow-gold: 0 0 20px rgba(184, 134, 11, 0.08), 0 0 60px rgba(184, 134, 11, 0.03);
+  --shadow-sm: 0 1px 2px rgba(160, 120, 20, 0.08), inset 0 1px 0 rgba(255,255,255,0.5);
+  --shadow-md: 0 4px 16px rgba(160, 120, 20, 0.08), 0 0 0 1px var(--border-subtle);
+  --shadow-lg: 0 8px 32px rgba(160, 120, 20, 0.10), 0 0 0 1px var(--border-subtle);
+  --shadow-glow-gold: 0 0 20px rgba(184, 134, 11, 0.12), 0 0 60px rgba(184, 134, 11, 0.05);
   --shadow-glow-gain: 0 0 12px rgba(220, 38, 38, 0.08);
   --shadow-glow-loss: 0 0 12px rgba(22, 163, 74, 0.08);
 
@@ -97,11 +104,11 @@
   --bg-elevated: #111827;
   --bg-card: rgba(17, 24, 39, 0.7);
   --bg-card-hover: rgba(30, 41, 59, 0.6);
-  --bg-glass: rgba(17, 24, 39, 0.5);
+  --bg-glass: rgba(17, 24, 39, 0.45);
   --bg-input: rgba(15, 23, 42, 0.8);
   --bg-content-area: #0E1628;
-  --bg-header: rgba(17, 24, 39, 0.75);
-  --bg-tabbar: rgba(17, 24, 39, 0.8);
+  --bg-header: rgba(17, 24, 39, 0.52);
+  --bg-tabbar: rgba(17, 24, 39, 0.58);
   --bg-row-even: rgba(31, 41, 55, 0.5);
   --bg-row-odd: rgba(18, 28, 45, 0.42);
   --bg-row-hover: rgba(42, 56, 80, 0.55);
@@ -121,6 +128,13 @@
   --accent-gold-dim: rgba(212, 168, 75, 0.15);
   --primary: #D4A84B;
 
+  /* 金色奢华风扩展令牌（深色=墨玉金，按钮渐变已按 WCAG AA 白字 ≥3:1 校准） */
+  --btn-gold-a: #B8860B;            /* 主按钮渐变起色（白字 3.25:1） */
+  --btn-gold-b: #C08A1E;            /* 主按钮渐变止色（白字 3.05:1） */
+  --grad-num-a: #D4A84B;
+  --grad-num-b: #F0D78C;
+  --gold-deep: #B8860B;             /* 极小辅助文字专用金（Tag 等，≥4.5:1） */
+
   --gain: #EF4444;
   --gain-bg: rgba(239, 68, 68, 0.10);
   --gain-border: rgba(239, 68, 68, 0.25);
@@ -137,11 +151,11 @@
   --shadow-glow-gain: 0 0 12px rgba(239, 68, 68, 0.15);
   --shadow-glow-loss: 0 0 12px rgba(34, 197, 94, 0.15);
 
-  /* Hero 卡片渐变（深色主题） */
-  --hero-gradient-start: rgba(17, 24, 39, 0.85);
-  --hero-gradient-end: rgba(11, 17, 32, 0.9);
-  --hero-border-light: rgba(212, 168, 75, 0.15);
-  --hero-accent-glow: radial-gradient(ellipse at 100% 0%, rgba(212, 168, 75, 0.08), transparent 60%);
+  /* Hero 卡片渐变（深色主题：半透明让毛玻璃透出背景） */
+  --hero-gradient-start: rgba(31, 41, 55, 0.78);
+  --hero-gradient-end: rgba(17, 24, 39, 0.82);
+  --hero-border-light: rgba(212, 168, 75, 0.30);
+  --hero-accent-glow: radial-gradient(ellipse at 100% 0%, rgba(212, 168, 75, 0.16), transparent 60%);
   --neon-glow-gold: rgba(212, 168, 75, 0.30);
 
   /* 状态标记色（深色主题：提亮以增强对比） */
@@ -161,17 +175,20 @@
 
 [data-theme="dark"] body {
   background:
-    radial-gradient(ellipse 70% 45% at 50% -15%, rgba(212, 168, 75, 0.07), transparent 60%),
-    radial-gradient(ellipse 50% 35% at 100% 0%, rgba(59, 130, 246, 0.05), transparent 60%),
-    radial-gradient(ellipse 40% 30% at 0% 100%, rgba(212, 168, 75, 0.03), transparent 50%),
+    var(--noise-bg),
+    radial-gradient(ellipse 70% 45% at 50% -15%, rgba(212, 168, 75, 0.12), transparent 60%),
+    radial-gradient(ellipse 50% 35% at 100% 0%, rgba(59, 130, 246, 0.09), transparent 60%),
+    radial-gradient(ellipse 40% 30% at 0% 100%, rgba(212, 168, 75, 0.07), transparent 50%),
     var(--bg-base);
   background-attachment: fixed;
+  background-size: 180px 180px, auto, auto, auto, auto;
+  background-repeat: repeat, no-repeat, no-repeat, no-repeat, no-repeat;
 }
 
 [data-theme="dark"] .glass-card {
-  background: var(--bg-card);
+  background: var(--bg-glass);
   border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 [data-theme="dark"] .ant-input,
@@ -328,11 +345,14 @@ html, body, #root {
 
 body {
   background:
-    radial-gradient(ellipse 70% 45% at 50% -15%, rgba(184, 134, 11, 0.04), transparent 60%),
+    var(--noise-bg),
+    radial-gradient(ellipse 70% 45% at 50% -15%, rgba(184, 134, 11, 0.05), transparent 60%),
     radial-gradient(ellipse 50% 35% at 100% 0%, rgba(59, 130, 246, 0.03), transparent 60%),
-    radial-gradient(ellipse 40% 30% at 0% 100%, rgba(184, 134, 11, 0.02), transparent 50%),
+    radial-gradient(ellipse 40% 30% at 0% 100%, rgba(184, 134, 11, 0.03), transparent 50%),
     var(--bg-base);
   background-attachment: fixed;
+  background-size: 180px 180px, auto, auto, auto, auto;
+  background-repeat: repeat, no-repeat, no-repeat, no-repeat, no-repeat;
 }
 
 a { color: var(--accent-gold); text-decoration: none; }
@@ -408,12 +428,12 @@ a { color: var(--accent-gold); text-decoration: none; }
   animation: fadeInUp 0.4s ease-out both;
 }
 
-/* 页面内容外层包裹 - 滚动区域 */
+/* 页面内容外层包裹 - 滚动区域（透明以透出 body 氛围光晕，毛玻璃才有内容可模糊） */
 .page-content {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: var(--bg-base);
+  background: transparent;
 }
 
 /* 内容舞台容器 - 可视化卡片容器 */
@@ -425,7 +445,7 @@ a { color: var(--accent-gold); text-decoration: none; }
   position: relative;
 }
 
-/* 宽屏（>1200px）内容舞台：圆角卡片+阴影浮起 */
+/* 宽屏（>1200px）内容舞台：毛玻璃画布 + 圆角阴影浮起 */
 @media screen and (min-width: 1200px) {
   .page-stage {
     background: var(--bg-content-area);
@@ -433,7 +453,10 @@ a { color: var(--accent-gold); text-decoration: none; }
     box-shadow:
       0 1px 3px rgba(0, 0, 0, 0.04),
       0 8px 32px -8px rgba(0, 0, 0, 0.06),
-      0 0 0 1px var(--border-subtle);
+      0 0 0 1px var(--border-subtle),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
     margin-top: 8px;
     margin-bottom: 8px;
   }
@@ -442,7 +465,8 @@ a { color: var(--accent-gold); text-decoration: none; }
     box-shadow:
       0 1px 3px rgba(0, 0, 0, 0.2),
       0 8px 32px -8px rgba(0, 0, 0, 0.3),
-      0 0 0 1px var(--border-subtle);
+      0 0 0 1px var(--border-subtle),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
 }
 
@@ -450,16 +474,14 @@ a { color: var(--accent-gold); text-decoration: none; }
 @media screen and (min-width: 1400px) {
   .page-content {
     background:
-      radial-gradient(ellipse 500px 400px at 0% 0%, rgba(184, 134, 11, 0.03), transparent 60%),
-      radial-gradient(ellipse 500px 400px at 100% 100%, rgba(59, 130, 246, 0.02), transparent 60%),
-      var(--bg-base);
+      radial-gradient(ellipse 500px 400px at 0% 0%, rgba(184, 134, 11, 0.05), transparent 60%),
+      radial-gradient(ellipse 500px 400px at 100% 100%, rgba(59, 130, 246, 0.03), transparent 60%);
   }
 
   [data-theme="dark"] .page-content {
     background:
-      radial-gradient(ellipse 500px 400px at 0% 0%, rgba(212, 168, 75, 0.05), transparent 60%),
-      radial-gradient(ellipse 500px 400px at 100% 100%, rgba(59, 130, 246, 0.03), transparent 60%),
-      var(--bg-base);
+      radial-gradient(ellipse 500px 400px at 0% 0%, rgba(212, 168, 75, 0.08), transparent 60%),
+      radial-gradient(ellipse 500px 400px at 100% 100%, rgba(59, 130, 246, 0.05), transparent 60%);
   }
 }
 
@@ -475,9 +497,11 @@ a { color: var(--accent-gold); text-decoration: none; }
 }
 
 .glass-card {
-  background: var(--bg-card);
+  background: var(--bg-glass);
   border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
 }
 
 .number-tabular {
@@ -679,13 +703,30 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 .portfolio-summary-container {
   margin: 8px 10px;
   border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--hero-gradient-start), var(--hero-gradient-end));
+  background:
+    radial-gradient(ellipse 70% 90% at 100% 0%, var(--hero-accent-glow), transparent 65%),
+    radial-gradient(ellipse 50% 70% at 0% 100%, var(--hero-accent-glow), transparent 60%),
+    linear-gradient(135deg, var(--hero-gradient-start), var(--hero-gradient-end));
   border: 1px solid var(--hero-border-light);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.10);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -18px 30px -20px var(--accent-gold-dim);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   position: relative;
   overflow: hidden;
+}
+
+/* 汇总面板顶部金色发丝高光线 */
+.portfolio-summary-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent, var(--accent-gold), transparent);
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 1;
 }
 
 /* 分组切换器：收窄纵向留白，贴近顶部 */
@@ -708,12 +749,228 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   border-top-color: var(--hero-border-light) !important;
 }
 
+/* 深色：汇总卡片专属浮起阴影，与页面背景拉开层次 */
+[data-theme="dark"] .portfolio-summary-container {
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.40),
+    0 2px 8px rgba(0, 0, 0, 0.20),
+    0 0 0 1px rgba(212, 168, 75, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -18px 30px -20px var(--accent-gold-dim);
+}
+
+/* ==================================================================
+   金色奢华风 · 全局 Ant Design 组件精致化升级
+   说明：置于移动端媒体查询之前，移动端专属覆盖规则（其后）仍可覆盖本段。
+   ================================================================== */
+
+/* ---- 主按钮：金色渐变 + 光晕 ---- */
+.ant-btn-primary {
+  background: linear-gradient(135deg, var(--btn-gold-a), var(--btn-gold-b)) !important;
+  border-color: transparent !important;
+  box-shadow: 0 4px 14px rgba(212, 168, 75, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast) !important;
+}
+.ant-btn-primary:not(:disabled):hover {
+  background: linear-gradient(135deg, var(--btn-gold-b), var(--btn-gold-a)) !important;
+  box-shadow: 0 4px 18px rgba(212, 168, 75, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+.ant-btn-primary:not(:disabled):active {
+  transform: translateY(0);
+}
+
+/* ---- 卡片：hover 上浮 + 金色光晕 ---- */
+.ant-card {
+  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base) !important;
+}
+.ant-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-lg), 0 0 0 1px var(--accent-gold-dim) !important;
+}
+
+/* ---- 表格：表头金底 + 容器圆角描边 ---- */
+.ant-table-wrapper .ant-table-container {
+  border-radius: var(--radius-md) !important;
+  overflow: hidden !important;
+}
+.ant-table-thead > tr > th {
+  background-color: var(--bg-elevated) !important;
+  background-image: linear-gradient(180deg, var(--accent-gold-dim), transparent) !important;
+  color: var(--text-secondary) !important;
+  font-weight: 600 !important;
+  border-bottom-color: var(--border-default) !important;
+}
+.ant-table-tbody > tr > td {
+  background: var(--bg-card) !important;
+  color: var(--text-primary) !important;
+  border-bottom-color: var(--border-subtle) !important;
+}
+
+/* ---- Modal：标题金色竖条 + 内容大圆角 + 遮罩微晕 ---- */
+.ant-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ant-modal-title::before {
+  content: '';
+  flex-shrink: 0;
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent-gold), var(--accent-gold-light));
+}
+.ant-modal-content {
+  border-radius: var(--radius-xl) !important;
+  overflow: hidden;
+}
+.ant-modal-mask {
+  background: rgba(24, 20, 8, 0.55) !important;
+}
+[data-theme="dark"] .ant-modal-mask {
+  background: rgba(4, 8, 18, 0.62) !important;
+}
+
+/* ---- Input / Select / Picker：金色聚焦环 ---- */
+.ant-select-focused .ant-select-selector,
+.ant-picker-focused,
+.ant-input-number-focused,
+.ant-picker-active {
+  border-color: var(--accent-gold) !important;
+  box-shadow: 0 0 0 2px var(--accent-gold-dim) !important;
+}
+
+/* ---- Segmented：金色渐变选中态 ---- */
+.ant-segmented-item-selected {
+  background: linear-gradient(135deg, var(--btn-gold-a), var(--btn-gold-b)) !important;
+  color: #fff !important;
+  box-shadow: 0 2px 6px rgba(212, 160, 23, 0.28) !important;
+}
+.ant-segmented-thumb {
+  background: linear-gradient(135deg, var(--btn-gold-a), var(--btn-gold-b)) !important;
+  box-shadow: 0 2px 6px rgba(212, 160, 23, 0.28) !important;
+}
+[data-theme="dark"] .ant-segmented-item-selected {
+  background: linear-gradient(135deg, var(--btn-gold-a), var(--btn-gold-b)) !important;
+  color: #fff !important;
+  box-shadow: 0 2px 6px rgba(212, 160, 23, 0.3) !important;
+}
+[data-theme="dark"] .ant-segmented-thumb {
+  background: linear-gradient(135deg, var(--btn-gold-a), var(--btn-gold-b)) !important;
+}
+[data-theme="dark"] .ant-table-thead > tr > th {
+  background-color: var(--bg-elevated) !important;
+  background-image: linear-gradient(180deg, var(--accent-gold-dim), transparent) !important;
+}
+
+/* ---- Tabs：金色下划线 + 激活文字 ---- */
+.ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--accent-gold) !important;
+  font-weight: 600;
+}
+.ant-tabs-ink-bar {
+  background: linear-gradient(90deg, var(--accent-gold), var(--accent-gold-light)) !important;
+}
+.ant-tabs-tab:hover {
+  color: var(--accent-gold) !important;
+}
+
+/* ---- Spin：金色指示器 ---- */
+.ant-spin-dot-item {
+  background-color: var(--accent-gold) !important;
+}
+.ant-spin-text {
+  color: var(--accent-gold) !important;
+}
+
+/* ---- 工具类：金色发丝高光线 ---- */
+.gold-hairline {
+  display: block;
+  height: 1px;
+  border: 0;
+  background: linear-gradient(90deg, transparent, var(--accent-gold), transparent);
+  opacity: 0.55;
+}
+
+/* ---- 工具类：统一页面标题（金色小竖条） ---- */
+.page-title-gold {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: clamp(18px, 4.5vw, 22px);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.page-title-gold::before {
+  content: '';
+  flex-shrink: 0;
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent-gold), var(--accent-gold-light));
+}
+
+/* ---- 工具类：金色渐变文字 ---- */
+.gold-text-gradient {
+  background: linear-gradient(135deg, var(--grad-num-a), var(--grad-num-b));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* ---- 加载动画：金色旋转环 + 徽章呼吸 + 文字呼吸 ---- */
+@keyframes loading-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes loading-breathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.92); opacity: 0.85; }
+}
+@keyframes loading-fade {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* ---- 骨架屏：统一金色 shimmer（浅色/深色通用） ---- */
+.ant-skeleton .ant-skeleton-content .ant-skeleton-title,
+.ant-skeleton .ant-skeleton-content .ant-skeleton-paragraph > li {
+  background: linear-gradient(90deg, var(--bg-card) 25%, var(--accent-gold-dim) 37%, var(--bg-card) 63%) !important;
+  background-size: 200% 100% !important;
+  animation: skeleton-gold-shimmer 1.6s ease-in-out infinite !important;
+}
+@keyframes skeleton-gold-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.ant-skeleton .ant-skeleton-title {
+  border-radius: var(--radius-sm) !important;
+}
+.ant-skeleton .ant-skeleton-content .ant-skeleton-paragraph > li {
+  border-radius: var(--radius-sm) !important;
+}
+
 /* ========== 移动端响应式优化 (≤768px) ========== */
 @media screen and (max-width: 768px) {
   :root {
     --font-display: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --font-mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
     --content-padding: 4px;
+    /* 移动端性能降级：提高毛玻璃背景不透明度，保证滚动可读与 GPU 开销可控 */
+    --bg-header: rgba(255, 255, 255, 0.82);
+    --bg-tabbar: rgba(255, 255, 255, 0.85);
+    --bg-glass: rgba(255, 255, 255, 0.75);
+  }
+  [data-theme="dark"] {
+    --bg-header: rgba(17, 24, 39, 0.78);
+    --bg-tabbar: rgba(17, 24, 39, 0.82);
+    --bg-glass: rgba(17, 24, 39, 0.62);
   }
 
   html {
@@ -1224,7 +1481,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   }
 
   .portfolio-total-asset > div:first-child > span:last-child {
-    font-size: 18px !important;
+    font-size: 20px !important;
     margin-left: 6px !important;
   }
 
@@ -3398,4 +3655,16 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   width: 14px;
   height: 14px;
   border-radius: 3px;
+}
+
+/* ==================================================================
+   减少动态偏好：全局禁用/缩短所有动画与过渡
+   ================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

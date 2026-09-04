@@ -3,6 +3,7 @@ import { Empty, Alert, Button, Skeleton } from 'antd';
 import { SearchOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { holdingService } from '@/services/holdingService';
 import { useHideAmountStore } from '@/store/hideAmountStore';
+import { useCountUp } from '@/hooks/useCountUp';
 import MarketIndexStrip from '@/components/MarketIndexStrip';
 import GroupSwitcher from '@/components/GroupSwitcher';
 import FundListItem from '@/components/FundListItem';
@@ -121,6 +122,11 @@ export default function PortfolioPage() {
   const totalAsset = displayHoldings.reduce((s, h) => s + (h.market_value ?? 0), 0);
   const totalDaily = displayHoldings.reduce((s, h) => s + (h.daily_profit ?? 0), 0);
   const totalAccumulated = displayHoldings.reduce((s, h) => s + (h.accumulated_profit ?? 0), 0);
+
+  // 数字计数动画（总资产/当日收益/累计收益）
+  const animatedAsset = useCountUp(totalAsset);
+  const animatedDaily = useCountUp(totalDaily);
+  const animatedAccumulated = useCountUp(totalAccumulated);
 
   if (loading) {
     return (
@@ -251,55 +257,63 @@ export default function PortfolioPage() {
 
             {/* 汇总区（与分组同容器，用顶端分隔线区分） */}
             <div className="portfolio-total-asset" style={{
-              padding: '16px 20px',
+              padding: '18px 20px',
               display: 'flex',
               justifyContent: 'space-between',
-              alignItems: 'baseline',
+              alignItems: 'flex-end',
               flexWrap: 'wrap',
-              gap: 12,
+              gap: 14,
             }}>
-              <div style={{ marginBottom: 4 }}>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>总资产</span>
+              <div style={{ marginBottom: 2 }}>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.02em' }}>总资产</span>
                 <span
-                  className="number-tabular"
+                  className="number-tabular gold-text-gradient"
                   onClick={toggleHideAmount}
                   style={{
-                    fontSize: 24,
+                    fontSize: 'clamp(24px, 5vw, 34px)',
                     fontWeight: 800,
-                    color: 'var(--text-primary)',
                     fontFamily: 'var(--font-mono)',
                     marginLeft: 10,
                     cursor: 'pointer',
                     userSelect: 'none',
+                    lineHeight: 1.1,
+                    display: 'inline-block',
+                    verticalAlign: 'middle',
                   }}
                 >
-                  {hideAmount ? '****' : `¥${totalAsset.toLocaleString()}`}
+                  {hideAmount ? '****' : `¥${Math.round(animatedAsset).toLocaleString()}`}
                 </span>
               </div>
 
-              <div style={{ display: 'flex', gap: 20, alignItems: 'baseline' }}>
+              <div style={{ display: 'flex', gap: 24, alignItems: 'flex-end' }}>
                 <div>
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>当日收益</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.02em' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: totalDaily >= 0 ? 'var(--gain)' : 'var(--loss)', display: 'inline-block', flexShrink: 0 }} />
+                    当日收益
+                  </span>
                   <span className="number-tabular" style={{
-                    fontSize: 16,
+                    fontSize: 18,
                     fontWeight: 700,
                     color: totalDaily >= 0 ? 'var(--gain)' : 'var(--loss)',
                     fontFamily: 'var(--font-mono)',
                     marginLeft: 8,
                   }}>
-                    {hideAmount ? '****' : `${totalDaily >= 0 ? '+' : ''}¥${totalDaily.toFixed(2)}`}
+                    {hideAmount ? '****' : `${animatedDaily >= 0 ? '+' : ''}¥${Math.abs(animatedDaily).toFixed(2)}`}
                   </span>
                 </div>
                 <div>
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>累计收益</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.02em' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: totalAccumulated >= 0 ? 'var(--gain)' : 'var(--loss)', display: 'inline-block', flexShrink: 0 }} />
+                    累计收益
+                  </span>
                   <span className="number-tabular" style={{
-                    fontSize: 16,
+                    fontSize: 18,
                     fontWeight: 700,
                     color: totalAccumulated >= 0 ? 'var(--gain)' : 'var(--loss)',
                     fontFamily: 'var(--font-mono)',
                     marginLeft: 8,
                   }}>
-                    {hideAmount ? '****' : `${totalAccumulated >= 0 ? '+' : ''}¥${totalAccumulated.toFixed(2)}`}
+                    {hideAmount ? '****' : `${animatedAccumulated >= 0 ? '+' : ''}¥${Math.abs(animatedAccumulated).toFixed(2)}`}
                   </span>
                 </div>
               </div>

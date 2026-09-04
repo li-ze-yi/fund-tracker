@@ -731,12 +731,8 @@ export default function FundDetailPage() {
           }}
         />
         <div style={{ flex: 1 }}>
-          <h1 className="fund-detail-title" style={{
-            fontSize: 22,
-            fontWeight: 700,
-            color: 'var(--text-primary)',
+          <h1 className="fund-detail-title page-title-gold" style={{
             marginBottom: 4,
-            letterSpacing: '-0.01em',
           }}>
             {fund.name || code}
           </h1>
@@ -751,7 +747,7 @@ export default function FundDetailPage() {
                   lineHeight: '18px',
                   padding: '0 8px',
                   background: 'var(--accent-gold-dim)',
-                  color: 'var(--accent-gold-light)',
+                  color: 'var(--gold-deep)',
                   border: 'none',
                   borderRadius: 4,
                 }}

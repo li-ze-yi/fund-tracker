@@ -1,11 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { ConfigProvider, App as AntApp, theme as antTheme, Spin } from 'antd';
+import { ConfigProvider, App as AntApp, theme as antTheme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { useEffect, useLayoutEffect, lazy, Suspense } from 'react';
 import { useAuthStore } from './store/authStore';
 import { useThemeStore } from './store/themeStore';
 import MainLayout from './layouts/MainLayout';
 import AuthLayout from './layouts/AuthLayout';
+import LoadingScreen from './components/LoadingScreen';
 import './App.css';
 
 // 路由级懒加载 - 首屏只加载当前页面，其余按需加载
@@ -25,11 +26,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isInitialized = useAuthStore((s) => s.isInitialized);
   if (!isInitialized) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <Spin size="large" />
-      </div>
-    );
+    return <LoadingScreen text="正在启动…" />;
   }
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
@@ -54,11 +51,11 @@ export default function App() {
   // 暗色模式使用 darkAlgorithm，避免 Ant Design 组件按浅色算法渲染导致界面偏白
   const antAlgorithm = isLight ? antTheme.defaultAlgorithm : antTheme.darkAlgorithm;
   const antToken = {
-    colorPrimary: isLight ? '#B8860B' : '#D4A84B',
+    colorPrimary: isLight ? '#8F6A06' : '#D4A84B',
     borderRadius: 8,
     colorBgContainer: isLight ? '#FFFFFF' : '#111827',
     colorBgElevated: isLight ? '#FFFFFF' : '#111827',
-    colorBgLayout: isLight ? '#F5F7FA' : '#0B1120',
+    colorBgLayout: isLight ? '#F7F8FA' : '#0B1120',
     colorText: isLight ? '#1E293B' : '#F1F5F9',
     colorTextSecondary: isLight ? '#64748B' : '#94A3B8',
     colorBorder: isLight ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.14)',
@@ -69,9 +66,7 @@ export default function App() {
     return (
       <ConfigProvider locale={zhCN} theme={{ token: antToken, algorithm: antAlgorithm }}>
         <AntApp>
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-            <Spin size="large" />
-          </div>
+          <LoadingScreen text="正在启动…" />
         </AntApp>
       </ConfigProvider>
     );
@@ -87,7 +82,7 @@ export default function App() {
     >
       <AntApp>
         <BrowserRouter>
-          <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}><Spin size="large" /></div>}>
+          <Suspense fallback={<LoadingScreen text="页面加载中…" />}>
             <Routes>
               <Route element={<AuthLayout />}>
                 <Route path="/login" element={<LoginPage />} />

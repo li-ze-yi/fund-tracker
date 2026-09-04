@@ -217,12 +217,8 @@ export default function WatchlistPage() {
 
   return (
     <div className="watchlist-page" style={{ padding: '20px 0' }}>
-      <div className="watchlist-title" style={{
+      <div className="watchlist-title page-title-gold" style={{
         padding: '0 16px 12px',
-        fontSize: 22,
-        fontWeight: 700,
-        color: 'var(--text-primary)',
-        letterSpacing: '-0.01em',
       }}>
         自选基金
       </div>

@@ -64,7 +64,7 @@ export default function SettingsPage() {
 
   return (
     <div className="settings-page" style={{ padding: 20 }}>
-      <h2 className="settings-title" style={{ marginBottom: 20, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>设置</h2>
+      <h2 className="settings-title page-title-gold" style={{ marginBottom: 20 }}>设置</h2>
 
       <Card
         className="settings-card"
@@ -155,9 +155,9 @@ export default function SettingsPage() {
           <div>基金实时估值管理系统</div>
           <div>数据来源: 天天基金 / 东方财富</div>
           <div style={{ marginTop: 8 }} className="settings-about-links">
-            <a href="#" style={{ color: 'var(--accent-gold-light)' }}>用户协议</a>
+            <a href="#" style={{ color: 'var(--accent-gold)' }}>用户协议</a>
             {' | '}
-            <a href="#" style={{ color: 'var(--accent-gold-light)' }}>隐私政策</a>
+            <a href="#" style={{ color: 'var(--accent-gold)' }}>隐私政策</a>
           </div>
         </div>
       </Card>
