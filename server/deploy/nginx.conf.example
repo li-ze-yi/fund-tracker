@@ -1,0 +1,84 @@
+# nginx 配置示例 —— Adapter A（为 PM2 多副本后端提供反向代理 / 负载均衡）
+#
+# 前提：已用 ecosystem.config.js 以 fork 模式启动 webserv-3001..webserv-3004。
+# 后端服务在 server/app.js 中设置了 app.set('trust proxy', 1)，
+# 因此本配置必须设置 X-Forwarded-For，后端才会把 req.ip 视为真实客户端 IP。
+
+# ---- 后端 upstream 负载均衡池 ----
+# least_conn: 将请求分发给当前活跃连接数最少的节点，适合长连接/不均匀负载。
+# max_fails / fail_timeout: 被动健康检查（passive health check）——若某节点在
+#   fail_timeout(5s) 内连续 max_fails(2) 次连接/响应失败，则标记为宕机并在
+#   该时间窗内不再转发，优化失败可自动恢复。更多主动健康检查见下方注释的示例块。
+upstream fund_backend {
+    least_conn;
+    server 127.0.0.1:3001 max_fails=2 fail_timeout=5s;
+    server 127.0.0.1:3002 max_fails=2 fail_timeout=5s;
+    server 127.0.0.1:3003 max_fails=2 fail_timeout=5s;
+    server 127.0.0.1:3004 max_fails=2 fail_timeout=5s;
+    keepalive 32; # 与后端保持长连接，减少握手开销
+}
+
+# ---- 主动健康检查示例（可选，需 nginx plus 或支持 health_check 模块才可启用）----
+# 命中该路径会返回 200；任何故障都会让该 upstream 节点被标记为不健康。
+# 如果 nginx 不支持 active health check，请依赖上面的被动 max_fails/fail_timeout。
+# location = /healthz {
+#     proxy_pass http://fund_backend/health;
+#     proxy_set_header Host $host;
+#     proxy_set_header X-Forwarded-For $remote_addr;
+#     access_log off;
+# }
+# upstream fund_backend {
+#     ...
+#     health_check uri=/health interval=5s fails=2 passes=2;
+# }
+
+server {
+    listen 80;
+    server_name _; # 请替换为你的域名/target-server 地址
+
+    # 请求体大小（若涉及文件/图片上传请适当调大）
+    client_max_body_size 20m;
+
+    location / {
+        proxy_pass http://fund_backend;
+        proxy_http_version 1.1;             # 使用 HTTP/1.1 以支持 keepalive
+        proxy_set_header Connection "";      # 清空 Connection 头，交给 upstream 复用长连接
+
+        # 标准反代头
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; # 后端 trust proxy 依赖此项
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 超时配置
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+}
+
+# ---- 可选：HTTPS（生产推荐）。启用后请替换示例证书路径，并注释/移除上面的 80 块（或做 301 跳转）----
+# server {
+#     listen 443 ssl http2;
+#     server_name _; # 替换为你的域名
+#
+#     ssl_certificate     /etc/nginx/ssl/your-domain.crt;     # 替换为实际证书路径
+#     ssl_certificate_key /etc/nginx/ssl/your-domain.key;     # 替换为实际私钥路径
+#     ssl_protocols       TLSv1.2 TLSv1.3;
+#     ssl_ciphers         HIGH:!aNULL:!MD5;
+#
+#     client_max_body_size 20m;
+#
+#     location / {
+#         proxy_pass http://fund_backend;
+#         proxy_http_version 1.1;
+#         proxy_set_header Connection "";
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         proxy_connect_timeout 10s;
+#         proxy_send_timeout 60s;
+#         proxy_read_timeout 60s;
+#     }
+# }

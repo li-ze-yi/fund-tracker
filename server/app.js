@@ -8,11 +8,10 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
-const cron = require('node-cron');
-const { executeDuePlans } = require('./services/planService');
-const dailyProfitService = require('./services/dailyProfitService');
-const pendingSettleService = require('./services/pendingSettleService');
 const globalCache = require('./services/globalCache');
+const scheduler = require('./services/jobs/scheduler');
+const jobsQueue = require('./services/jobs/queue');
+const jobProcessors = require('./services/jobs/processors');
 const { createLogger } = require('./utils/logger');
 
 const logger = createLogger('App');
@@ -87,6 +86,11 @@ app.use('/api/market', require('./routes/market'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/announcements', require('./routes/announcements'));
 
+// 健康检查：无论 Redis / 定时任务状态如何都返回 200，供负载均衡 / 监控探活
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 // 全局错误处理
 app.use((err, req, res, next) => {
   logger.error(`全局错误处理: ${err.message}`, err.stack);
@@ -94,10 +98,50 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3001;
+
+let shuttingDown = false;
+
+/**
+ * 优雅停机：停止 BullMQ workers + 定时调度器，再退出进程。
+ */
+function registerGracefulShutdown() {
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info('收到退出信号，正在优雅关闭...');
+    try {
+      await scheduler.shutdownScheduledJobs();
+    } catch (err) {
+      logger.error(`优雅关闭调度失败: ${err.message}`, err.stack);
+    }
+    process.exit(0);
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+}
+
+/**
+ * 启动时检查一次到期定投计划（防止服务器重启期间遗漏）。
+ * - Redis 模式：以确定性 jobId 入队，跨实例去重，只消费一次。
+ * - 无 Redis 模式：直接进程内执行，行为与旧的单进程实现一致。
+ */
+function handleStartupCheck() {
+  if (jobsQueue.isRedisEnabled()) {
+    const key = `startup:${scheduler.ymd()}`;
+    jobsQueue.enqueue('invest', key)
+      .then(() => logger.info(`启动时定投检查已入队 | invest:${key}`))
+      .catch((err) => logger.error(`启动时定投检查入队失败: ${err.message}`));
+  } else {
+    jobProcessors.startupCheck()
+      .catch((err) => logger.error(`启动时执行定投计划异常: ${err.message}`, err.stack));
+  }
+}
+
 app.listen(PORT, async () => {
   logger.info(`服务器运行在端口 ${PORT}`);
 
   // 全局缓存：启动时加载磁盘缓存与统计，并启动持久化（重启后可找回）
+  // 注意：Redis 模式下 globalCache 自动跳过文件持久化，数据以 Redis 为准
   try {
     await globalCache.loadFromFile();
   } catch (err) {
@@ -106,62 +150,18 @@ app.listen(PORT, async () => {
   globalCache.startPersistence();
   globalCache.startCleanup();
 
-  // 定投计划定时调度
-  // 净值确认时间说明：A股基金净值通常在收盘后18:00-20:00间由基金公司确认发布
-  // 调度策略：10:00 创建 pending 订单（用估值预估） → 20:00 结算 pending + 处理新到期计划
-  const planCronTimes = [
-    { time: '0 10 * * *', label: '10:00 上午执行（创建 pending 订单）' },
-    { time: '0 20 * * *', label: '20:00 晚间执行（结算 pending + 处理到期计划）' },
-  ];
-
-  for (const { time, label } of planCronTimes) {
-    cron.schedule(time, async () => {
-      logger.info(`定投计划调度触发 (${label}) | 时间: ${new Date().toLocaleString('zh-CN')}`);
-      try {
-        const result = await executeDuePlans();
-        if (result.pending > 0) {
-          logger.info(`${result.pending}个计划因净值未确认而跳过，将在下次调度时重试`);
-        }
-        logger.info(`定投调度完成 (${label}) | 成功=${result.success} 待确认=${result.pending}`);
-      } catch (err) {
-        logger.error(`定投计划调度异常: ${err.message}`, err.stack);
-      }
-    });
+  // 定时任务接入：
+  // - Redis 多实例：启动 BullMQ workers + node-cron 入队 + 启动回填
+  // - 无 Redis 单进程：仅 node-cron 直连执行（与旧行为一致）
+  try {
+    await scheduler.initScheduledJobs();
+  } catch (err) {
+    logger.error(`初始化定时任务失败: ${err.message}`, err.stack);
   }
-  logger.info('定投计划调度器已启动 (10:00 上午执行, 20:00 晚间执行)');
 
-  // 日收益兜底任务：每天 23:55 为当天未打开 App 的用户补算日收益
-  cron.schedule('55 23 * * *', async () => {
-    logger.info(`日收益兜底任务触发 | 时间: ${new Date().toLocaleString('zh-CN')}`);
-    try {
-      const result = await dailyProfitService.backfillDailyProfit();
-      logger.info(`日收益兜底完成 | 持仓用户=${result.total} 已记录=${result.skipped} 补算成功=${result.success} 失败=${result.failed}`);
-    } catch (err) {
-      logger.error(`日收益兜底任务异常: ${err.message}`, err.stack);
-    }
-  });
-  logger.info('日收益兜底调度器已启动 (23:55)');
+  // 启动时检查一次（防重启错过到期计划）
+  handleStartupCheck();
 
-  // 独立 pending 订单结算兜底任务：每天 23:50 扫描所有用户的 pending 订单并尝试结算
-  // 与日收益兜底任务（23:55）解耦，略早 5 分钟触发，避免并发
-  // 流程：先结算所有 pending 订单（净值已发布的会被结算）→ 再清除超过 30 天的异常 pending 订单
-  // 解决场景：用户当天打开过 App（已记录日收益）但 pending 订单因净值未发布未结算时，
-  // 23:55 兜底任务会跳过该用户，独立结算任务可覆盖该场景
-  cron.schedule('50 23 * * *', async () => {
-    logger.info(`pending 订单独立结算兜底任务触发 | 时间: ${new Date().toLocaleString('zh-CN')}`);
-    try {
-      const result = await pendingSettleService.cleanupStalePendingOrders(30);
-      const s = result.settle;
-      logger.info(`pending 订单结算兜底完成 | 扫描用户数=${s.scannedUsers} pending订单数=${s.totalPending} 成功结算=${s.settled} 跳过=${s.skipped} 清除数=${result.cleanedCount}`);
-    } catch (err) {
-      logger.error(`pending 订单独立结算兜底任务异常: ${err.message}`, err.stack);
-    }
-  });
-  logger.info('pending 订单独立结算兜底调度器已启动 (23:50)');
-
-  // 启动时也检查一次（防止服务器重启期间遗漏）
-  logger.info('启动时检查一次到期定投计划...');
-  executeDuePlans()
-    .then(result => logger.info(`启动时定投检查完成 | 成功=${result.success} 待确认=${result.pending}`))
-    .catch(err => logger.error(`启动时执行定投计划异常: ${err.message}`, err.stack));
+  // 优雅停机
+  registerGracefulShutdown();
 });

@@ -1,0 +1,26 @@
+# Checklist
+
+- [x] `ioredis` 与 `bullmq` 已加入 dependencies，`REDIS_URL` 配置驱动是否启用 Redis/BullMQ
+- [x] 配置 `REDIS_URL` 时，globalCache 读写 Redis，多实例共享缓存，TTL 复用 `getTTL(type)`
+- [x] 未配置 `REDIS_URL` 时回退内存 Map + `data/globalCache.json` 文件持久化，且定时作业进程内直接执行（单进程/测试行为不变）
+- [x] Redis 连接失败时记录错误并降级为内存后端，HTTP 服务不崩溃
+- [x] Redis 模式下不再执行文件落盘相关逻辑
+- [x] 跨实例 singleflight：同一 key 并发未命中时仅一个实例调用外部 API，其余等待复用（coordinator 锁 + 限定等待 + 有界降级）
+- [x] 同实例内存 in-flight 去重保留；无 Redis 时锁为空操作直接拉取
+- [x] 定投/日收益/pending 逻辑抽取为 BullMQ 作业处理器，各队列与 worker 已接入 Redis
+- [x] 各实例注册同一组 node-cron，到点以确定性 jobId 入队，去重后同一发生仅入队一次并仅执行一次
+- [x] worker 完成后 ACK；lockDuration/stalledInterval/attempts 已配置支持崩溃自动重投
+- [x] worker 中途崩溃（未 ACK）时，stalled 看门狗在 lockDuration/stalledInterval 后重投，其他 worker 幂等重跑（分钟级，不等到下一触发点）
+- [x] 优雅退出：SIGTERM 时完成在跑作业再关 worker
+- [x] Redis 已记录各作业最近成功运行水位；实例启动检出漏跑发生并以确定性 jobId 补入队（日收益/pending 重点）
+- [x] 无 Redis 时漏跑补录与水位跳过，仅执行既有启动到期检查，不崩溃
+- [x] 作业幂等：每个发生以幂等键标记，"已处理则跳过"，重投/重复入队无重复下单/入账/结算
+- [x] 无 Redis 也可正常运行：未配置 `REDIS_URL` 时整套软件单进程行为与当前一致（内存+文件缓存、定时作业直接执行、HTTP 正常）
+- [x] 配置但 Redis 运行中不可用时 HTTP 不崩溃、缓存降为内存并记录日志，BullMQ 作业按重试策略处理，恢复后自动回归
+- [x] `GET /health` 返回 200，不依赖定时作业即可响应
+- [x] package.json 提供 `ioredis`、`bullmq` 依赖，保留 `start`/`dev`；未引入 `SCHEDULER_ENABLED`
+- [x] `.env.example` 增加 `REDIS_URL` 与 BullMQ 相关说明
+- [x] 适配 A：「ecosystem.config.js」（PM2 fork，N 个相同实例，各独立 PORT，自动重启）与 `deploy/nginx.conf.example`（least_conn + TLS + /health）已提供
+- [x] 适配 B：`k8s/deployment-web.yaml`（stateless，N 个相同副本，探针，REDIS_URL）+ Redis 接入说明已提供
+- [x] `npm run lint` 通过
+- [x] 无 REDIS_URL（兼容）、有 REDIS_URL（共享缓存 + 入队去重）、worker 崩溃重投、停机启动补录、幂等、`/health`(200) 均已验证

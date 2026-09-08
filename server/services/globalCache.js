@@ -32,12 +32,18 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const { createLogger } = require('../utils/logger');
+const coordinator = require('./coordinator');
 const logger = createLogger('GlobalCache');
 
 class GlobalCache {
   constructor() {
     this.cache = new Map();
-    
+
+    // Redis 后端模式（配置了 REDIS_URL 即启用）。
+    // redisEnabled 固定由环境变量决定；运行时若 Redis 连接失败，_redisOpacity 会降级回退到内存 Map。
+    this.redisEnabled = Boolean(process.env.REDIS_URL);
+    this.redis = coordinator.getClient(); // 与 Coordinator 复用一个共享 ioredis client
+
     // 缓存统计
     this.stats = {
       hits: 0,           // 命中次数
@@ -132,6 +138,83 @@ class GlobalCache {
   }
 
   /**
+   * Redis 模式是否启用（仅决定后端选择，不抛错）
+   */
+  _isRedis() {
+    return this.redisEnabled && Boolean(this.redis);
+  }
+
+  /**
+   * 睡眠辅助（跨实例 singleflight 轮询用）
+   */
+  _sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * 从 Redis 读取缓存条目（JSON: { data, timestamp, type }）。
+   * 命中且未过期则顺手 PEXPIRE 刷新 TTL，避免热键漂移。
+   * @returns {Promise<{data:*, timestamp:number, type:string}|null>} 不存在或已过期或出错 → null
+   */
+  async _redisGetEntry(key) {
+    if (!this._isRedis()) return null;
+    try {
+      const raw = await this.redis.get(key);
+      if (raw == null) return null;
+      const entry = JSON.parse(raw);
+      if (!entry || typeof entry !== 'object' || !('data' in entry)) return null;
+      // 刷新 TTL（best-effort，失败不影响读）
+      const ttl = this.getTTL(entry.type || 'realtime');
+      this.redis.pexpire(key, ttl).catch(() => {});
+      return entry;
+    } catch (err) {
+      logger.error(`Redis 读取缓存失败，回退内存: ${key}, error=${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * 写缓存条目到 Redis（SET key <json> PX ttl）。best-effort，出错不抛出。
+   */
+  async _redisSetEntry(key, data, type) {
+    if (!this._isRedis()) return;
+    try {
+      const entry = { data, timestamp: Date.now(), type };
+      const ttl = this.getTTL(type);
+      await this.redis.set(key, JSON.stringify(entry), 'PX', ttl);
+    } catch (err) {
+      logger.error(`Redis 写入缓存失败: ${key}, error=${err.message}`);
+    }
+  }
+
+  /**
+   * 纯内存写入（含内存保护淘汰）
+   */
+  _setMemory(key, data, type) {
+    if (this.cache.size >= this.maxSize) {
+      this.evictOldest(50);  // 清理最旧的50个条目
+    }
+    this.cache.set(key, { data, timestamp: Date.now(), type });
+  }
+
+  /**
+   * 跨实例 singleflight：未抢到锁时轮询 Redis 等待其他实例写入的结果。
+   * @returns {Promise<*|null>} 有界时间内出现条目则返回其 data，否则返回 null
+   */
+  async _pollForEntry(key, type, timeoutMs = 2000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const entry = await this._redisGetEntry(key);
+      if (entry && Date.now() - entry.timestamp < this.getTTL(entry.type || type)) {
+        this._setMemory(key, entry.data, entry.type || type);
+        return entry.data;
+      }
+      await this._sleep(50);
+    }
+    return null;
+  }
+
+  /**
    * 获取或设置缓存（核心方法）
    */
   async getOrFetch(key, fetchFn, options = {}) {
@@ -153,12 +236,13 @@ class GlobalCache {
       return data;
     }
 
-    // 2️⃣ 检查缓存命中
-    const cached = this.cache.get(key);
-    
-    if (cached) {
-      const ttl = this.getTTL(type);
-      const age = Date.now() - cached.timestamp;
+    // 2️⃣ 检查缓存命中（内存 Map：回退模式为唯一后端，Redis 模式下为镜像/兜底）
+    // 保持与旧版一致的统计口径（过期僵尸条目计入 evictions）
+    const memCached = this.cache.get(key);
+
+    if (memCached) {
+      const ttl = this.getTTL(memCached.type);
+      const age = Date.now() - memCached.timestamp;
       
       if (age < ttl) {
         // ✅ 命中缓存
@@ -169,10 +253,26 @@ class GlobalCache {
           logger.debug(`命中: ${key} (${(age / 1000).toFixed(1)}s前, TTL=${(ttl / 1000)}s, 命中率=${this.getHitRate()}%)`);
         }
         
-        return cached.data;
+        return memCached.data;
       } else {
         // ⏰ 缓存过期
         this.cache.delete(key);
+        this.stats.evictions++;
+      }
+    }
+
+    // 2.5️⃣ Redis 模式：本进程内存未命中 → 再探测共享 Redis（跨实例暖缓存）
+    if (this._isRedis() && !memCached) {
+      const redisEntry = await this._redisGetEntry(key);
+      if (redisEntry) {
+        const ttl = this.getTTL(redisEntry.type || type);
+        if (Date.now() - redisEntry.timestamp < ttl) {
+          // ✅ 命中共享缓存：写回内存镜像并返回
+          this._setMemory(key, redisEntry.data, redisEntry.type || type);
+          this.stats.hits++;
+          return redisEntry.data;
+        }
+        // ⏰ Redis 中已过期（Redis 自动过期兜底），计入淘汰
         this.stats.evictions++;
       }
     }
@@ -193,10 +293,30 @@ class GlobalCache {
 
     const promise = (async () => {
       try {
-        const data = await fetchFn();
+        // 第二层：跨实例 singleflight（仅在真实未命中后兜底生效）
+        // 未配置 Redis 时 coordinator 直接放行 → 行为与旧版单进程一致
+        const lockTtl = Math.min(this.getTTL(type), 30000) || 30000;
+        const tok = await coordinator.acquire(`sf:${key}`, lockTtl);
 
-        if (data !== null && data !== undefined) {
-          this.set(key, data, type);
+        let data;
+        if (tok) {
+          // ✅ 抢到锁（或 Redis 禁用降级放行）→ 唯一实例负责拉取
+          data = await fetchFn();
+          if (data !== null && data !== undefined) {
+            this.set(key, data, type);
+          }
+          // 释放锁（禁用态为真正的空操作）
+          await coordinator.release(`sf:${key}`, tok);
+        } else {
+          // ⏳ 其他实例正在拉取 → 有界轮询等待其写入结果
+          data = await this._pollForEntry(key, type, 2000);
+          if (data === null || data === undefined) {
+            // 超时兜底：有界的重复请求，保证请求成功
+            data = await fetchFn();
+            if (data !== null && data !== undefined) {
+              this.set(key, data, type);
+            }
+          }
         }
 
         return data;
@@ -289,18 +409,15 @@ class GlobalCache {
 
   /**
    * 设置缓存
+   * - 内存 Map 始终写入（回退模式为唯一后端，Redis 模式下为镜像/兜底）
+   * - Redis 模式额外异步写共享 Redis（best-effort，不出错）
    */
   set(key, data, type = 'realtime') {
-    // 内存保护：超过最大容量时清理旧条目
-    if (this.cache.size >= this.maxSize) {
-      this.evictOldest(50);  // 清理最旧的50个条目
-    }
+    this._setMemory(key, data, type);
 
-    this.cache.set(key, {
-      data,
-      timestamp: Date.now(),
-      type
-    });
+    if (this._isRedis()) {
+      this._redisSetEntry(key, data, type).catch(() => {});
+    }
   }
 
   /**
@@ -514,8 +631,14 @@ class GlobalCache {
 
   /**
    * 启动定时清理任务
+   * Redis 模式下 Redis 自动处理过期，无需内存清理（本地 Map 仅作镜像），此处空操作。
    */
   startCleanup(intervalMs = 5 * 60 * 1000) {
+    if (this._isRedis()) {
+      logger.debug('Redis 模式: 跳过定时清理 (Redis 自动处理过期)');
+      return;
+    }
+
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);  // 避免重复启动
     }
@@ -580,6 +703,11 @@ class GlobalCache {
    * - 单条不可序列化则跳过该条（容错）
    */
   async saveToFile() {
+    // Redis 模式下禁止文件落盘：缓存以 Redis 为准
+    if (this._isRedis()) {
+      logger.debug('Redis 模式: 跳过文件持久化 (数据以 Redis 为准)');
+      return;
+    }
     if (this.saving) return;
     this.saving = true;
     try {
@@ -617,6 +745,11 @@ class GlobalCache {
    * 同步落盘（供进程退出钩子使用，确保能写完）
    */
   saveToFileSync() {
+    // Redis 模式下禁止文件落盘
+    if (this._isRedis()) {
+      logger.debug('Redis 模式: 跳过同步文件落盘 (数据以 Redis 为准)');
+      return;
+    }
     try {
       const now = Date.now();
       const entries = [];
@@ -648,6 +781,11 @@ class GlobalCache {
    * - 文件缺失/损坏则冷启动（不崩溃）
    */
   async loadFromFile() {
+    // Redis 模式下不读取磁盘文件（缓存以 Redis 为准，冷启动直接走共享缓存）
+    if (this._isRedis()) {
+      logger.debug('Redis 模式: 跳过磁盘缓存加载 (数据以 Redis 为准)');
+      return false;
+    }
     try {
       if (!fs.existsSync(this.cacheFilePath)) {
         logger.info('未找到缓存文件，冷启动');
@@ -703,6 +841,12 @@ class GlobalCache {
    * @param {number} intervalMs 周期落盘间隔，默认 60s
    */
   startPersistence(intervalMs = 60 * 1000) {
+    // Redis 模式下禁止文件持久化定时器与退出钩子，避免写 data/globalCache.json
+    if (this._isRedis()) {
+      logger.debug('Redis 模式: 跳过文件持久化启动 (数据以 Redis 为准)');
+      return;
+    }
+
     if (this.saveInterval) clearInterval(this.saveInterval);
 
     this.saveInterval = setInterval(() => {

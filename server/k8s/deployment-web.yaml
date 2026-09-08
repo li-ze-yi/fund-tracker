@@ -1,0 +1,70 @@
+# Kubernetes Deployment —— Adapter B
+#
+# 无状态多副本后端。所有副本（replica）完全等价，定时/调度任务通过 Redis 队列
+# 在其中分发消费，无需单独的 scheduler Deployment。
+# 探针均使用 GET /health（后端 server/app.js 提供该健康检查端点，存活时返回 200）。
+#
+# 注意：本文件仅覆盖 Deployment。对外暴露需另建 Service / Ingress（不在本文件范围内）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fund-backend
+  labels:
+    app: fund-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: fund-backend
+  template:
+    metadata:
+      labels:
+        app: fund-backend
+    spec:
+      containers:
+        - name: fund-backend
+          # TODO: 替换为你实际的容器镜像（例如 registry.example.com/fund/backend:1.0.0）
+          image: {IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3001"
+            - name: NODE_ENV
+              value: "production"
+            # REDIS_URL 从 Secret 中引用。
+            # 前提：集群中必须存在名为 `redis` 的 Secret，且其中包含键 `REDIS_URL`。
+            #   kubectl create secret generic redis --from-literal=REDIS_URL=redis://redis-svc:6379
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: REDIS_URL
+            # 如不想走 Secret，也可直接使用明文 value（仅用于演示/本地）：
+            # - name: REDIS_URL
+            #   value: "redis://localhost:6379/0"
+            # 其他必需环境变量（JWT_SECRET、MYSQL_*）同样请通过 Secret/ConfigMap 注入。
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 600Mi
