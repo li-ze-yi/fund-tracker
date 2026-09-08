@@ -5,6 +5,7 @@ const { authenticate, requireAdmin } = require('../middlewares/auth');
 router.use(authenticate, requireAdmin);
 
 router.get('/dashboard', ctrl.dashboard);
+router.get('/health/db', ctrl.dbHealth);
 router.get('/users', ctrl.listUsers);
 router.post('/users', ctrl.createUser);
 router.put('/users/:id/role', ctrl.updateUserRole);

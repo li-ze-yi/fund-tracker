@@ -3,7 +3,7 @@ const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('Database');
 
-const CONNECTION_LIMIT = 10;
+const CONNECTION_LIMIT = 100;
 
 const pool = mysql.createPool({
   host: process.env.MYSQL_HOST,
@@ -66,5 +66,8 @@ pool.query = async function (...args) {
 
   throw lastError;
 };
+
+// 挂载连接上限到池对象，供健康检查等场景只读引用（避免事件回调中访问 pool.pool._config）
+pool.CONNECTION_LIMIT = CONNECTION_LIMIT;
 
 module.exports = pool;
