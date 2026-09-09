@@ -389,6 +389,7 @@ async function resolveConfirmedNav(fundCode, holding, historyData, realTimeData,
       const todayStr4 = getLocalToday();
       // ★ 锚点感知兜底窗口：startDate = 最近交易日 − 1 天，覆盖长假（3 天窗口在长假中拉不到节前最后交易日净值）
       const startDate4 = await getHistoryFallbackStartDate(todayStr4);
+      // getHistoryNetValues 内部已含 guardFetch 全局护栏，此处无需再包裹
       const fetched = await fundService.getHistoryNetValues(fundCode, startDate4, todayStr4);
       if (fetched && fetched.length > 0) {
         const first = fetched[0];

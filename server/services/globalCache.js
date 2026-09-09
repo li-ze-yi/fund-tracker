@@ -40,6 +40,33 @@ const STATS_KEY = (field) => `gc:stats:${field}`;
 const STATS_FIELDS = ['hits', 'misses', 'evictions', 'totalRequests', 'forcedRefreshes'];
 const MISSES_KEY = 'gc:stats:recentMisses'; // 跨实例"最近未命中"明细（LPUSH + LTRIM 定长列表）
 
+/**
+ * 信号量：限制进程内同时执行的"外部数据拉取"任务数（并发护栏）。
+ * - 未达到上限时立即执行；达到上限时排队等待，任一任务结束即唤醒一个等待者。
+ * - 每个 Node 实例各持有一个，多实例（如 4 个）时总在途 = 实例数 × limit，
+ *   配合 getOrFetch 的跨实例单飞，既能防雪崩又不至于打爆外部数据源。
+ */
+class Semaphore {
+  constructor(max) {
+    this.max = Math.max(1, max);
+    this.active = 0;
+    this.waiters = [];
+  }
+  async run(fn) {
+    if (this.active >= this.max) {
+      await new Promise((resolve) => this.waiters.push(resolve));
+    }
+    this.active++;
+    try {
+      return await fn();
+    } finally {
+      this.active--;
+      const next = this.waiters.shift();
+      if (next) next();
+    }
+  }
+}
+
 class GlobalCache {
   constructor() {
     this.cache = new Map();
@@ -77,6 +104,12 @@ class GlobalCache {
 
     // 在途请求去重（缓存击穿防护）：key -> Promise，命中时复用，完成后删除
     this.inFlight = new Map();
+
+    // ★ 全局外部拉取并发护栏（信号量）：限制本进程同时进行的外部数据请求数。
+    // 通过 EXTERNAL_FETCH_CONCURRENCY 配置，默认 20；多实例时总在途 = 实例数 × 该值。
+    // guardFetch 供不走 getOrFetch 的手动外部拉取路径复用，保证整体不超出该上限。
+    this.externLimit = parseInt(process.env.EXTERNAL_FETCH_CONCURRENCY || '20', 10);
+    this._externSem = new Semaphore(this.externLimit);
 
     // 定时清理器
     this.cleanupInterval = null;
@@ -252,6 +285,18 @@ class GlobalCache {
   }
 
   /**
+   * 手动外部拉取路径的并发护栏：在不改写调用方缓存逻辑的前提下，
+   * 让该外部请求受全局信号量限制（等待空闲槽位后再执行）。
+   * 供不走 getOrFetch 的手工 `checkCache → fetch → set` 路径复用，
+   * 与 getOrFetch 内部护栏共享同一信号量，保证整体外部并发不超上限。
+   * @param {Function} fetcher async 外部拉取函数
+   * @returns {Promise<*>} fetcher 的返回值
+   */
+  guardFetch(fetcher) {
+    return this._externSem.run(fetcher);
+  }
+
+  /**
    * 获取或设置缓存（核心方法）
    */
   async getOrFetch(key, fetchFn, options = {}) {
@@ -268,7 +313,7 @@ class GlobalCache {
     if (forceRefresh) {
       this._bumpStats('forcedRefreshes');
       logger.info(`强制刷新: ${key}`);
-      const data = await fetchFn();
+      const data = await this.guardFetch(() => fetchFn());
       this.set(key, data, type);
       return data;
     }
@@ -335,8 +380,8 @@ class GlobalCache {
 
         let data;
         if (tok) {
-          // ✅ 抢到锁（或 Redis 禁用降级放行）→ 唯一实例负责拉取
-          data = await fetchFn();
+          // ✅ 抢到锁（或 Redis 禁用降级放行）→ 唯一实例负责拉取（受全局外部并发护栏限制）
+          data = await this.guardFetch(() => fetchFn());
           if (data !== null && data !== undefined) {
             this.set(key, data, type);
           }
@@ -347,7 +392,7 @@ class GlobalCache {
           data = await this._pollForEntry(key, type, 2000);
           if (data === null || data === undefined) {
             // 超时兜底：有界的重复请求，保证请求成功
-            data = await fetchFn();
+            data = await this.guardFetch(() => fetchFn());
             if (data !== null && data !== undefined) {
               this.set(key, data, type);
             }

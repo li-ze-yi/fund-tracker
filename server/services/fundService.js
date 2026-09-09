@@ -93,7 +93,7 @@ function safeJsonParse(str) {
   try { return JSON.parse(str); } catch { return null; }
 }
 
-async function getRealTimeValue(fundCode) {
+async function getRealTimeValueRaw(fundCode) {
   const errors = [];
 
   // 接口1: api.fund.eastmoney.com/f10/lsjz (东方财富最新确认净值, JSON)
@@ -182,7 +182,16 @@ async function getRealTimeValue(fundCode) {
   return null;
 }
 
-async function getHistoryNetValues(fundCode, startDate, endDate) {
+/**
+ * 实时估值（唯一外部拉取入口，受全局并发护栏限制）。
+ * 内部委托 getRealTimeValueRaw；所有调用方（含批量驱动的 Promise.all 内逐只调用）
+ * 共享同一信号量，保证本进程外部并发不超过 EXTERNAL_FETCH_CONCURRENCY。
+ */
+async function getRealTimeValue(fundCode) {
+  return globalCache.guardFetch(() => getRealTimeValueRaw(fundCode));
+}
+
+async function getHistoryNetValuesRaw(fundCode, startDate, endDate) {
   const errors = [];
   const allRecords = [];
   let pageIndex = 1;
@@ -304,6 +313,15 @@ async function getHistoryNetValues(fundCode, startDate, endDate) {
   } catch (e) { errors.push(`kline: ${e.message}`); }
 
   return [];
+}
+
+/**
+ * 历史净值（唯一外部拉取入口，受全局并发护栏限制）。
+ * 内部委托 getHistoryNetValuesRaw；批量驱动（batchGetHistoryNetValues）Promise.all 的
+ * 逐只调用同样经此护栏，保证本进程外部并发不超过 EXTERNAL_FETCH_CONCURRENCY。
+ */
+async function getHistoryNetValues(fundCode, startDate, endDate) {
+  return globalCache.guardFetch(() => getHistoryNetValuesRaw(fundCode, startDate, endDate));
 }
 
 async function getFundInfo(fundCode) {

@@ -396,6 +396,7 @@ exports.update = async (req, res, next) => {
       // 获取当前净值（先确认净值，再实时估值）
       let netValue = parseFloat(holding.confirmed_nav) || 0;
       if (netValue <= 0) {
+        // getRealTimeValue 内部已含 guardFetch 全局护栏
         const realTime = await fundService.getRealTimeValue(holding.fund_code).catch(() => null);
         if (realTime && realTime.netValue > 0) {
           netValue = realTime.netValue;

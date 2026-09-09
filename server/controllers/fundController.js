@@ -92,18 +92,16 @@ exports.getByCode = async (req, res, next) => {
     } else {
       // ★ 开市：真实请求按 checkCache 统计（命中 hit / 未命中 miss），未命中才外部拉取，拉取后写回缓存下次命中
       const cacheKey = `realtime_${code}_${valuationMethod}`;
-      const cached = await globalCache.checkCache(cacheKey, 'realtime');
-      if (cached.hit) {
-        realTime = cached.data;
-      } else {
-        realTime = await fundService.getRealTimeValueWithMethod(code, valuationMethod, {
+      // ★ 改用 getOrFetch：未命中时单飞（进程内 inFlight + 跨实例 Redis 锁）只拉取一次，
+      // 并受全局外部并发护栏（EXTERNAL_FETCH_CONCURRENCY）限制；统计口径与 checkCache 一致
+      realTime = await globalCache.getOrFetch(
+        cacheKey,
+        () => fundService.getRealTimeValueWithMethod(code, valuationMethod, {
           isQDII: holdingService.isQdiiFundType(fund?.type),
           fundName: fund?.name || '',
-        }).catch(() => null);
-        if (realTime) {
-          globalCache.set(cacheKey, realTime, 'realtime');
-        }
-      }
+        }),
+        { type: 'realtime' }
+      ).catch(() => null);
     }
 
     const result = {
@@ -140,17 +138,19 @@ exports.getByCode = async (req, res, next) => {
         const todayStr = getLocalToday();
         const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
         // ★ 统一缓存统计：真实请求按 checkCache 统计（命中 hit / 未命中 miss），未命中才外部拉取，拉取后写回 3d 历史缓存
+        // ★ 改用 getOrFetch：单飞 + 全局并发护栏；空数组返回 null 以便不写缓存（与原逻辑一致）
         const historyCacheKey = `history_${code}_3d_${todayStr}`;
         let history = null;
-        const historyCached = await globalCache.checkCache(historyCacheKey, 'history_recent');
-        if (historyCached.hit) {
-          history = historyCached.data;
-        } else {
-          history = await fundService.getHistoryNetValues(code, threeDaysAgo, todayStr);
-          if (history && history.length > 0) {
-            globalCache.set(historyCacheKey, history, 'history_recent');
-          }
-        }
+        try {
+          history = await globalCache.getOrFetch(
+            historyCacheKey,
+            async () => {
+              const rows = await fundService.getHistoryNetValues(code, threeDaysAgo, todayStr);
+              return rows && rows.length > 0 ? rows : null;
+            },
+            { type: 'history_recent' }
+          );
+        } catch (e) { /* 拉取失败按无历史处理 */ }
 
         if (history && history.length > 0) {
           const todayStr2 = getLocalToday();
@@ -351,33 +351,21 @@ exports.batchGetInfo = async (req, res, next) => {
         isQdiiMap[f.code] = holdingService.isQdiiFundType(f.type || '');
         fundNameMap[f.code] = f.name || '';
       }
-      const fetchGroups = {}; // effectiveMethod -> [fundCodes]
-      for (const code of fundCodes) {
+      // ★ 逐只改用 getOrFetch：同一 key 单飞（并发相同基金只拉一次），并受全局外部并发护栏限制；
+      // 命中则直接复用缓存，未命中按 effectiveMethod 拉取并写回，统计口径与 checkCache 一致
+      let fetchCount = 0;
+      await Promise.all(fundCodes.map(async (code) => {
         const effectiveMethod = valuationOverrides[code] || valuationMethod || 'holdings';
         const cacheKey = `realtime_${code}_${effectiveMethod}`;
-        const result = await globalCache.checkCache(cacheKey, 'realtime');
-        if (result.hit) {
-          realtimeMap[code] = result.data;
-        } else {
-          if (!fetchGroups[effectiveMethod]) fetchGroups[effectiveMethod] = [];
-          fetchGroups[effectiveMethod].push(code);
-        }
-      }
-      const fetchMethods = Object.keys(fetchGroups);
-      let fetchCount = 0;
-      for (const method of fetchMethods) {
-        const codes = fetchGroups[method];
-        fetchCount += codes.length;
-        const freshMap = await fundService.batchGetRealTimeValuesWithMethod(codes, method, { isQdiiMap, fundNameMap });
-        for (const code of codes) {
-          const data = freshMap[code];
-          if (data) {
-            globalCache.set(`realtime_${code}_${method}`, data, 'realtime');
-          }
-          realtimeMap[code] = data;
-        }
-      }
-      logger.info(`实时估值: 缓存命中 ${fundCodes.length - fetchCount}/${fundCodes.length}, 拉取 ${fetchCount} 只`);
+        const data = await globalCache.getOrFetch(
+          cacheKey,
+          () => fundService.getRealTimeValueWithMethod(code, effectiveMethod, { isQDII: isQdiiMap[code], fundName: fundNameMap[code] || '' }),
+          { type: 'realtime' }
+        ).catch(() => null);
+        if (data === null || data === undefined) fetchCount++;
+        realtimeMap[code] = data;
+      }));
+      logger.info(`实时估值: 处理 ${fundCodes.length} 只, 失败 ${fetchCount} 只`);
     }
 
     // 历史净值：全天休市或待开市时不预查 3d 历史（确认净值优先走 confirmed_nav/DB，仅组装阶段按需兜底）
@@ -386,28 +374,22 @@ exports.batchGetInfo = async (req, res, next) => {
     if (isFullDayClosed || isPreMarket) {
       logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过历史净值预取（按需兜底）(${fundCodes.length} 只)`);
     } else {
-      // 开市/待开市：逐只查缓存，未命中才批量拉取，拉取后写回
-      const needFetch = [];
-      for (const code of fundCodes) {
+      // 开市/待开市：逐只改用 getOrFetch（单飞 + 全局并发护栏），命中直接复用缓存
+      let failCount = 0;
+      await Promise.all(fundCodes.map(async (code) => {
         const cacheKey = `history_${code}_3d_${today}`;
-        const result = await globalCache.checkCache(cacheKey, 'history_recent');
-        if (result.hit) {
-          historyMap[code] = result.data;
-        } else {
-          needFetch.push(code);
-        }
-      }
-      if (needFetch.length > 0) {
-        const freshMap = await fundService.batchGetHistoryNetValues(needFetch, fallbackStartDate, today);
-        for (const code of needFetch) {
-          const data = freshMap[code];
-          if (data && data.length > 0) {
-            globalCache.set(`history_${code}_3d_${today}`, data, 'history_recent');
-          }
-          historyMap[code] = data;
-        }
-      }
-      logger.info(`历史净值: 缓存命中 ${fundCodes.length - needFetch.length}/${fundCodes.length}, 拉取 ${needFetch.length} 只`);
+        const data = await globalCache.getOrFetch(
+          cacheKey,
+          async () => {
+            const rows = await fundService.getHistoryNetValues(code, fallbackStartDate, today);
+            return rows && rows.length > 0 ? rows : null;
+          },
+          { type: 'history_recent' }
+        ).catch(() => null);
+        if (data === null || data === undefined) failCount++;
+        historyMap[code] = data;
+      }));
+      logger.info(`历史净值: 处理 ${fundCodes.length} 只, 失败 ${failCount} 只`);
     }
 
     // 市场状态（用前3只基金检测）
@@ -444,21 +426,29 @@ exports.batchGetInfo = async (req, res, next) => {
           needFetch.push(code);
         }
       }
-      // ② 批量拉取确需兜底的基金，写回 history_3d 后二次回调 resolveConfirmedNav（回写 confirmed_nav 缓存 + DB）
+      // ② 逐只经 getOrFetch 拉取确需兜底的基金历史（单飞 + 全局护栏），
+      //    写回 history_3d 后二次回调 resolveConfirmedNav（回写 confirmed_nav 缓存 + DB）
       if (needFetch.length > 0) {
         logger.info(`休市/待开市确认净值批量拉取: ${needFetch.join(',')}`);
-        const freshMap = await fundService.batchGetHistoryNetValues(needFetch, fallbackStartDate, today);
-        for (const code of needFetch) {
-          const data = freshMap[code];
-          if (data && data.length > 0 && parseFloat(data[0].nav) > 0) {
-            globalCache.set(`history_${code}_3d_${today}`, data, 'history_recent');
+        await Promise.all(needFetch.map(async (code) => {
+          const cacheKey = `history_${code}_3d_${today}`;
+          try {
+            const data = await globalCache.getOrFetch(
+              cacheKey,
+              async () => {
+                const rows = await fundService.getHistoryNetValues(code, fallbackStartDate, today);
+                return rows && rows.length > 0 && parseFloat(rows[0]?.nav) > 0 ? rows : null;
+              },
+              { type: 'history_recent' }
+            );
+            if (!data) return;
             const holding = holdingMap[code] || null;
-            const resolved = await holdingService.resolveConfirmedNav(code, holding, data, null, { skipApiFallback: true, isQDII: holdingService.isQdiiFundType(fundMap[code]?.type) });
+            const resolved = await holdingService.resolveConfirmedNav(code, holding, null, null, { skipApiFallback: true, isQDII: holdingService.isQdiiFundType(fundMap[code]?.type) });
             if (resolved && resolved.nav > 0) {
               displayNavMap[code] = { nav: resolved.nav, date: resolved.date };
             }
-          }
-        }
+          } catch (e) { /* 单只拉取失败跳过 */ }
+        }));
       }
     }
 
