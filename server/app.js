@@ -63,7 +63,9 @@ app.use(cors({
       return callback(null, true);
     }
     return callback(new Error('不允许的跨域来源'));
-  } : true // 未配置 CORS_ORIGIN 时回退为不限制
+  } : true, // 未配置 CORS_ORIGIN 时回退为不限制
+  // 让浏览器 JS 能读取"滑动续期"下发的自定义响应头
+  exposedHeaders: ['X-Auth-Token']
 }));
 app.use(compression()); // 启用 gzip 压缩，API 响应体积可减少 60-80%
 app.use(express.json());
