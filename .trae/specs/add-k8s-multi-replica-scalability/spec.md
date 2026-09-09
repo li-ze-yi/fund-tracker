@@ -120,6 +120,31 @@
 - **WHEN** 应用 K8s 清单并配置 `REDIS_URL`
 - **THEN** 生成 N 个相同副本，定时作业由 node-cron 入队、BullMQ 分布式消费，实例崩溃由控制器重建且作业自动重投
 
+### Requirement: Redis 唯一后端语义（Redis 可用时不使用内存 Map）
+系统 SHALL 在"Redis 可用"（配置了 `REDIS_URL` 且连接就绪）时，将缓存视为单一后端：`getOrFetch`/`set`/`checkCache`/`peekCache` 一律只读/只写 Redis，**不使用本实例内存 Map 作为缓存**；仅当 Redis 未配置或不可用时，才回退本实例内存 Map。`getStats()` 之外的性能/日志判断仍可读本实例计数，但缓存数据不落内存。
+
+#### Scenario: Redis 可用
+- **WHEN** Redis 配置且已连接
+- **THEN** 缓存读写全部走 Redis，内存 Map 不写不读（size 保持 0）；singleflight 轮询路径同样不写内存
+
+#### Scenario: Redis 未配置或不可用
+- **WHEN** `REDIS_URL` 未配置或连接故障
+- **THEN** 回退内存 Map；Redis 恢复后自动切回 Redis
+
+### Requirement: 跨实例统计聚合
+系统 SHALL 在 Redis 可用时，将缓存统计（hits/misses/evictions/totalRequests/forcedRefreshes）通过 `INCR` 累计到共享计数器，并将最近未命中明细写入 Redis 定长列表；`getStats()` 返回全副本聚合值。未配置/不可用时返回本实例计数兜底。`clear()` 同步清空 Redis 全局计数与未命中列表。
+
+#### Scenario: 汇聚读取
+- **WHEN** 任一实例调用 `getStats()`
+- **THEN** 返回跨实例汇总的全局命中率/计数与共享最近未命中明细
+
+### Requirement: Redis 可用性翻转时清理本实例内存（保留统计）
+系统 SHALL 在 Redis 由不可用翻转为可用（`ready`）时，清空本实例内存 Map 的缓存条目，但**保留**命中率/调用次数等统计计数（避免断连期间累积的内存量数据滞留或污染）。
+
+#### Scenario: 重连成功
+- **WHEN** Redis 断连后恢复并触发 `ready`
+- **THEN** 清空本实例内存条目（保持 Redis 唯一后端语义），统计计数不清零
+
 ## MODIFIED Requirements
 
 ### Requirement: 服务启动脚本（package.json）

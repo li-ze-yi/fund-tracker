@@ -152,14 +152,14 @@ async function getConfirmedNavByDate(fundCode, navDate, options = {}) {
   const today = getLocalToday();
 
   // ① 3d 历史缓存（含确认净值）
-  const histCache = globalCache.checkCache(`history_${fundCode}_3d_${today}`, 'history_recent');
+  const histCache = await globalCache.checkCache(`history_${fundCode}_3d_${today}`, 'history_recent');
   if (histCache.hit && Array.isArray(histCache.data)) {
     const hit = histCache.data.find(r => r && r.date === navDate && parseFloat(r.nav) > 0);
     if (hit) return { nav: parseFloat(hit.nav), source: 'cache_3d' };
   }
 
   // ② 最新确认净值缓存
-  const navCache = globalCache.checkCache(`confirmed_nav_${fundCode}`, 'history_recent');
+  const navCache = await globalCache.checkCache(`confirmed_nav_${fundCode}`, 'history_recent');
   if (navCache.hit && navCache.data && navCache.data.date === navDate && parseFloat(navCache.data.nav) > 0) {
     return { nav: parseFloat(navCache.data.nav), source: 'cache_confirmed_nav' };
   }
@@ -170,7 +170,7 @@ async function getConfirmedNavByDate(fundCode, navDate, options = {}) {
   if (nav > 0 && history.length) {
     const newDate = history[0].date || navDate;
     // 仅当缓存中无更新净值时写回，避免旧交易日的净值覆盖较新的已确认净值
-    const existing = globalCache.peekCache(`confirmed_nav_${fundCode}`, 'history_recent');
+    const existing = await globalCache.peekCache(`confirmed_nav_${fundCode}`, 'history_recent');
     if (!existing.hit || !existing.data || !existing.data.date || existing.data.date <= newDate) {
       // ★ 新购基金（skipCacheWrite=true）不写回：用户可任选历史日期，拉到的可能是买入日历史净值，
       // 写入「最新确认净值」缓存会把市值钉在买入日 → 累计收益≈0。其他结算场景（当天/近期日期）保持写回。

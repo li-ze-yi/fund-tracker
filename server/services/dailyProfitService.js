@@ -201,7 +201,7 @@ class DailyProfitService {
       const needFetch = [];
       for (const code of fundCodes) {
         const cacheKey = `history_${code}_3d_${today}`;
-        const result = globalCache.checkCache(cacheKey, 'history_recent');
+        const result = await globalCache.checkCache(cacheKey, 'history_recent');
         if (result.hit && result.data && result.data.length > 0 && result.data[0].date === today) {
           historyMap[code] = result.data;
         } else {

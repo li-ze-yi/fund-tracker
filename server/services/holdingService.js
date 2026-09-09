@@ -315,7 +315,7 @@ async function resolveConfirmedNav(fundCode, holding, historyData, realTimeData,
   };
 
   // ① 缓存命中 → 不再访问 DB/API（真实请求按 checkCache 统计：命中 hit / 未命中 miss）
-  const cached = globalCache.checkCache(cacheKey, cacheType);
+  const cached = await globalCache.checkCache(cacheKey, cacheType);
   if (cached.hit && cached.data && parseFloat(cached.data.nav) > 0) {
     return cached.data;
   }
@@ -364,7 +364,7 @@ async function resolveConfirmedNav(fundCode, holding, historyData, realTimeData,
   // ②.5 DB 确认净值缺失/不新鲜 → 按需查 3d 历史缓存（真实请求：确认净值兜底来源，仅此场景才查，避免无意义 miss）
   if (!latestHistory) {
     const todayStr3 = getLocalToday();
-    const h3 = globalCache.checkCache(`history_${fundCode}_3d_${todayStr3}`, 'history_recent');
+    const h3 = await globalCache.checkCache(`history_${fundCode}_3d_${todayStr3}`, 'history_recent');
     if (h3.hit && h3.data && h3.data.length > 0 && parseFloat(h3.data[0].nav) > 0) {
       latestHistory = h3.data[0];
       latestHistoryDate = latestHistory.date;
@@ -529,17 +529,22 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
       needFetch = [];
       logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值（不查询缓存）(${codes.length} 只)`);
     } else {
-      needFetch = forceRefresh ? codes : codes.filter(code => {
-        const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
-        const cacheKey = `realtime_${code}_${effectiveMethod}`;
-        // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
-        const result = globalCache.checkCache(cacheKey, 'realtime');
-        if (result.hit) {
-          realtimeDataMap[code] = result.data;
-          return false;
+      if (forceRefresh) {
+        needFetch = codes;
+      } else {
+        needFetch = [];
+        for (const code of codes) {
+          const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
+          const cacheKey = `realtime_${code}_${effectiveMethod}`;
+          // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
+          const result = await globalCache.checkCache(cacheKey, 'realtime');
+          if (result.hit) {
+            realtimeDataMap[code] = result.data;
+          } else {
+            needFetch.push(code);
+          }
         }
-        return true;
-      });
+      }
     }
 
     if (needFetch.length > 0) {
@@ -578,7 +583,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
       // 交易时段（含 forceRefresh）跳过 API 拉取，只复用缓存命中项
       for (const code of codes) {
         const cacheKey = `history_${code}_3d_${today}`;
-        const result = globalCache.checkCache(cacheKey, 'history_recent');
+        const result = await globalCache.checkCache(cacheKey, 'history_recent');
         if (result.hit) {
           historyDataMap[code] = result.data;
         }
@@ -587,16 +592,21 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
       logger.info(`盘中（9:00-15:00）跳过 ${codes.length} 只基金的历史净值拉取`);
     } else {
       // 非交易时段：forceRefresh 时强制重新拉取历史净值（兜底任务依赖最新确认净值，旧缓存会导致 isConfirmed 误判）
-      historyNeedFetch = forceRefresh ? codes : codes.filter(code => {
-        const cacheKey = `history_${code}_3d_${today}`;
-        // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
-        const result = globalCache.checkCache(cacheKey, 'history_recent');
-        if (result.hit) {
-          historyDataMap[code] = result.data;
-          return false;
+      if (forceRefresh) {
+        historyNeedFetch = codes;
+      } else {
+        historyNeedFetch = [];
+        for (const code of codes) {
+          const cacheKey = `history_${code}_3d_${today}`;
+          // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
+          const result = await globalCache.checkCache(cacheKey, 'history_recent');
+          if (result.hit) {
+            historyDataMap[code] = result.data;
+          } else {
+            historyNeedFetch.push(code);
+          }
         }
-        return true;
-      });
+      }
     }
 
     if (historyNeedFetch.length > 0) {
@@ -713,7 +723,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
   const endTime = Date.now();
   const duration = endTime - startTime;
-  const stats = globalCache.getStats();
+  const stats = await globalCache.getStats();
   logger.info(`批量处理完成: ${holdings.length}只基金, 耗时${duration}ms`);
   logger.info(`GlobalCache 统计: 命中率=${stats.hitRate}, 缓存数=${stats.size}/${stats.maxSize}`);
 

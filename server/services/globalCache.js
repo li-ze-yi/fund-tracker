@@ -35,14 +35,29 @@ const { createLogger } = require('../utils/logger');
 const coordinator = require('./coordinator');
 const logger = createLogger('GlobalCache');
 
+// 跨实例聚合统计的 Redis key：各实例用 INCR 累计，管理后台读取全副本汇总
+const STATS_KEY = (field) => `gc:stats:${field}`;
+const STATS_FIELDS = ['hits', 'misses', 'evictions', 'totalRequests', 'forcedRefreshes'];
+const MISSES_KEY = 'gc:stats:recentMisses'; // 跨实例"最近未命中"明细（LPUSH + LTRIM 定长列表）
+
 class GlobalCache {
   constructor() {
     this.cache = new Map();
 
     // Redis 后端模式（配置了 REDIS_URL 即启用）。
-    // redisEnabled 固定由环境变量决定；运行时若 Redis 连接失败，_redisOpacity 会降级回退到内存 Map。
+    // redisEnabled 固定由环境变量决定；运行时是否真正可用由 _redisAvailable() 判断
+    // （Redis 连接就绪才生效，未配置或连接故障则降级回退到内存 Map）。
     this.redisEnabled = Boolean(process.env.REDIS_URL);
     this.redis = coordinator.getClient(); // 与 Coordinator 复用一个共享 ioredis client
+
+    // Redis 由不可用翻转为可用（ready）时，清空本实例内存缓存条目，但【保留命中率/调用次数等统计计数】
+    // （用 clearEntries：只清 this.cache，不清 this.stats / recentMisses），
+    // 避免断连/停机期间累积的内存量数据滞留或污染；ready 只在"从不可用→可用"那一刻触发。
+    if (this.redis) {
+      this.redis.on('ready', () => {
+        this.clearEntries();
+      });
+    }
 
     // 缓存统计
     this.stats = {
@@ -138,10 +153,32 @@ class GlobalCache {
   }
 
   /**
-   * Redis 模式是否启用（仅决定后端选择，不抛错）
+   * Redis 是否配置且连接就绪（作为缓存唯一后端的前置条件）。
+   * 仅当配置了 REDIS_URL 且 coordinator 确认连接已就绪时返回 true；
+   * 未配置、创建未连接、连接故障/关闭时均返回 false。
+   */
+  _redisAvailable() {
+    return this.redisEnabled && coordinator.isEnabled();
+  }
+
+  /**
+   * Redis 模式是否启用（配置了 REDIS_URL 即视为启用，用于决定是否跳过文件持久化）
    */
   _isRedis() {
     return this.redisEnabled && Boolean(this.redis);
+  }
+
+  /**
+   * 自增一项统计：总是更新本实例计数（供性能/命中率即时判断与无 Redis 兜底）；
+   * Redis 可用时额外用 INCR 累计到全局计数器，供跨实例聚合统计。
+   * 异步写 Redis，best-effort 不抛错。
+   * @param {'hits'|'misses'|'evictions'|'totalRequests'|'forcedRefreshes'} field
+   */
+  _bumpStats(field) {
+    this.stats[field] = (this.stats[field] || 0) + 1;
+    if (this._redisAvailable()) {
+      coordinator.getClient().incr(STATS_KEY(field)).catch(() => {});
+    }
   }
 
   /**
@@ -199,6 +236,7 @@ class GlobalCache {
 
   /**
    * 跨实例 singleflight：未抢到锁时轮询 Redis 等待其他实例写入的结果。
+   * 仅读取 Redis（Redis 可用模式下唯一的后端），不写内存 Map（避免内存镜像）。
    * @returns {Promise<*|null>} 有界时间内出现条目则返回其 data，否则返回 null
    */
   async _pollForEntry(key, type, timeoutMs = 2000) {
@@ -206,7 +244,6 @@ class GlobalCache {
     while (Date.now() - start < timeoutMs) {
       const entry = await this._redisGetEntry(key);
       if (entry && Date.now() - entry.timestamp < this.getTTL(entry.type || type)) {
-        this._setMemory(key, entry.data, entry.type || type);
         return entry.data;
       }
       await this._sleep(50);
@@ -225,60 +262,58 @@ class GlobalCache {
     } = options;
 
     // 统计
-    this.stats.totalRequests++;
+    this._bumpStats('totalRequests');
 
-    // 1️⃣ 强制刷新模式
+    // 1️⃣ 强制刷新模式（写向当前激活后端）
     if (forceRefresh) {
-      this.stats.forcedRefreshes++;
+      this._bumpStats('forcedRefreshes');
       logger.info(`强制刷新: ${key}`);
       const data = await fetchFn();
       this.set(key, data, type);
       return data;
     }
 
-    // 2️⃣ 检查缓存命中（内存 Map：回退模式为唯一后端，Redis 模式下为镜像/兜底）
-    // 保持与旧版一致的统计口径（过期僵尸条目计入 evictions）
-    const memCached = this.cache.get(key);
-
-    if (memCached) {
-      const ttl = this.getTTL(memCached.type);
-      const age = Date.now() - memCached.timestamp;
-      
-      if (age < ttl) {
-        // ✅ 命中缓存
-        this.stats.hits++;
-        
-        // 日志（仅部分输出，避免刷屏）
-        if (this.stats.totalRequests % 50 === 0) {
-          logger.debug(`命中: ${key} (${(age / 1000).toFixed(1)}s前, TTL=${(ttl / 1000)}s, 命中率=${this.getHitRate()}%)`);
-        }
-        
-        return memCached.data;
-      } else {
-        // ⏰ 缓存过期
-        this.cache.delete(key);
-        this.stats.evictions++;
-      }
-    }
-
-    // 2.5️⃣ Redis 模式：本进程内存未命中 → 再探测共享 Redis（跨实例暖缓存）
-    if (this._isRedis() && !memCached) {
+    // 2️⃣ 检查缓存命中
+    //  - Redis 可用：仅读 Redis（唯一后端），不触碰内存 Map
+    //  - Redis 不可用：仅读内存 Map（回退单进程行为），不触碰 Redis
+    if (this._redisAvailable()) {
       const redisEntry = await this._redisGetEntry(key);
       if (redisEntry) {
         const ttl = this.getTTL(redisEntry.type || type);
         if (Date.now() - redisEntry.timestamp < ttl) {
-          // ✅ 命中共享缓存：写回内存镜像并返回
-          this._setMemory(key, redisEntry.data, redisEntry.type || type);
-          this.stats.hits++;
+          // ✅ 命中共享缓存
+          this._bumpStats('hits');
           return redisEntry.data;
         }
         // ⏰ Redis 中已过期（Redis 自动过期兜底），计入淘汰
-        this.stats.evictions++;
+        this._bumpStats('evictions');
+      }
+    } else {
+      const memCached = this.cache.get(key);
+      if (memCached) {
+        const ttl = this.getTTL(memCached.type);
+        const age = Date.now() - memCached.timestamp;
+
+        if (age < ttl) {
+          // ✅ 命中缓存
+          this._bumpStats('hits');
+
+          // 日志（仅部分输出，避免刷屏）
+          if (this.stats.totalRequests % 50 === 0) {
+            logger.debug(`命中: ${key} (${(age / 1000).toFixed(1)}s前, TTL=${(ttl / 1000)}s, 命中率=${this.getHitRate()}%)`);
+          }
+
+          return memCached.data;
+        } else {
+          // ⏰ 缓存过期
+          this.cache.delete(key);
+          this._bumpStats('evictions');
+        }
       }
     }
 
     // 3️⃣ 缓存未命中 → 判断是否已有在途请求（缓存击穿防护）
-    this.stats.misses++;
+    this._bumpStats('misses');
     this.recordMiss(key, type);
 
     // 命中在途请求：直接复用，避免相同 key 并发重复请求外部 API
@@ -344,6 +379,13 @@ class GlobalCache {
     if (this.recentMisses.length > this.maxMissLog) {
       this.recentMisses.shift();
     }
+    // 跨实例：同步到 Redis 定长列表，供管理后台查看全副本最近未命中明细
+    if (this._redisAvailable()) {
+      const c = coordinator.getClient();
+      const e = JSON.stringify({ key, type, at: new Date().toISOString() });
+      c.lpush(MISSES_KEY, e).catch(() => {});
+      c.ltrim(MISSES_KEY, 0, this.maxMissLog - 1).catch(() => {});
+    }
   }
 
   /**
@@ -361,25 +403,50 @@ class GlobalCache {
    *
    * @param {string} key - 缓存键
    * @param {string} type - 缓存类型（用于计算 TTL）
-   * @returns {{ hit: boolean, data: any|null }} - hit=true 时 data 为缓存数据
+   * @returns {Promise<{ hit: boolean, data: any|null }>} hit=true 时 data 为缓存数据
    */
-  checkCache(key, type = 'realtime') {
-    this.stats.totalRequests++;
+  async checkCache(key, type = 'realtime') {
+    this._bumpStats('totalRequests');
+
+    // Redis 可用：仅读 Redis（唯一后端）；Redis 出错 → 视为无缓存（不抛错），让调用方回退拉取
+    if (this._redisAvailable()) {
+      try {
+        const entry = await this._redisGetEntry(key);
+        if (entry) {
+          const ttl = this.getTTL(entry.type || type);
+          if (Date.now() - entry.timestamp < ttl) {
+            // ✅ 命中且未过期
+            this._bumpStats('hits');
+            return { hit: true, data: entry.data };
+          }
+          // ⏰ 命中但已过期（Redis 自动过期兜底），计入淘汰
+          this._bumpStats('evictions');
+        }
+      } catch (err) {
+        logger.error(`checkCache Redis 读取失败，降级为未命中: ${key}, error=${err.message}`);
+      }
+      // ❌ 未命中（或已过期/出错）
+      this._bumpStats('misses');
+      this.recordMiss(key, type);
+      return { hit: false, data: null };
+    }
+
+    // 非 Redis 模式：内存行为（与旧版完全一致）
     const cached = this.cache.get(key);
     if (cached) {
       const ttl = this.getTTL(type);
       const age = Date.now() - cached.timestamp;
       if (age < ttl) {
         // ✅ 命中且未过期
-        this.stats.hits++;
+        this._bumpStats('hits');
         return { hit: true, data: cached.data };
       }
       // ⏰ 命中但已过期，删除僵尸条目
       this.cache.delete(key);
-      this.stats.evictions++;
+      this._bumpStats('evictions');
     }
     // ❌ 未命中（或已过期删除后）
-    this.stats.misses++;
+    this._bumpStats('misses');
     this.recordMiss(key, type);
     return { hit: false, data: null };
   }
@@ -393,9 +460,26 @@ class GlobalCache {
    *
    * @param {string} key - 缓存键
    * @param {string} type - 缓存类型（用于计算 TTL）
-   * @returns {{ hit: boolean, data: any|null }} - hit=true 时 data 为缓存数据（与 checkCache 一致）
+   * @returns {Promise<{ hit: boolean, data: any|null }>} hit=true 时 data 为缓存数据（与 checkCache 一致）
    */
-  peekCache(key, type = 'realtime') {
+  async peekCache(key, type = 'realtime') {
+    // Redis 可用：仅读 Redis，不修改统计；Redis 出错 → 视为无缓存（不抛错）
+    if (this._redisAvailable()) {
+      try {
+        const entry = await this._redisGetEntry(key);
+        if (entry) {
+          const ttl = this.getTTL(entry.type || type);
+          if (Date.now() - entry.timestamp < ttl) {
+            return { hit: true, data: entry.data };
+          }
+        }
+      } catch (err) {
+        logger.error(`peekCache Redis 读取失败，降级为未命中: ${key}, error=${err.message}`);
+      }
+      return { hit: false, data: null };
+    }
+
+    // 非 Redis 模式：内存行为（与旧版完全一致，不修改统计）
     const cached = this.cache.get(key);
     if (cached) {
       const ttl = this.getTTL(type);
@@ -409,14 +493,16 @@ class GlobalCache {
 
   /**
    * 设置缓存
-   * - 内存 Map 始终写入（回退模式为唯一后端，Redis 模式下为镜像/兜底）
-   * - Redis 模式额外异步写共享 Redis（best-effort，不出错）
+   * - Redis 可用 → 仅写 Redis（唯一后端，不写内存 Map）
+   * - Redis 不可用/未配置 → 仅写内存 Map（回退单进程行为）
    */
   set(key, data, type = 'realtime') {
-    this._setMemory(key, data, type);
-
-    if (this._isRedis()) {
+    if (this._redisAvailable()) {
+      // Redis 唯一后端：异步写共享 Redis（best-effort，不出错）
       this._redisSetEntry(key, data, type).catch(() => {});
+    } else {
+      // 内存 Map 唯一后端（含内存保护淘汰）
+      this._setMemory(key, data, type);
     }
   }
 
@@ -568,7 +654,7 @@ class GlobalCache {
     for (const [key] of expired) {
       if (removed >= count) break;
       this.cache.delete(key);
-      this.stats.evictions++;
+      this._bumpStats('evictions');
       removed++;
     }
 
@@ -579,7 +665,7 @@ class GlobalCache {
         .sort((a, b) => a[1].timestamp - b[1].timestamp);
       for (let i = 0; i < Math.min(remaining, entries.length); i++) {
         this.cache.delete(entries[i][0]);
-        this.stats.evictions++;
+        this._bumpStats('evictions');
       }
     }
   }
@@ -594,17 +680,55 @@ class GlobalCache {
 
   /**
    * 获取缓存统计信息
+   * Redis 可用时返回【跨实例聚合】的全局计数（各副本 INCR 累计）与全局最近未命中明细；
+   * 否则返回本实例计数（未配置/不可用时兜底）。
+   * @returns {Promise<object>}
    */
-  getStats() {
-    return {
-      ...this.stats,  // 包含 hits/misses/evictions/totalRequests/forcedRefreshes
+  async getStats() {
+    // 非 Redis 兜底：本实例统计（同步逻辑，包一层返回）
+    const local = () => ({
+      ...this.stats,
       hitRate: `${this.getHitRate()}%`,
       size: this.cache.size,
       maxSize: this.maxSize,
       tradingStatus: this.getTradingStatus(),
       realtimeTTL: `${(this.getRealtimeTTL() / 1000)}s`,
-      recentMisses: this.recentMisses.slice(-this.maxMissLog) // 最近未命中明细（倒序：最新在前）
-    };
+      recentMisses: this.recentMisses.slice(-this.maxMissLog),
+    });
+
+    if (!this._redisAvailable()) return local();
+
+    try {
+      const c = coordinator.getClient();
+      const vals = await Promise.all(STATS_FIELDS.map((f) => c.get(STATS_KEY(f)).catch(() => null)));
+      const s = {};
+      STATS_FIELDS.forEach((f, i) => { s[f] = parseInt(vals[i], 10) || 0; });
+      const total = s.totalRequests;
+      s.hitRate = total <= 0 ? '0.00%' : `${((s.hits / total) * 100).toFixed(2)}%`;
+
+      // 读取全局最近未命中（LPUSH → index0 最新）
+      let recentMisses = [];
+      try {
+        const rows = await c.lrange(MISSES_KEY, 0, this.maxMissLog - 1).catch(() => []);
+        if (Array.isArray(rows)) {
+          recentMisses = rows
+            .map((r) => { try { return JSON.parse(r); } catch { return null; } })
+            .filter(Boolean);
+        }
+      } catch { /* 忽略最近未命中读取失败 */ }
+
+      return {
+        ...s,
+        size: this.cache.size,
+        maxSize: this.maxSize,
+        tradingStatus: this.getTradingStatus(),
+        realtimeTTL: `${(this.getRealtimeTTL() / 1000)}s`,
+        recentMisses,
+      };
+    } catch (err) {
+      logger.error(`读取全局缓存统计失败，回退本实例: ${err.message}`);
+      return local();
+    }
   }
 
   /**
@@ -618,6 +742,12 @@ class GlobalCache {
     // 重置统计
     this.stats = { hits: 0, misses: 0, evictions: 0, totalRequests: 0, forcedRefreshes: 0 };
     this.recentMisses = [];
+
+    // 同步清空 Redis 全局计数/未命中列表（跨实例一致）
+    if (this._redisAvailable()) {
+      const c = coordinator.getClient();
+      c.del(...STATS_FIELDS.map(STATS_KEY), MISSES_KEY).catch(() => {});
+    }
   }
 
   /**

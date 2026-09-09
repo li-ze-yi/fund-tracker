@@ -92,7 +92,7 @@ exports.getByCode = async (req, res, next) => {
     } else {
       // ★ 开市：真实请求按 checkCache 统计（命中 hit / 未命中 miss），未命中才外部拉取，拉取后写回缓存下次命中
       const cacheKey = `realtime_${code}_${valuationMethod}`;
-      const cached = globalCache.checkCache(cacheKey, 'realtime');
+      const cached = await globalCache.checkCache(cacheKey, 'realtime');
       if (cached.hit) {
         realTime = cached.data;
       } else {
@@ -142,7 +142,7 @@ exports.getByCode = async (req, res, next) => {
         // ★ 统一缓存统计：真实请求按 checkCache 统计（命中 hit / 未命中 miss），未命中才外部拉取，拉取后写回 3d 历史缓存
         const historyCacheKey = `history_${code}_3d_${todayStr}`;
         let history = null;
-        const historyCached = globalCache.checkCache(historyCacheKey, 'history_recent');
+        const historyCached = await globalCache.checkCache(historyCacheKey, 'history_recent');
         if (historyCached.hit) {
           history = historyCached.data;
         } else {
@@ -355,7 +355,7 @@ exports.batchGetInfo = async (req, res, next) => {
       for (const code of fundCodes) {
         const effectiveMethod = valuationOverrides[code] || valuationMethod || 'holdings';
         const cacheKey = `realtime_${code}_${effectiveMethod}`;
-        const result = globalCache.checkCache(cacheKey, 'realtime');
+        const result = await globalCache.checkCache(cacheKey, 'realtime');
         if (result.hit) {
           realtimeMap[code] = result.data;
         } else {
@@ -390,7 +390,7 @@ exports.batchGetInfo = async (req, res, next) => {
       const needFetch = [];
       for (const code of fundCodes) {
         const cacheKey = `history_${code}_3d_${today}`;
-        const result = globalCache.checkCache(cacheKey, 'history_recent');
+        const result = await globalCache.checkCache(cacheKey, 'history_recent');
         if (result.hit) {
           historyMap[code] = result.data;
         } else {
@@ -605,7 +605,7 @@ exports.getNavHistory = async (req, res, next) => {
     const today = getLocalToday();
     const yesterday = normalizeDateStr(new Date(Date.now() - 24 * 60 * 60 * 1000));
     // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
-    const cacheResult = globalCache.checkCache(cacheKey, 'history_chart');
+    const cacheResult = await globalCache.checkCache(cacheKey, 'history_chart');
 
     // 检查缓存是否命中且未过期（history_chart 类型，固定 24h TTL）
     if (cacheResult.hit) {

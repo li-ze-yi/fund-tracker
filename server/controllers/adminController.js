@@ -199,7 +199,7 @@ exports.deleteFund = async (req, res, next) => {
 
 exports.cacheStats = async (req, res, next) => {
   try {
-    const stats = globalCache.getStats();
+    const stats = await globalCache.getStats();
     const entries = [];
     for (const [key, value] of globalCache.cache.entries()) {
       const ttl = globalCache.getTTL(value.type);

@@ -24,3 +24,7 @@
 - [x] 适配 B：`k8s/deployment-web.yaml`（stateless，N 个相同副本，探针，REDIS_URL）+ Redis 接入说明已提供
 - [x] `npm run lint` 通过
 - [x] 无 REDIS_URL（兼容）、有 REDIS_URL（共享缓存 + 入队去重）、worker 崩溃重投、停机启动补录、幂等、`/health`(200) 均已验证
+- [x] Redis 可用时仅走 Redis：getOrFetch/set/checkCache/peekCache 不读写内存 Map（内存 size 保持 0）；未配置/不可用时回退内存（真机验证通过）
+- [x] checkCache/peekCache 已改为 async 读 Redis，调用点已 await；sync→async 改造 lint 通过
+- [x] 跨实例统计聚合：INCR 累计共享计数器 + Redis 定长 recentMisses，getStats() 返回全局值，clear() 清空全局（真机验证通过）
+- [x] Redis 由不可用翻转为可用（ready）时清空本实例内存条目但保留统计计数

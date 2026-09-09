@@ -611,7 +611,7 @@ async function getStocksRealtime(stockCodes) {
   // 1. 逐只检查缓存是否命中（改用 checkCache 统一统计口径）
   for (const code of stockCodes) {
     const cacheKey = `stock_quote_${code}`;
-    const cacheResult = globalCache.checkCache(cacheKey, 'stock_quote');
+    const cacheResult = await globalCache.checkCache(cacheKey, 'stock_quote');
     if (cacheResult.hit) {
       // 缓存命中，直接放入结果对象
       result[code] = cacheResult.data;
