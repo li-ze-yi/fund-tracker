@@ -9,6 +9,8 @@
 - [x] Task 2: 跨实例外部请求聚合（singleflight）
   - [x] SubTask 2.1: getOrFetch 未命中路径接入 coordinator 锁：仅锁持有者调用外部 API 并写缓存，其余等待复用；限定等待 + 有界降级（HTTP 不失败不无界阻塞）
   - [x] SubTask 2.2: 保留同实例内存 in-flight 去重；无 Redis 时锁为空操作直接拉取
+  - [x] SubTask 2.3: 聚合覆盖全部入口（压测优化）：`getByCode`/`batchGetInfo` 实时与 3d 历史由「checkCache→批量拉取」改为逐只 `getOrFetch`，批量路径同样跨实例单飞（同一 key 仅一次外部调用）
+  - [x] SubTask 2.4: 外部拉取并发护栏：新增 `Semaphore` + `guardFetch` 并包裹所有外部入口（含 getOrFetch/fundService/getRealTimeValue/getHistoryNetValues/手动路径），上限 `EXTERNAL_FETCH_CONCURRENCY`（默认 20），总在途 ≤ 实例数 × 该值
 
 - [x] Task 3: 作业模块抽取
   - [x] SubTask 3.1: 将定投（10:00/20:00）、日收益（23:55）、pending（23:50）逻辑抽取为作业处理器函数（`services/jobs/processors.js`）
@@ -38,7 +40,7 @@
 
 - [x] Task 9: package.json 与配置
   - [x] SubTask 9.1: `ioredis`、`bullmq` 加入 dependencies；保留 `start`/`dev`
-  - [x] SubTask 9.2: `.env.example` 增加 `REDIS_URL` 与 BullMQ 相关说明
+  - [x] SubTask 9.2: `.env.example` 增加 `REDIS_URL`、`EXTERNAL_FETCH_CONCURRENCY` 与 BullMQ 相关说明
 
 - [x] Task 10: 部署适配 A —— nginx
   - [x] SubTask 10.1: `ecosystem.config.js`（PM2 fork，N 个相同实例，各独立 PORT，自动重启）

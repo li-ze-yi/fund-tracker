@@ -12,3 +12,5 @@ admin/
 test/
 server/data/
 .workbuddy/
+bench/
+_tmp_*.txt

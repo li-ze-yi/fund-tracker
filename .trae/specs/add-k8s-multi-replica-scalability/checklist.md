@@ -6,6 +6,8 @@
 - [x] Redis 连接失败时记录错误并降级为内存后端，HTTP 服务不崩溃
 - [x] Redis 模式下不再执行文件落盘相关逻辑
 - [x] 跨实例 singleflight：同一 key 并发未命中时仅一个实例调用外部 API，其余等待复用（coordinator 锁 + 限定等待 + 有界降级）
+- [x] 聚合覆盖全部入口（压测优化）：`getByCode`/`batchGetInfo` 实时与 3d 历史改逐只 `getOrFetch`，批量路径跨实例单飞 + 进程内 inFlight（同一 key 仅一次外部调用）（真机压测验证通过）
+- [x] 外部拉取并发护栏：`Semaphore` + `guardFetch` 包裹所有外部入口（含 fundService/resolveConfirmedNav 手动路径），外部并发 ≤ 实例数 × `EXTERNAL_FETCH_CONCURRENCY`（默认 20）
 - [x] 同实例内存 in-flight 去重保留；无 Redis 时锁为空操作直接拉取
 - [x] 定投/日收益/pending 逻辑抽取为 BullMQ 作业处理器，各队列与 worker 已接入 Redis
 - [x] 各实例注册同一组 node-cron，到点以确定性 jobId 入队，去重后同一发生仅入队一次并仅执行一次
@@ -19,7 +21,7 @@
 - [x] 配置但 Redis 运行中不可用时 HTTP 不崩溃、缓存降为内存并记录日志，BullMQ 作业按重试策略处理，恢复后自动回归
 - [x] `GET /health` 返回 200，不依赖定时作业即可响应
 - [x] package.json 提供 `ioredis`、`bullmq` 依赖，保留 `start`/`dev`；未引入 `SCHEDULER_ENABLED`
-- [x] `.env.example` 增加 `REDIS_URL` 与 BullMQ 相关说明
+- [x] `.env.example` 增加 `REDIS_URL`、`EXTERNAL_FETCH_CONCURRENCY` 与 BullMQ 相关说明
 - [x] 适配 A：「ecosystem.config.js」（PM2 fork，N 个相同实例，各独立 PORT，自动重启）与 `deploy/nginx.conf.example`（least_conn + TLS + /health）已提供
 - [x] 适配 B：`k8s/deployment-web.yaml`（stateless，N 个相同副本，探针，REDIS_URL）+ Redis 接入说明已提供
 - [x] `npm run lint` 通过

@@ -30,7 +30,7 @@
   - `server/package.json`（新增 `ioredis`、`bullmq`）
   - 新增 `server/ecosystem.config.js` 与 `server/deploy/nginx.conf.example`（适配 A）
   - 新增 `server/k8s/deployment-web.yaml` 与 `server/k8s/README.md`（适配 B）
-  - `server/.env.example`（新增 `REDIS_URL` 说明）
+  - `server/.env.example`（新增 `REDIS_URL`、`EXTERNAL_FETCH_CONCURRENCY` 说明）
 
 ## ADDED Requirements
 
@@ -50,7 +50,7 @@
 - **THEN** 记录错误并回退为内存后端，HTTP 服务不崩溃（缓存降级可用）
 
 ### Requirement: 跨实例外部 API 请求聚合（分布式 singleflight）
-系统 SHALL 在启用 Redis 时，对同一缓存 key 的并发未命中请求做跨实例聚合：同一时间仅一个实例（锁持有者）调用外部行情 API，其余等待复用。基于 Redis 分布式锁实现，含限定等待与有界降级。
+系统 SHALL 在启用 Redis 时，对同一缓存 key 的并发未命中请求做跨实例聚合：同一时间仅一个实例（锁持有者）调用外部行情 API，其余等待复用。基于 Redis 分布式锁实现，含限定等待与有界降级。聚合须覆盖**全部拉取入口**（含批量路径，见下方「聚合覆盖全部入口」Requirement）。
 
 #### Scenario: 多实例并发未命中同一 key
 - **WHEN** 多个实例同时 miss 同一实时行情/净值 key
@@ -59,6 +59,19 @@
 #### Scenario: 等待超时或 Redis 退化
 - **WHEN** 等待超过限定时间或 Redis 不可用
 - **THEN** 该实例降级为有界直接拉取，HTTP 请求不失败、不无界阻塞
+
+### Requirement: 聚合覆盖全部入口 + 外部拉取并发护栏（压测优化）
+系统 SHALL 使跨实例 singleflight 覆盖所有数据拉取入口（含批量路径），并新增外部拉取并发护栏，防止多实例并发放大外部行情 API 请求、打爆数据源与抬高 CPU。
+
+**新旧对比（补丁背景）**：引入分布式 singleflight 之初，跨实例聚合仅作用于单只入口 `getByCode`；`batchGetInfo` 仍走 `checkCache → 未命中 → 批量拉取`（`batchGetRealTimeValuesWithMethod` / `batchGetHistoryNetValues`），多实例对同一基金并发时各实例各自拉取（重复 n 倍）且无总并发上限，压测时外部请求被成倍放大、CPU 高企。新版本将批量路径改为**逐只 `getOrFetch`**，使批量入口同样进入跨实例锁仲裁（Redis `sf:` 锁）+ 进程内 inFlight 单飞，多实例对同一 key 仅一次外部调用；并新增**信号量护栏**（`Semaphore`，默认上限 `EXTERNAL_FETCH_CONCURRENCY=20`）限制单实例同时进行的外部拉取数，所有外部入口（`getOrFetch` 内部 + `guardFetch` 手动路径）共享该信号量，总在途 ≤ 实例数 × 该值。
+
+#### Scenario: 批量路径也聚合
+- **WHEN** 多个实例对同一批基金并发请求（`batchGetInfo`）
+- **THEN** 逐只 `getOrFetch`，同一基金 key 仅一个实例拉取、其余复用；外部并发受 `EXTERNAL_FETCH_CONCURRENCY` 信号量限制
+
+#### Scenario: 手动外部路径受护栏约束
+- **WHEN** 未走 `getOrFetch` 的手动「checkCache → fetch → set」或 `resolveConfirmedNav` 兜底拉取
+- **THEN** 经 `guardFetch` 共享同一信号量，整体外部并发不超出上限
 
 ### Requirement: BullMQ 作业队列（入队 + 消费 + ACK）
 系统 SHALL 使用 BullMQ（底层 Redis）承载定时作业：node-cron 到点时以**确定性 jobId**（含作业名与发生键，如 `dailyProfit:2026-09-08`）入队，BullMQ worker（全部实例共用一个队列）领走执行，成功后 ACK。同一发生的多次入队因 jobId 去重只保留一个。
