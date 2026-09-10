@@ -17,15 +17,11 @@ WORKDIR /opt/backend
 COPY package.json package-lock.json ./
 
 # --frozen-lockfile：以 lockfile 为准精确安装，避免漂移
-# 编译原生模块（sharp 等）所需的系统依赖；生产依赖不含 devDependencies
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 make g++ \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm ci --only=production --ignore-scripts \
-    && npm rebuild sharp --ignore-scripts \
+# 生产依赖不含 devDependencies；sharp 对 linux-x64 提供预编译二进制，
+# npm 安装时直接下载，无需 node-gyp / python / gcc 本地编译。
+# 仅当目标平台（如 linux-arm64）无预编译产物时才需临时加装构建工具，此处默认省略。
+RUN npm ci --only=production \
     && npm cache clean --force
-
-# ps 用于支撑 node 脚本执行的诊断，此处不安装；字体统一在运行阶段处理
 
 ################ 第 2 阶段：运行镜像（精简） ################
 FROM node:20-bookworm-slim AS runtime
