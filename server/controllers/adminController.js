@@ -205,6 +205,17 @@ exports.cacheStats = async (req, res, next) => {
     const limit = parseInt(req.query.limit, 10) || 200;
     const keyword = (req.query.keyword || '').trim();
     const entries = await globalCache.listEntries({ limit, keyword });
+    // Redis 多实例下 stats.size 原本只看本进程内存(恒为0)，这里覆盖为真实条目数，
+    // 保证"缓存条目的数量"字段在 Redis 模式下也正确（原始字段名不变）。
+    stats.size = await globalCache.countEntries();
+    // 过期清理数量直接映射 Redis 自统计的 expired_keys（Redis 用 TTL 自删，应用侧无法精确累计）；
+    // 附加 evictedKeys 供区分"内存淘汰"。非 Redis 模式保持应用侧 evictions 计数。
+    const redisExpiry = await globalCache.getRedisExpiryStats();
+    if (redisExpiry) {
+      stats.evictions = redisExpiry.expiredKeys;
+      stats.expiredKeys = redisExpiry.expiredKeys;
+      stats.evictedKeys = redisExpiry.evictedKeys;
+    }
     // 按缓存类型聚合条目数，便于观察各类型缓存规模
     const typeBreakdown = {};
     for (const e of entries) {

@@ -688,6 +688,64 @@ class GlobalCache {
   }
 
   /**
+   * 统计当前激活后端的缓存条目数（校验过的完整计数，非分页）。
+   * - Redis 模式：全量 SCAN 并仅累加取值为合法 `{data,timestamp,type}` 的键（排除 stats/锁/BullMQ 等内部键）。
+   * - 内存模式：直接返回 this.cache.size。
+   * 用于管理后台"缓存条目的数量"在 Redis 多实例下也能给出真实条目数（stats.size 原本只看本进程内存）。
+   * @returns {Promise<number>}
+   */
+  async countEntries() {
+    if (!this._redisAvailable()) return this.cache.size;
+    const c = coordinator.getClient();
+    let count = 0;
+    let cursor = '0';
+    try {
+      do {
+        const [next, keys] = await c.scan(cursor, 'MATCH', '*', 'COUNT', 200);
+        cursor = next;
+        const pipe = c.pipeline();
+        for (const k of keys) pipe.get(k);
+        const results = await pipe.exec().catch(() => []);
+        for (let i = 0; i < keys.length; i++) {
+          const row = results && results[i];
+          const raw = row && !row[0] ? row[1] : null;
+          if (typeof raw !== 'string') continue;
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && 'data' in parsed && 'timestamp' in parsed && 'type' in parsed) {
+              count++;
+            }
+          } catch { /* 非合法条目，忽略 */ }
+        }
+      } while (cursor !== '0');
+    } catch (err) {
+      logger.error(`Redis 缓存计数失败: ${err.message}`);
+    }
+    return count;
+  }
+
+  /**
+   * 读取 Redis 自统计的过期/内存淘汰键数（`INFO stats` 的 expired_keys / evicted_keys）。
+   * Redis 用 TTL 自动删除过期 key，应用侧无法精确累计，因此过期清理数量以 Redis 自身计数为准。
+   * 非 Redis 模式返回 null（调用方保持用应用侧 evictions 计数）。
+   * @returns {Promise<{expiredKeys:number, evictedKeys:number}|null>}
+   */
+  async getRedisExpiryStats() {
+    if (!this._redisAvailable() || !this.redis) return null;
+    try {
+      const info = await this.redis.info('stats');
+      const num = (k) => {
+        const m = info.match(new RegExp(`${k}:(\\d+)`));
+        return m ? parseInt(m[1], 10) : 0;
+      };
+      return { expiredKeys: num('expired_keys'), evictedKeys: num('evicted_keys') };
+    } catch (err) {
+      logger.error(`读取 Redis INFO stats 失败: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
    * 仅探测单个 key 是否存在且未过期（作用于当前激活后端），返回元数据；否则返回 null。
    * 与管理后台 cacheCheck 配套；不修改统计计数器（等价 peekCache 的"带元数据"版本）。
    * @param {string} key 缓存键
