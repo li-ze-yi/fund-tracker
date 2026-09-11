@@ -199,23 +199,18 @@ exports.deleteFund = async (req, res, next) => {
 
 exports.cacheStats = async (req, res, next) => {
   try {
+    // stats 保持跨实例聚合：Redis 模式读 Redis 全局计数 / 无 Redis 回退本实例
     const stats = await globalCache.getStats();
-    const entries = [];
-    for (const [key, value] of globalCache.cache.entries()) {
-      const ttl = globalCache.getTTL(value.type);
-      const age = Date.now() - value.timestamp;
-      const remaining = Math.max(0, ttl - age);
-      entries.push({
-        key,
-        type: value.type,
-        ageSeconds: Math.round(age / 1000),
-        ttlSeconds: Math.round(ttl / 1000),
-        remainingSeconds: Math.round(remaining / 1000),
-        expired: remaining <= 0,
-      });
+    // entries 按当前激活后端（Redis 或内存）枚举真实缓存条目
+    const limit = parseInt(req.query.limit, 10) || 200;
+    const keyword = (req.query.keyword || '').trim();
+    const entries = await globalCache.listEntries({ limit, keyword });
+    // 按缓存类型聚合条目数，便于观察各类型缓存规模
+    const typeBreakdown = {};
+    for (const e of entries) {
+      typeBreakdown[e.type] = (typeBreakdown[e.type] || 0) + 1;
     }
-    entries.sort((a, b) => a.remainingSeconds - b.remainingSeconds);
-    res.json({ stats, entries, recentMisses: stats.recentMisses || [] });
+    res.json({ stats, entries, typeBreakdown, recentMisses: stats.recentMisses || [] });
   } catch (err) {
     next(err);
   }
@@ -227,22 +222,8 @@ exports.cacheCheck = async (req, res, next) => {
     if (!key) {
       return res.status(400).json({ message: '请提供缓存key参数' });
     }
-    const cached = globalCache.cache.get(key);
-    if (!cached) {
-      return res.json({ hit: false, key });
-    }
-    const ttl = globalCache.getTTL(cached.type);
-    const age = Date.now() - cached.timestamp;
-    const remaining = Math.max(0, ttl - age);
-    res.json({
-      hit: true,
-      key,
-      type: cached.type,
-      ageSeconds: Math.round(age / 1000),
-      ttlSeconds: Math.round(ttl / 1000),
-      remainingSeconds: Math.round(remaining / 1000),
-      expired: remaining <= 0,
-    });
+    const result = await globalCache.peekEntry(key);
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -252,7 +233,8 @@ exports.cacheClear = async (req, res, next) => {
   try {
     const { key } = req.body;
     if (key) {
-      globalCache.cache.delete(key);
+      // 作用于当前激活后端（Redis 可用时同步删除 Redis 与本地镜像）
+      await globalCache.delete(key);
       res.json({ message: `缓存key "${key}" 已清除` });
     } else {
       // 仅清除缓存条目列表，保留命中率等统计信息
