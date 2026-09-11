@@ -23,6 +23,32 @@ const { createLogger } = require('../../utils/logger');
 
 const logger = createLogger('BullWorker');
 
+// 错误日志节流：同一错误消息（如 NOAUTH，因缺 Redis 密码以 ~100ms 级轮询反复触发）在窗口内
+// 只打印首次 + 每个窗口一次"仍存在"提醒，其余重复静默，避免日志刷屏；不同错误仍即时打印。
+const ERR_LOG_WINDOW_MS = 30 * 1000;
+let _lastErrMsg = '';
+let _lastErrAt = 0;
+let _errCountInWindow = 0;
+function logWorkerError(err) {
+  const msg = (err && err.message) || String(err || 'unknown');
+  const now = Date.now();
+  if (msg !== _lastErrMsg) {
+    // 新错误：立即打印并开启新窗口
+    _lastErrMsg = msg;
+    _lastErrAt = now;
+    _errCountInWindow = 0;
+    logger.error(`worker 错误: ${msg}`);
+    return;
+  }
+  // 同一错误：累计次数，仅每窗口提醒一次
+  _errCountInWindow++;
+  if (now - _lastErrAt >= ERR_LOG_WINDOW_MS) {
+    _lastErrAt = now;
+    logger.error(`worker 错误持续发生(${_errCountInWindow}次/窗口): ${msg}`);
+    _errCountInWindow = 0;
+  }
+}
+
 // 队列名 -> processor 处理器
 const PROCESSORS = {
   invest: processors.processProfits,
@@ -74,9 +100,7 @@ function startWorkers() {
     worker.on('failed', (job, err) => {
       logger.error(`worker 任务失败 | ${job ? job.id : '(未知)'}: ${err.message}`, err && err.stack);
     });
-    worker.on('error', (err) => {
-      logger.error(`worker 错误: ${err.message}`);
-    });
+    worker.on('error', logWorkerError);
 
     workers.push({ worker, connection });
   }
