@@ -272,7 +272,7 @@ class GlobalCache {
 
   /**
    * 从 Redis 读取缓存条目（JSON: { data, timestamp, type }）。
-   * 命中且未过期则顺手 PEXPIRE 刷新 TTL，避免热键漂移。
+   * 仅读取，不做 TTL 续期（命中不刷新过期时间，命中时效由写入时的固定 TTL+timestamp 决定）。
    * @returns {Promise<{data:*, timestamp:number, type:string}|null>} 不存在或已过期或出错 → null
    */
   async _redisGetEntry(key) {
@@ -282,9 +282,6 @@ class GlobalCache {
       if (raw == null) return null;
       const entry = JSON.parse(raw);
       if (!entry || typeof entry !== 'object' || !('data' in entry)) return null;
-      // 刷新 TTL（best-effort，失败不影响读）
-      const ttl = this.getTTL(entry.type || 'realtime');
-      this.redis.pexpire(key, ttl).catch(() => {});
       return entry;
     } catch (err) {
       logger.error(`Redis 读取缓存失败，回退内存: ${key}, error=${err.message}`);
