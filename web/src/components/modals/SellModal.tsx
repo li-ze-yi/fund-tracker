@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Modal, Form, InputNumber, Select, DatePicker, Radio, Button, Space, Spin, App } from 'antd';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
@@ -31,6 +31,11 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
   // 任何时序（pending 卖单、已确认卖出、快速连点、网络慢）都不会显示过期数字
   const [availableShares, setAvailableShares] = useState<number | null>(null);
   const [sharesSource, setSharesSource] = useState<'loading' | 'live' | 'fallback'>('loading');
+  // InputNumber 重挂载 key：rc-input-number 处于 focus 编辑态时保留内部输入文本，
+  // setFieldsValue 更新受控值不会反映到显示（须 blur/Enter 才 commit）。
+  // 超额截断时递增 key 强制重建组件，以截断后的受控值立即渲染，再恢复焦点。
+  const [sharesKey, setSharesKey] = useState(0);
+  const sharesInputRef = useRef<any>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -68,10 +73,15 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
   }, [open, fundCode]);
 
   const onSharesChange = (v: number | null) => {
-    // 输入超过可卖出份额 → 自动截断为最大可卖份额
+    // 输入超过可卖出份额 → 输入过程即时截断（无需回车/失焦）
     if (availableShares != null && v != null && v > availableShares) {
       form.setFieldsValue({ shares: availableShares });
       message.warning(`最多可卖出 ${availableShares.toLocaleString()} 份，已自动调整`);
+      // 递增 key 强制 InputNumber 重挂载，以截断后的受控值立即显示，再恢复焦点
+      setSharesKey((k) => k + 1);
+      requestAnimationFrame(() => {
+        try { sharesInputRef.current?.focus?.(); } catch { /* ref 未就绪时忽略 */ }
+      });
     }
   };
 
@@ -138,6 +148,8 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
       <Form form={form} layout="vertical">
         <Form.Item name="shares" label="卖出份额" rules={[{ required: true, message: '请输入卖出份额' }]}>
           <InputNumber
+            key={sharesKey}
+            ref={sharesInputRef}
             min={0}
             max={sharesKnown ? availableShares! : undefined}
             step={1}
