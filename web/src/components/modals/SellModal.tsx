@@ -27,16 +27,15 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const { message } = App.useApp();
-  // 实时可卖出份额：每次打开弹窗重新查询，不依赖页面加载时的旧数据
+  // 实时可卖出份额：每次打开弹窗都重新拉取最新（带时间戳破缓存），响应返回前保留当前显示
   const [availableShares, setAvailableShares] = useState(maxShares);
 
   useEffect(() => {
     if (!open) return;
-    // 打开时先重置为 props 值（旧数据兜底），再异步拉取最新
-    setAvailableShares(maxShares);
     let cancelled = false;
+    // _t 时间戳强制绕过网络中间层缓存（与 getHistoryNav 同款方案）
     fundService
-      .getFundInfo(fundCode)
+      .getFundInfo(fundCode, Date.now())
       .then((data: any) => {
         if (cancelled) return;
         const shares = data?.available_shares ?? data?.shares ?? 0;
@@ -49,7 +48,7 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
           }
         }
       })
-      .catch(() => { /* 查询失败保留 props maxShares，不阻断 */ });
+      .catch(() => { /* 查询失败保留当前值，不阻断 */ });
     return () => { cancelled = true; };
   }, [open, fundCode]);
 
