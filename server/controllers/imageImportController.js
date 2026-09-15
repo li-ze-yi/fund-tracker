@@ -78,12 +78,17 @@ const storage = multer.diskStorage({
   }
 });
 
+// 允许的图片扩展名白名单（mimetype 可被客户端伪造，扩展名决定实际落盘文件类型）
+const ALLOWED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.bmp'];
+
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/bmp'];
-    if (allowedTypes.includes(file.mimetype)) {
+    // 双重校验：mimetype 与扩展名都必须在白名单内
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (allowedTypes.includes(file.mimetype) && ALLOWED_EXTENSIONS.includes(ext)) {
       cb(null, true);
     } else {
       cb(new Error('仅支持 PNG/JPEG/WebP/BMP 格式的图片'));

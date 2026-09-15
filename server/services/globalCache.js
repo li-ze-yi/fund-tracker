@@ -118,8 +118,8 @@ class GlobalCache {
     this.recentMisses = [];  // [{ key, type, at }]
     this.maxMissLog = 100;   // 最多保留最近 100 条
     
-    // 最大缓存条目数（防止内存溢出）
-    this.maxSize = 500;
+    // 最大缓存条目数（防止内存溢出）。对齐项目约束：1000（满时按 evictOldest 两阶段淘汰）
+    this.maxSize = 1000;
 
     // 在途请求去重（缓存击穿防护）：key -> Promise，命中时复用，完成后删除
     this.inFlight = new Map();

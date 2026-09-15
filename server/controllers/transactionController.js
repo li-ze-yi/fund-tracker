@@ -201,7 +201,11 @@ exports.sell = async (req, res, next) => {
 
 exports.listAll = async (req, res, next) => {
   try {
-    const transactions = await Transaction.findByUserId(req.user.id);
+    // 分页/条数透传：支持 ?limit= 查询参数（默认 200，上限 1000 防大响应）
+    let limit = parseInt(req.query.limit, 10) || 200;
+    if (limit < 1) limit = 200;
+    if (limit > 1000) limit = 1000;
+    const transactions = await Transaction.findByUserId(req.user.id, limit);
     res.json(transactions.map(tx => ({ ...tx, transaction_date: normalizeDateStr(tx.transaction_date) || '' })));
   } catch (err) {
     next(err);

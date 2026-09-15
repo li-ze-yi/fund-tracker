@@ -26,8 +26,8 @@ api.interceptors.response.use(
   },
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      // 同时重置 authStore 状态（仅清 localStorage 会残留 isAuthenticated，UI 仍显示已登录）
+      useAuthStore.getState().logout();
       window.location.href = '/login';
     }
     return Promise.reject(error);

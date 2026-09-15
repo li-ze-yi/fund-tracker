@@ -90,9 +90,10 @@ spec:
             # 可选：全局外部拉取并发护栏（默认 20）
             - name: EXTERNAL_FETCH_CONCURRENCY
               value: "20"
-            # 可选：跨域来源（逗号分隔，留空 = 不限制）
+            # 可选：跨域来源（逗号分隔）。生产必须显式配置为前端域名，留空 = 不限制（不安全）
+            # 示例：https://fund.example.com
             - name: CORS_ORIGIN
-              value: ""
+              value: "https://CHANGE_ME_FRONTEND_ORIGIN"
             # 可选：百度 OCR（图片识别导入，未配置则功能不可用）
             - name: BAIDU_OCR_APP_ID
               value: ""

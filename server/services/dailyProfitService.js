@@ -27,6 +27,20 @@ class DailyProfitService {
   constructor() {
     this.lastUpdateCache = new Map();
     this.MIN_UPDATE_INTERVAL_MINUTES = 5; // 最小更新间隔5分钟
+    // 定期清理过期节流键：key 形如 `${userId}_${date}`，跨天后旧键永不复用，
+    // 不清理会随用户数缓慢泄漏内存
+    this._cacheSweeper = setInterval(() => this._sweepStaleCache(), 60 * 60 * 1000);
+    this._cacheSweeper.unref?.(); // 不阻止进程退出
+  }
+
+  /**
+   * 清理超过 1 天未使用的节流键（同 key 再次写入前必然已超过 MIN_UPDATE_INTERVAL）
+   */
+  _sweepStaleCache() {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const [k, ts] of this.lastUpdateCache) {
+      if (ts < cutoff) this.lastUpdateCache.delete(k);
+    }
   }
 
   /**

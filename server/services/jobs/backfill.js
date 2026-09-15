@@ -19,10 +19,14 @@ const { createLogger } = require('../../utils/logger');
 
 const logger = createLogger('Backfill');
 
-// 需要进行启动回填的当日调度（只取与"日"绑定的兜底任务；定投 slot 由 scheduler 正常触发）
+// 需要进行启动回填的当日调度（只取与"日"绑定的兜底任务；invest 双 slot 由 scheduler 正常触发）
+// ★ invest 也纳入回填：deploy 窗口错过 10:00/20:00 入队时，启动补齐（确定性 jobId 天然去重，
+//   已执行的 occurrence 被 watermark 幂等跳过），避免定投漏跑
 const BACKFILL_SCHEDULES = [
   { name: 'dailyProfit', hour: 23, minute: 55 },
   { name: 'pendingSettle', hour: 23, minute: 50 },
+  { name: 'invest', hour: 10, minute: 0, keySuffix: '-10' }, // occurrenceKey = YYYYMMDD-10（与 scheduler keyFor 一致）
+  { name: 'invest', hour: 20, minute: 0, keySuffix: '-20' }, // occurrenceKey = YYYYMMDD-20
 ];
 
 /**
@@ -38,17 +42,20 @@ async function backfillMissed() {
 
   for (const s of BACKFILL_SCHEDULES) {
     try {
-      const done = await watermark.wasRun(s.name, today);
-      if (done) continue; // 今天已执行过，无需回填
+      // occurrenceKey：invest 带 slot 后缀（YYYYMMDD-10 / YYYYMMDD-20，与 scheduler.keyFor 一致）；
+      // 其余任务为当日 YYYYMMDD
+      const occurrenceKey = today + (s.keySuffix || '');
+      const done = await watermark.wasRun(s.name, occurrenceKey);
+      if (done) continue; // 今天该 occurrence 已执行过，无需回填
 
       const scheduled = new Date(now);
       scheduled.setHours(s.hour, s.minute, 0, 0);
       if (now < scheduled) continue; // 尚未到调度时间，不提前触发
 
       // 已到点且未执行 → 用确定性 jobId 重新入队（同名 job 自动去重）
-      await queue.enqueue(s.name, today);
+      await queue.enqueue(s.name, occurrenceKey);
       reenqueued++;
-      logger.info(`启动回填 | ${s.name}:${today} 到点未执行，重新入队`);
+      logger.info(`启动回填 | ${s.name}:${occurrenceKey} 到点未执行，重新入队`);
     } catch (e) {
       logger.error(`回填检查失败 | ${s.name}: ${e.message}`);
     }

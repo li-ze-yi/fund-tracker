@@ -22,7 +22,7 @@ const Transaction = {
     return rows;
   },
 
-  async findByUserId(userId, limit = 50) {
+  async findByUserId(userId, limit = 200) {
     const [rows] = await pool.query(
       `SELECT t.*, f.name as fund_name
        FROM transactions t

@@ -264,9 +264,17 @@ async function getHistoryNetValuesRaw(fundCode, startDate, endDate) {
       const date = cells[0].replace(/<[^>]+>/g, '').trim();
       const nav = parseFloat(cells[1].replace(/<[^>]+>/g, '').trim());
       if (date && !isNaN(nav) && date.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        results.push({ date, nav, accumulatedNav: 0, growthRate: null });
+        // 本行有效 → push 新条目（含累计净值，若第 3 列可解析）
+        results.push({
+          date,
+          nav,
+          accumulatedNav: parseFloat(cells[2].replace(/<[^>]+>/g, '').trim()) || 0,
+          growthRate: null,
+        });
+        continue;
       }
-      if (cells.length >= 3) {
+      // 本行日期/净值无效但含第 3 列 → 仅当上一条存在时补其累计净值（避免 results[-1] 崩溃）
+      if (cells.length >= 3 && results.length > 0) {
         results[results.length - 1].accumulatedNav = parseFloat(cells[2].replace(/<[^>]+>/g, '').trim()) || 0;
       }
     }
@@ -624,20 +632,21 @@ async function getStocksRealtime(stockCodes) {
   // 缓存策略：单只股票独立缓存（key: stock_quote_{code}）
   // 数据来源：腾讯股票实时行情接口 qt.gtimg.cn
   const result = {};
-  const needFetch = [];
 
-  // 1. 逐只检查缓存是否命中（改用 checkCache 统一统计口径）
-  for (const code of stockCodes) {
+  // 1. 逐只检查缓存是否命中（改用 checkCache 统一统计口径；Promise.all 并行，
+  //    Redis 模式下避免 N 只股票 N 次串行 RTT 拉长批量接口延迟）
+  const needFetch = [];
+  await Promise.all(stockCodes.map(async (code) => {
     const cacheKey = `stock_quote_${code}`;
     const cacheResult = await globalCache.checkCache(cacheKey, 'stock_quote');
     if (cacheResult.hit) {
       // 缓存命中，直接放入结果对象
       result[code] = cacheResult.data;
-      continue;
+    } else {
+      // 未命中，加入待请求列表
+      needFetch.push(code);
     }
-    // 未命中，加入待请求列表
-    needFetch.push(code);
-  }
+  }));
 
   logger.debug(`共${stockCodes.length}只: 缓存命中${stockCodes.length - needFetch.length}只, 需请求${needFetch.length}只`);
 
