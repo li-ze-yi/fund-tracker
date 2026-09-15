@@ -70,12 +70,15 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
 
   const onSharesChange = (v: number | null) => {
     // 输入超过可卖出份额 → 输入过程即时截断（无需回车/失焦）
+    // 注意：InputNumber 不能设置 max 属性——rc-input-number 编辑态（userTyping=true）下
+    // 超出 max 的输入会直接丢弃 onChange 不触发（源码 triggerValueUpdate 的 isRangeValidate
+    // 短路），导致截断逻辑根本收不到事件，只能等 blur/Enter 回弹。去掉 max 让超额输入
+    // 正常走 onChange，由这里接管截断；提交时 onSubmit 校验兜底。
     if (availableShares != null && v != null && v > availableShares) {
       form.setFieldsValue({ shares: availableShares });
       message.warning(`最多可卖出 ${availableShares.toLocaleString()} 份，已自动调整`);
-      // rc-input-number 编辑态（userTypingRef=true）下受控值更新不反映到显示（源码 L468-479），
-      // blur/Enter 才 commit。这里绕过 rc 内部机制：用原生 value setter 直接重写输入框显示文本，
-      // 不派发事件（仅改显示，避免循环触发 onChange），光标移到末尾保持编辑状态。
+      // 双保险：受控值更新后 rc 通常会同步显示（新值≠输入值时走 setInputValue），
+      // 但编辑态存在跳过分支，用原生 value setter 直接重写输入框显示文本确保生效。
       const displayText = String(availableShares);
       requestAnimationFrame(() => {
         try {
@@ -158,7 +161,6 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
           <InputNumber
             ref={sharesInputRef}
             min={0}
-            max={sharesKnown ? availableShares! : undefined}
             step={1}
             style={{ width: '100%' }}
             placeholder="输入卖出份额"
