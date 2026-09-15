@@ -1,15 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Modal, Form, InputNumber, Select, DatePicker, Radio, Button, Space, App } from 'antd';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import locale from 'antd/es/date-picker/locale/zh_CN';
 import { transactionService } from '@/services/transactionService';
+import { fundService } from '@/services/fundService';
 
 interface Props {
   open: boolean;
   fundCode: string;
   fundName: string;
-  /** 可卖出份额上限（= 持仓份额 - 挂起卖出订单份额） */
+  /** 可卖出份额上限（= 持仓份额 - 挂起卖出订单份额），作为实时查询失败时的回退值 */
   maxShares: number;
   onClose: () => void;
   onSuccess: () => void;
@@ -26,16 +27,49 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const { message } = App.useApp();
+  // 实时可卖出份额：每次打开弹窗重新查询，不依赖页面加载时的旧数据
+  const [availableShares, setAvailableShares] = useState(maxShares);
+
+  useEffect(() => {
+    if (!open) return;
+    // 打开时先重置为 props 值（旧数据兜底），再异步拉取最新
+    setAvailableShares(maxShares);
+    let cancelled = false;
+    fundService
+      .getFundInfo(fundCode)
+      .then((data: any) => {
+        if (cancelled) return;
+        const shares = data?.available_shares ?? data?.shares ?? 0;
+        if (typeof shares === 'number' && shares >= 0) {
+          setAvailableShares(shares);
+          // 查询后若已填写的份额超出最新上限，同步截断输入框
+          const current = form.getFieldValue('shares');
+          if (current != null && current > shares) {
+            form.setFieldsValue({ shares });
+          }
+        }
+      })
+      .catch(() => { /* 查询失败保留 props maxShares，不阻断 */ });
+    return () => { cancelled = true; };
+  }, [open, fundCode]);
+
+  const onSharesChange = (v: number | null) => {
+    // 输入超过可卖出份额 → 自动截断为最大可卖份额
+    if (v != null && v > availableShares) {
+      form.setFieldsValue({ shares: availableShares });
+      message.warning(`最多可卖出 ${availableShares.toLocaleString()} 份，已自动调整`);
+    }
+  };
 
   const quickFill = (ratio: number) => {
-    const sharesValue = Math.floor(maxShares * ratio * 10000) / 10000;
+    const sharesValue = Math.floor(availableShares * ratio * 10000) / 10000;
     form.setFieldsValue({ shares: sharesValue });
   };
 
   const onSubmit = async () => {
     try {
       const values = await form.validateFields();
-      if (values.shares > maxShares) {
+      if (values.shares > availableShares) {
         message.error('卖出份额不能超过可卖出份额');
         return;
       }
@@ -74,11 +108,11 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
       destroyOnHidden
     >
       <div className="sell-holdings-info" style={{ marginBottom: 12, color: 'var(--text-tertiary)', fontSize: 13 }}>
-        可卖出: {maxShares.toLocaleString()} 份
+        可卖出: {availableShares.toLocaleString()} 份
       </div>
       <Form form={form} layout="vertical">
         <Form.Item name="shares" label="卖出份额" rules={[{ required: true, message: '请输入卖出份额' }]}>
-          <InputNumber min={0} max={maxShares} step={1} style={{ width: '100%' }} placeholder="输入卖出份额" />
+          <InputNumber min={0} max={availableShares} step={1} style={{ width: '100%' }} placeholder="输入卖出份额" onChange={onSharesChange} />
         </Form.Item>
         <div className="sell-quick-buttons" style={{ marginBottom: 16 }}>
           <Space>
