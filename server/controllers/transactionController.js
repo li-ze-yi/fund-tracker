@@ -146,9 +146,31 @@ exports.sell = async (req, res, next) => {
     }
 
     const holding = await Holding.findByUserAndFund(req.user.id, fundCode);
-    if (!holding || parseFloat(holding.shares) < sellSharesNum) {
-      logger.warn(`卖出失败: userId=${req.user.id}, fundCode=${fundCode}, holdingShares=${holding ? holding.shares : '无持仓'}, requestShares=${sellSharesNum}, 份额不足`);
-      return res.status(400).json({ message: '持有份额不足' });
+    if (!holding) {
+      return res.status(400).json({ message: '无持仓，无法卖出' });
+    }
+    const holdingShares = parseFloat(holding.shares);
+    if (holdingShares <= 0) {
+      return res.status(400).json({ message: '持有份额为 0，无法卖出' });
+    }
+
+    // 可用份额 = 持仓份额 - 该基金 pending 卖出订单份额合计（挂起卖单未结算，不能重复卖）
+    const pendingSells = await Transaction.findPendingByUserId(req.user.id);
+    const pendingSellShares = pendingSells
+      .filter(tx => tx.type === 'sell' && tx.fund_code === fundCode)
+      .reduce((sum, tx) => sum + (parseFloat(tx.shares) || 0), 0);
+    const availableShares = Math.max(0, holdingShares - pendingSellShares);
+
+    if (availableShares <= 0) {
+      logger.warn(`卖出失败: userId=${req.user.id}, fundCode=${fundCode}, holdingShares=${holdingShares}, pendingSellShares=${pendingSellShares}, 可用份额为0`);
+      return res.status(400).json({ message: '持有份额已全部挂起卖出中，请先删除挂起订单' });
+    }
+
+    // 输入份额超过可用份额 → 自动按全部可用份额卖出
+    let actualShares = sellSharesNum;
+    if (sellSharesNum > availableShares) {
+      actualShares = availableShares;
+      logger.info(`卖出份额 ${sellSharesNum} 超过可用份额 ${availableShares}（持仓 ${holdingShares} - 挂起卖出 ${pendingSellShares}），自动调整为全部可用份额`);
     }
 
     // 尝试获取确认净值（统一结算场景 NAV 解析，缓存优先 + 精确日期匹配）
@@ -158,14 +180,14 @@ exports.sell = async (req, res, next) => {
 
     if (confirmedNav > 0) {
       // 有确认净值 → 立即结算
-      const { feeAmount, netAmount } = settlementService.computeSellSettlement(sellSharesNum, feeRateNum, confirmedNav);
-      await settlementService.applySellHolding({ userId: req.user.id, fundCode, sellShares: sellSharesNum, netAmount });
+      const { feeAmount, netAmount } = settlementService.computeSellSettlement(actualShares, feeRateNum, confirmedNav);
+      await settlementService.applySellHolding({ userId: req.user.id, fundCode, sellShares: actualShares, netAmount });
 
       await Transaction.create({
         userId: req.user.id,
         fundCode,
         type: 'sell',
-        shares: sellSharesNum,
+        shares: actualShares,
         price: confirmedNav,
         amount: netAmount,
         fee: feeAmount,
@@ -173,16 +195,16 @@ exports.sell = async (req, res, next) => {
         status: 'confirmed'
       });
 
-      logger.info(`卖出已确认: userId=${req.user.id}, fundCode=${fundCode}, shares=${sellSharesNum}, nav=${confirmedNav}, navDate=${navDate}`);
-      res.json({ message: '卖出成功', amount: netAmount, fee: feeAmount, tradeDate: navDate, status: 'confirmed' });
+      logger.info(`卖出已确认: userId=${req.user.id}, fundCode=${fundCode}, shares=${actualShares}, nav=${confirmedNav}, navDate=${navDate}`);
+      res.json({ message: '卖出成功', shares: actualShares, amount: netAmount, fee: feeAmount, tradeDate: navDate, status: 'confirmed' });
     } else {
       // 无确认净值 → 创建 pending 订单，只记录份额，等净值确认后结算时再计算金额
-      logger.info(`确认净值未发布，创建 pending 卖出订单: userId=${req.user.id}, fundCode=${fundCode}, shares=${sellSharesNum}, navDate=${navDate}`);
+      logger.info(`确认净值未发布，创建 pending 卖出订单: userId=${req.user.id}, fundCode=${fundCode}, shares=${actualShares}, navDate=${navDate}`);
       await Transaction.create({
         userId: req.user.id,
         fundCode,
         type: 'sell',
-        shares: sellSharesNum,
+        shares: actualShares,
         price: 0,
         amount: 0,
         fee: feeRateNum || 0,
@@ -190,8 +212,8 @@ exports.sell = async (req, res, next) => {
         status: 'pending'
       });
 
-      logger.info(`卖出订单挂起: userId=${req.user.id}, fundCode=${fundCode}, shares=${sellSharesNum}, navDate=${navDate}`);
-      res.json({ message: '卖出订单已提交，等待净值确认后结算', shares: sellSharesNum, tradeDate: navDate, status: 'pending' });
+      logger.info(`卖出订单挂起: userId=${req.user.id}, fundCode=${fundCode}, shares=${actualShares}, navDate=${navDate}`);
+      res.json({ message: '卖出订单已提交，等待净值确认后结算', shares: actualShares, tradeDate: navDate, status: 'pending' });
     }
   } catch (err) {
     logger.error(`卖出异常: userId=${req.user.id}, fundCode=${req.body?.fundCode}, error=${err.message}`, err.stack);

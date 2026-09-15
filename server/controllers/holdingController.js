@@ -41,8 +41,31 @@ exports.list = async (req, res, next) => {
       holdings,
       forceRefresh,  // ✅ 传递强制刷新参数
       valuationMethod,      // ✅ 全局估值方法
-      valuationOverrides    // ✅ 单基金覆盖
+      valuationOverrides    // ✅ 单基金估值方法覆盖
     );
+
+    // 附加 available_shares：可用份额 = 持仓份额 - 该基金 pending 卖出订单份额合计
+    // 仅作卖出入口的份额上限参考；shares/market_value/收益等字段不动（挂起卖单未结算，账面不变）
+    // 删除挂起订单后，下次查询即自动恢复
+    try {
+      const pendingSells = await Transaction.findPendingByUserId(userId);
+      const pendingSellShares = {};
+      for (const tx of pendingSells) {
+        if (tx.type !== 'sell') continue;
+        pendingSellShares[tx.fund_code] = (pendingSellShares[tx.fund_code] || 0) + (parseFloat(tx.shares) || 0);
+      }
+      for (const h of enrichedWithStatus) {
+        const pending = pendingSellShares[h.fund_code];
+        const sharesNum = parseFloat(h.shares) || 0;
+        h.available_shares = pending > 0 ? Math.max(0, sharesNum - pending) : sharesNum;
+      }
+    } catch (err) {
+      // 附加字段失败不影响主列表，退回 shares 作为可用份额
+      logger.warn(`计算 available_shares 失败: ${err.message}`);
+      for (const h of enrichedWithStatus) {
+        h.available_shares = parseFloat(h.shares) || 0;
+      }
+    }
 
     // 事件驱动：异步计算并保存当日收益（不阻塞主流程）
     dailyProfitService.calculateAndSaveDailyProfit(userId, enrichedWithStatus)

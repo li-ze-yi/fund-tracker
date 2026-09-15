@@ -1,6 +1,7 @@
 const Fund = require('../models/fund');
 const Holding = require('../models/holding');
 const Favorite = require('../models/favorite');
+const Transaction = require('../models/transaction');
 const fundService = require('../services/fundService');
 const holdingService = require('../services/holdingService');
 const holidayService = require('../services/holidayService');
@@ -279,6 +280,17 @@ exports.getByCode = async (req, res, next) => {
         result.is_fresh = metrics.is_fresh;
         if (metrics.day_of_week) result.day_of_week = metrics.day_of_week;
         result.holding_id = holding.id;
+
+        // 可用份额 = 持仓份额 - 该基金 pending 卖出订单份额合计（挂起卖单未结算不能重复卖）
+        try {
+          const pendingSells = await Transaction.findPendingByUserId(req.user.id);
+          const pendingSellShares = pendingSells
+            .filter(tx => tx.type === 'sell' && tx.fund_code === code)
+            .reduce((sum, tx) => sum + (parseFloat(tx.shares) || 0), 0);
+          result.available_shares = Math.max(0, (parseFloat(holding.shares) || 0) - pendingSellShares);
+        } catch {
+          result.available_shares = parseFloat(holding.shares) || 0;
+        }
       }
 
       const fav = await Favorite.isFavorited(req.user.id, code);

@@ -9,6 +9,7 @@ interface Props {
   open: boolean;
   fundCode: string;
   fundName: string;
+  /** 可卖出份额上限（= 持仓份额 - 挂起卖出订单份额） */
   maxShares: number;
   onClose: () => void;
   onSuccess: () => void;
@@ -35,7 +36,7 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
     try {
       const values = await form.validateFields();
       if (values.shares > maxShares) {
-        message.error('卖出份额不能超过持有份额');
+        message.error('卖出份额不能超过可卖出份额');
         return;
       }
       setLoading(true);
@@ -73,7 +74,7 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
       destroyOnHidden
     >
       <div className="sell-holdings-info" style={{ marginBottom: 12, color: 'var(--text-tertiary)', fontSize: 13 }}>
-        当前持有: {maxShares.toLocaleString()} 份
+        可卖出: {maxShares.toLocaleString()} 份
       </div>
       <Form form={form} layout="vertical">
         <Form.Item name="shares" label="卖出份额" rules={[{ required: true, message: '请输入卖出份额' }]}>

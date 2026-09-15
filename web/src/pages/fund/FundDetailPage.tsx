@@ -1184,7 +1184,7 @@ export default function FundDetailPage() {
         open={sellModalOpen}
         fundCode={code || ''}
         fundName={fund.name || fund.fund_name || code || ''}
-        maxShares={fund.shares ?? 0}
+        maxShares={fund.available_shares ?? fund.shares ?? 0}
         onClose={() => setSellModalOpen(false)}
         onSuccess={loadData}
       />
