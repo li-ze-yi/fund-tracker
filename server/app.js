@@ -39,6 +39,12 @@ if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
   logger.warn('JWT_SECRET 长度不足 32 字符，建议使用强随机值生成：node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
 }
 
+// 多实例部署告警：未配置 Redis 时定时任务在本进程内直连执行，无跨实例去重。
+// 定投/结算涉及资金落账，多副本（PM2 多进程/K8s 多副本）下每实例都会重复执行。
+if (!process.env.REDIS_URL) {
+  logger.warn('未配置 REDIS_URL：定时任务将仅在本进程内执行（无跨实例去重）。若以多实例部署，请配置 REDIS_URL 或保持单实例，否则定投/结算任务会重复落账');
+}
+
 const app = express();
 
 // 信任一层反向代理（nginx），使 req.ip 使用 X-Forwarded-For 中的真实客户端 IP。

@@ -16,9 +16,15 @@ const Holding = {
     return rows;
   },
 
-  async findByUserAndFund(userId, fundCode) {
-    const [rows] = await pool.query(
-      'SELECT * FROM holdings WHERE user_id = ? AND fund_code = ?',
+  /**
+   * 按 user+fund 查持仓。
+   * @param {*} conn 可选：事务连接。传入时追加 FOR UPDATE 行锁，
+   *   使结算事务内"读持仓→算→写"对并发加仓/结算串行化，避免丢失更新
+   */
+  async findByUserAndFund(userId, fundCode, conn = null) {
+    const exec = conn || pool;
+    const [rows] = await exec.query(
+      `SELECT * FROM holdings WHERE user_id = ? AND fund_code = ?${conn ? ' FOR UPDATE' : ''}`,
       [userId, fundCode]
     );
     return rows[0] || null;
@@ -42,8 +48,9 @@ const Holding = {
     return rows;
   },
 
-  async create({ userId, fundCode, shares, costPrice, groupId, confirmedNav, confirmedNavDate, totalCost }) {
-    const [result] = await pool.query(
+  async create({ userId, fundCode, shares, costPrice, groupId, confirmedNav, confirmedNavDate, totalCost }, conn = null) {
+    const exec = conn || pool;
+    const [result] = await exec.query(
       `INSERT INTO holdings (user_id, fund_code, shares, cost_price, group_id, confirmed_nav, confirmed_nav_date, total_cost)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [userId, fundCode, shares, costPrice, groupId || null, confirmedNav || null, confirmedNavDate || null, totalCost || 0]
@@ -51,7 +58,7 @@ const Holding = {
     return result.insertId;
   },
 
-  async update(id, userId, data) {
+  async update(id, userId, data, conn = null) {
     const fields = [];
     const values = [];
     for (const [key, val] of Object.entries(data)) {
@@ -77,7 +84,8 @@ const Holding = {
       values.push(val);
     }
     values.push(id, userId);
-    await pool.query(`UPDATE holdings SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`, values);
+    const exec = conn || pool;
+    await exec.query(`UPDATE holdings SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`, values);
   },
 
   async updateByGroupId(groupId, userId, data) {

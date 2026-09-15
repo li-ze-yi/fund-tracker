@@ -1,8 +1,8 @@
 const InvestmentPlan = require('../models/investmentPlan');
-const Holding = require('../models/holding');
 const Transaction = require('../models/transaction');
 const fundService = require('./fundService');
 const globalCache = require('./globalCache');
+const settlementService = require('./settlementService');
 const pool = require('../config/database');
 const holidayService = require('./holidayService');
 const { getLocalToday, normalizeDateStr } = require('../utils/date');
@@ -63,55 +63,24 @@ async function executeDuePlans() {
           continue;
         } else {
           // pending 交易 → 上次净值未确认创建的，尝试结算
+          // ★ 统一走 settlementService.settleTransaction（DB 事务 + 乐观锁 + 三分支持仓更新），
+          //   避免旧实现"先改持仓后抢锁"与用户手动 settlePending 并发时双重加仓
           logger.info(`[Plan#${plan.id}] 今日有 pending 定投交易(id=${existingTx[0].id})，尝试结算`);
           try {
-            const history = await globalCache.getOrFetch(
-              `history_${plan.fund_code}_1d_${today}`, // 定投结算历史净值缓存（eastmoney/lsjz）
-              () => fundService.getHistoryNetValues(plan.fund_code, today, today),
-              { type: 'history_recent' } // 近期历史净值缓存
-            );
-            const confirmedNav = history && history.length > 0
-              ? (parseFloat(history[0].netValue) || parseFloat(history[0].nav) || 0)
-              : 0;
+            const pendingNavDate = normalizeDateStr(existingTx[0].transaction_date) || today;
+            const { nav: confirmedNav } = await settlementService.getConfirmedNavByDate(plan.fund_code, pendingNavDate);
 
             if (confirmedNav > 0) {
-              // 净值已确认 → 结算 pending 交易
-              const actualShares = Math.round((planAmount / confirmedNav) * 10000) / 10000;
-              logger.info(`[Plan#${plan.id}] pending 结算计算: amount=¥${planAmount}, nav=${confirmedNav}, actualShares=${actualShares.toFixed(4)}`);
-
-              // 更新持仓
-              const holding = await Holding.findByUserAndFund(plan.user_id, plan.fund_code);
-              if (holding) {
-                const oldShares = parseFloat(holding.shares);
-                const oldCostPrice = parseFloat(holding.cost_price);
-                const totalShares = oldShares + actualShares;
-                const newCostPrice = totalShares ? (oldShares * oldCostPrice + planAmount) / totalShares : 0;
-                logger.info(`[Plan#${plan.id}] pending 结算加仓: oldShares=${oldShares.toFixed(4)}, newShares=${totalShares.toFixed(4)}, oldCost=${oldCostPrice.toFixed(4)}, newCost=${newCostPrice.toFixed(4)}`);
-                await Holding.update(holding.id, plan.user_id, {
-                  shares: totalShares,
-                  cost_price: Math.round(newCostPrice * 10000) / 10000
-                });
-              } else {
-                logger.info(`[Plan#${plan.id}] pending 结算新建持仓: shares=${actualShares.toFixed(4)}, costPrice=${confirmedNav}, totalCost=${planAmount}`);
-                await Holding.create({
-                  userId: plan.user_id,
-                  fundCode: plan.fund_code,
-                  shares: actualShares,
-                  costPrice: confirmedNav,
-                  totalCost: planAmount
-                });
-              }
-
-              // 更新交易为 confirmed
-              await Transaction.updateToConfirmed(existingTx[0].id, plan.user_id, {
-                shares: actualShares,
-                price: confirmedNav,
-                amount: planAmount
+              // 净值已确认 → 结算 pending 交易（事务内：交易确认 + 持仓新建/占位替换/加仓原子提交）
+              const result = await settlementService.settleTransaction({
+                userId: plan.user_id,
+                tx: existingTx[0],
+                confirmedNav,
+                navDate: pendingNavDate
               });
-
-              logger.info(`[Plan#${plan.id}] pending 交易已结算: txId=${existingTx[0].id}, actualShares=${actualShares.toFixed(4)}, nav=${confirmedNav}`);
+              logger.info(`[Plan#${plan.id}] pending 结算结果: ${result.outcome}`);
             } else {
-              logger.info(`[Plan#${plan.id}] 净值仍未确认 (today=${today})，pending 交易继续等待`);
+              logger.info(`[Plan#${plan.id}] 净值仍未确认 (navDate=${pendingNavDate})，pending 交易继续等待`);
             }
           } catch (e) {
             logger.error(`[Plan#${plan.id}] 结算 pending 交易失败: ${e.message}`, e.stack);
@@ -210,31 +179,18 @@ async function executeDuePlans() {
 
       logger.info(`[Plan#${plan.id}] 定投计算: amount=¥${planAmount} ÷ nav=${netValue}(${netValueSource}) = ${shares.toFixed(4)}份`);
 
-      const holding = await Holding.findByUserAndFund(plan.user_id, plan.fund_code);
-
-      if (holding) {
-        // 已有持仓 → 加仓（加权平均成本）
-        const oldShares = parseFloat(holding.shares);
-        const oldCostPrice = parseFloat(holding.cost_price);
-        const totalShares = oldShares + shares;
-        const newCostPrice = totalShares ? (oldShares * oldCostPrice + planAmount) / totalShares : 0;
-
-        logger.info(`[Plan#${plan.id}] 加仓: ${oldShares.toFixed(4)}→${totalShares.toFixed(4)}份, 成本价: ${oldCostPrice.toFixed(4)}→${(Math.round(newCostPrice * 10000) / 10000).toFixed(4)}`);
-
-        await Holding.update(holding.id, plan.user_id, {
-          shares: totalShares,
-          cost_price: Math.round(newCostPrice * 10000) / 10000
-        });
-      } else {
-        // 无持仓 → 新建（使用确认净值作为成本价）
-        logger.info(`[Plan#${plan.id}] 新建持仓: ${shares.toFixed(4)}份, 成本价=${netValue}`);
-        await Holding.create({
-          userId: plan.user_id,
-          fundCode: plan.fund_code,
-          shares: shares,
-          costPrice: netValue
-        });
-      }
+      // ★ 统一走 settlementService.applyBuyHolding（新建/占位替换/加仓三分支）：
+      //   加仓同时累加 shares 与 total_cost（旧实现漏更新 total_cost 导致持仓成本持续偏低）
+      const applied = await settlementService.applyBuyHolding({
+        userId: plan.user_id,
+        fundCode: plan.fund_code,
+        shares,
+        costPrice: shares > 0 ? planAmount / shares : netValue,
+        totalCost: planAmount,
+        confirmedNav: netValue,
+        navDate: today
+      });
+      logger.info(`[Plan#${plan.id}] 持仓已更新: holdingCreated=${applied.holdingCreated}, finalShares=${applied.finalShares.toFixed(4)}`);
 
       // 创建交易记录
       await Transaction.create({

@@ -10,6 +10,7 @@ const globalCache = require('../services/globalCache');
 const UserSetting = require('../models/userSetting');
 const { createLogger } = require('../utils/logger');
 const { getLocalToday, normalizeDateStr } = require('../utils/date');
+const { toPositiveNumber, toOptionalNumber } = require('../utils/validate');
 
 const logger = createLogger('HoldingController');
 
@@ -123,6 +124,13 @@ exports.create = async (req, res, next) => {
   try {
     const { fundCode, amount, totalReturn, groupId } = req.body;
     logger.info(`开始添加持仓: fund=${fundCode}, amount=${amount}, totalReturn=${totalReturn}`);
+
+    // 入参校验：金额必须为正数；累计收益可选但须为有限数（允许负数）
+    const amountNum = toPositiveNumber(amount);
+    const totalReturnNum = toOptionalNumber(totalReturn);
+    if (!fundCode || Number.isNaN(amountNum) || Number.isNaN(totalReturnNum)) {
+      return res.status(400).json({ message: '请提供有效的基金代码、持仓金额（正数）和累计收益（数字）' });
+    }
     
     const fund = await Fund.findByCode(fundCode);
     if (!fund) {
@@ -199,7 +207,7 @@ exports.create = async (req, res, next) => {
       });
     }
 
-    const { shares, totalCost, costPrice } = settlementService.computeSharesAndCost(amount, totalReturn, netValue);
+    const { shares, totalCost, costPrice } = settlementService.computeSharesAndCost(amountNum, totalReturnNum, netValue);
 
     logger.info(`计算结果: shares=${shares.toFixed(2)}, costPrice=${costPrice.toFixed(4)}, totalCost=${totalCost}, netValue=${netValue}`);
 
@@ -217,14 +225,14 @@ exports.create = async (req, res, next) => {
       logger.info(`已清仓基金重新添加: id=${existing.id}, fund=${fundCode}`);
 
       // 生成交易记录（与新建一致）
-      if (!totalReturn) {
+      if (!totalReturnNum) {
         await Transaction.create({
           userId: req.user.id,
           fundCode,
           type: 'buy',
           shares,
           price: netValue,
-          amount,
+          amount: amountNum,
           fee: 0,
           transactionDate: confirmedNavDate || getLocalToday()
         });
@@ -247,14 +255,14 @@ exports.create = async (req, res, next) => {
     logger.info(`持仓创建成功: id=${id}, fund=${fundCode}`);
 
     // 累计收益为0时，视为新买入，生成交易记录
-    if (!totalReturn) {
+    if (!totalReturnNum) {
       await Transaction.create({
         userId: req.user.id,
         fundCode,
         type: 'buy',
         shares,
         price: netValue,
-        amount,
+        amount: amountNum,
         fee: 0,
         transactionDate: confirmedNavDate || getLocalToday()
       });
@@ -387,6 +395,13 @@ exports.update = async (req, res, next) => {
 
     // 修改持仓金额和累计收益，逻辑与 create 一致
     if (amount !== undefined) {
+      // 入参校验：金额必须为正数；累计收益可选但须为有限数（允许负数）
+      const amountNum = toPositiveNumber(amount);
+      const totalReturnNum = toOptionalNumber(totalReturn);
+      if (Number.isNaN(amountNum) || Number.isNaN(totalReturnNum)) {
+        return res.status(400).json({ message: '持仓金额必须为正数，累计收益必须为数字' });
+      }
+
       // ★ 用 URL 上的 id 定位持仓（而非请求体 fundCode，避免 id 与 fundCode 不一致导致误改）
       const holding = await Holding.findById(id, req.user.id);
       if (!holding) {
@@ -407,7 +422,7 @@ exports.update = async (req, res, next) => {
         return res.status(400).json({ message: '无法获取净值，请稍后重试' });
       }
 
-      const { shares, totalCost, costPrice } = settlementService.computeSharesAndCost(amount, totalReturn, netValue);
+      const { shares, totalCost, costPrice } = settlementService.computeSharesAndCost(amountNum, totalReturnNum, netValue);
 
       updateData.shares = shares;
       updateData.cost_price = costPrice;

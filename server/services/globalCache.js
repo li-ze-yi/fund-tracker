@@ -31,6 +31,7 @@
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const { AsyncLocalStorage } = require('async_hooks');
 const { createLogger } = require('../utils/logger');
 const coordinator = require('./coordinator');
 const logger = createLogger('GlobalCache');
@@ -45,7 +46,14 @@ const MISSES_KEY = 'gc:stats:recentMisses'; // 跨实例"最近未命中"明细�
  * - 未达到上限时立即执行；达到上限时排队等待，任一任务结束即唤醒一个等待者。
  * - 每个 Node 实例各持有一个，多实例（如 4 个）时总在途 = 实例数 × limit，
  *   配合 getOrFetch 的跨实例单飞，既能防雪崩又不至于打爆外部数据源。
+ * - ★ 重入保护：同一异步调用链内嵌套调用（如 getOrFetch 的护栏内再触发
+ *   fundService.getRealTimeValue / getETFRealtimeQuote 内部的 guardFetch）
+ *   直接放行不再占新槽位。否则全部槽位被外层持有时，内层等待外层完成、
+ *   外层等待内层完成 → 互等死锁（20 并发冷缓存即必现）。
+ *   通过 AsyncLocalStorage 沿 await 调用链传播"已在护栏内"标记。
  */
+const guardAls = new AsyncLocalStorage();
+
 class Semaphore {
   constructor(max) {
     this.max = Math.max(1, max);
@@ -53,12 +61,15 @@ class Semaphore {
     this.waiters = [];
   }
   async run(fn) {
-    if (this.active >= this.max) {
+    // 重入：外层已持有护栏（同一异步链）→ 直接执行，不占新槽位
+    if (guardAls.getStore()) return fn();
+    // 循环重检：被唤醒后若槽位已被新调用抢占，重新排队（避免短暂超限）
+    while (this.active >= this.max) {
       await new Promise((resolve) => this.waiters.push(resolve));
     }
     this.active++;
     try {
-      return await fn();
+      return await guardAls.run(true, fn);
     } finally {
       this.active--;
       const next = this.waiters.shift();

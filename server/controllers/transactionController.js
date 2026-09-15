@@ -4,6 +4,7 @@ const settlementService = require('../services/settlementService');
 const holidayService = require('../services/holidayService');
 const { createLogger } = require('../utils/logger');
 const { normalizeDateStr } = require('../utils/date');
+const { toPositiveNumber, toNonNegativeNumber } = require('../utils/validate');
 
 const logger = createLogger('TransactionController');
 
@@ -31,6 +32,12 @@ exports.buy = async (req, res, next) => {
   try {
     const { fundCode, amount, date, after3pm } = req.body;
     logger.info(`买入请求: userId=${req.user.id}, fundCode=${fundCode}, amount=${amount}, date=${date}, after3pm=${after3pm}`);
+
+    // 入参校验：金额必须为正数（拦截 NaN/负数，防止污染账务）
+    const amountNum = toPositiveNumber(amount);
+    if (!fundCode || Number.isNaN(amountNum)) {
+      return res.status(400).json({ message: '请提供有效的基金代码和买入金额（金额必须为正数）' });
+    }
 
     let inputDate = date;
     if (inputDate && typeof inputDate === 'string') {
@@ -61,13 +68,13 @@ exports.buy = async (req, res, next) => {
 
     if (confirmedNav > 0) {
       // 有确认净值 → 立即结算（加仓，买入费率为 0）
-      const { actualShares, costPrice } = settlementService.computeBuySettlement(amount, 0, confirmedNav);
+      const { actualShares, costPrice } = settlementService.computeBuySettlement(amountNum, 0, confirmedNav);
       await settlementService.applyBuyHolding({
         userId: req.user.id,
         fundCode,
         shares: actualShares,
         costPrice,
-        totalCost: amount,
+        totalCost: amountNum,
         confirmedNav,
         navDate
       });
@@ -78,7 +85,7 @@ exports.buy = async (req, res, next) => {
         type: 'buy',
         shares: actualShares,
         price: confirmedNav,
-        amount,
+        amount: amountNum,
         fee: 0,
         transactionDate: navDate,
         status: 'confirmed'
@@ -88,21 +95,21 @@ exports.buy = async (req, res, next) => {
       res.json({ message: '加仓成功', shares: actualShares, nav: confirmedNav, tradeDate: navDate, status: 'confirmed' });
     } else {
       // 无确认净值 → 创建 pending 订单，只记录金额，等净值确认后结算时再计算份额
-      logger.info(`确认净值未发布，创建 pending 订单: userId=${req.user.id}, fundCode=${fundCode}, amount=${amount}, navDate=${navDate}`);
+      logger.info(`确认净值未发布，创建 pending 订单: userId=${req.user.id}, fundCode=${fundCode}, amount=${amountNum}, navDate=${navDate}`);
       await Transaction.create({
         userId: req.user.id,
         fundCode,
         type: 'buy',
         shares: 0,
         price: 0,
-        amount,
+        amount: amountNum,
         fee: 0,
         transactionDate: navDate,
         status: 'pending'
       });
 
-      logger.info(`加仓订单挂起: userId=${req.user.id}, fundCode=${fundCode}, amount=${amount}, navDate=${navDate}`);
-      res.json({ message: '加仓订单已提交，等待净值确认后结算', amount, tradeDate: navDate, status: 'pending' });
+      logger.info(`加仓订单挂起: userId=${req.user.id}, fundCode=${fundCode}, amount=${amountNum}, navDate=${navDate}`);
+      res.json({ message: '加仓订单已提交，等待净值确认后结算', amount: amountNum, tradeDate: navDate, status: 'pending' });
     }
   } catch (err) {
     logger.error(`买入异常: userId=${req.user.id}, fundCode=${req.body?.fundCode}, error=${err.message}`, err.stack);
@@ -114,6 +121,13 @@ exports.sell = async (req, res, next) => {
   try {
     const { fundCode, shares: sellShares, fee: feeRate, date, after3pm } = req.body;
     logger.info(`卖出请求: userId=${req.user.id}, fundCode=${fundCode}, shares=${sellShares}, feeRate=${feeRate}, date=${date}, after3pm=${after3pm}`);
+
+    // 入参校验：份额必须为正数、费率必须为非负数（负份额会使持仓不减反增）
+    const sellSharesNum = toPositiveNumber(sellShares);
+    const feeRateNum = toNonNegativeNumber(feeRate);
+    if (!fundCode || Number.isNaN(sellSharesNum) || Number.isNaN(feeRateNum)) {
+      return res.status(400).json({ message: '请提供有效的基金代码、卖出份额（正数）和费率（非负数）' });
+    }
 
     let inputDate = date;
     if (inputDate && typeof inputDate === 'string') {
@@ -132,8 +146,8 @@ exports.sell = async (req, res, next) => {
     }
 
     const holding = await Holding.findByUserAndFund(req.user.id, fundCode);
-    if (!holding || parseFloat(holding.shares) < sellShares) {
-      logger.warn(`卖出失败: userId=${req.user.id}, fundCode=${fundCode}, holdingShares=${holding ? holding.shares : '无持仓'}, requestShares=${sellShares}, 份额不足`);
+    if (!holding || parseFloat(holding.shares) < sellSharesNum) {
+      logger.warn(`卖出失败: userId=${req.user.id}, fundCode=${fundCode}, holdingShares=${holding ? holding.shares : '无持仓'}, requestShares=${sellSharesNum}, 份额不足`);
       return res.status(400).json({ message: '持有份额不足' });
     }
 
@@ -144,14 +158,14 @@ exports.sell = async (req, res, next) => {
 
     if (confirmedNav > 0) {
       // 有确认净值 → 立即结算
-      const { feeAmount, netAmount } = settlementService.computeSellSettlement(sellShares, feeRate, confirmedNav);
-      await settlementService.applySellHolding({ userId: req.user.id, fundCode, sellShares, netAmount });
+      const { feeAmount, netAmount } = settlementService.computeSellSettlement(sellSharesNum, feeRateNum, confirmedNav);
+      await settlementService.applySellHolding({ userId: req.user.id, fundCode, sellShares: sellSharesNum, netAmount });
 
       await Transaction.create({
         userId: req.user.id,
         fundCode,
         type: 'sell',
-        shares: sellShares,
+        shares: sellSharesNum,
         price: confirmedNav,
         amount: netAmount,
         fee: feeAmount,
@@ -159,25 +173,25 @@ exports.sell = async (req, res, next) => {
         status: 'confirmed'
       });
 
-      logger.info(`卖出已确认: userId=${req.user.id}, fundCode=${fundCode}, shares=${sellShares}, nav=${confirmedNav}, navDate=${navDate}`);
+      logger.info(`卖出已确认: userId=${req.user.id}, fundCode=${fundCode}, shares=${sellSharesNum}, nav=${confirmedNav}, navDate=${navDate}`);
       res.json({ message: '卖出成功', amount: netAmount, fee: feeAmount, tradeDate: navDate, status: 'confirmed' });
     } else {
       // 无确认净值 → 创建 pending 订单，只记录份额，等净值确认后结算时再计算金额
-      logger.info(`确认净值未发布，创建 pending 卖出订单: userId=${req.user.id}, fundCode=${fundCode}, shares=${sellShares}, navDate=${navDate}`);
+      logger.info(`确认净值未发布，创建 pending 卖出订单: userId=${req.user.id}, fundCode=${fundCode}, shares=${sellSharesNum}, navDate=${navDate}`);
       await Transaction.create({
         userId: req.user.id,
         fundCode,
         type: 'sell',
-        shares: sellShares,
+        shares: sellSharesNum,
         price: 0,
         amount: 0,
-        fee: feeRate || 0,
+        fee: feeRateNum || 0,
         transactionDate: navDate,
         status: 'pending'
       });
 
-      logger.info(`卖出订单挂起: userId=${req.user.id}, fundCode=${fundCode}, shares=${sellShares}, navDate=${navDate}`);
-      res.json({ message: '卖出订单已提交，等待净值确认后结算', shares: sellShares, tradeDate: navDate, status: 'pending' });
+      logger.info(`卖出订单挂起: userId=${req.user.id}, fundCode=${fundCode}, shares=${sellSharesNum}, navDate=${navDate}`);
+      res.json({ message: '卖出订单已提交，等待净值确认后结算', shares: sellSharesNum, tradeDate: navDate, status: 'pending' });
     }
   } catch (err) {
     logger.error(`卖出异常: userId=${req.user.id}, fundCode=${req.body?.fundCode}, error=${err.message}`, err.stack);
