@@ -31,10 +31,6 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
   // 任何时序（pending 卖单、已确认卖出、快速连点、网络慢）都不会显示过期数字
   const [availableShares, setAvailableShares] = useState<number | null>(null);
   const [sharesSource, setSharesSource] = useState<'loading' | 'live' | 'fallback'>('loading');
-  // InputNumber 重挂载 key：rc-input-number 处于 focus 编辑态时保留内部输入文本，
-  // setFieldsValue 更新受控值不会反映到显示（须 blur/Enter 才 commit）。
-  // 超额截断时递增 key 强制重建组件，以截断后的受控值立即渲染，再恢复焦点。
-  const [sharesKey, setSharesKey] = useState(0);
   const sharesInputRef = useRef<any>(null);
 
   useEffect(() => {
@@ -77,10 +73,22 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
     if (availableShares != null && v != null && v > availableShares) {
       form.setFieldsValue({ shares: availableShares });
       message.warning(`最多可卖出 ${availableShares.toLocaleString()} 份，已自动调整`);
-      // 递增 key 强制 InputNumber 重挂载，以截断后的受控值立即显示，再恢复焦点
-      setSharesKey((k) => k + 1);
+      // rc-input-number 编辑态（userTypingRef=true）下受控值更新不反映到显示（源码 L468-479），
+      // blur/Enter 才 commit。这里绕过 rc 内部机制：用原生 value setter 直接重写输入框显示文本，
+      // 不派发事件（仅改显示，避免循环触发 onChange），光标移到末尾保持编辑状态。
+      const displayText = String(availableShares);
       requestAnimationFrame(() => {
-        try { sharesInputRef.current?.focus?.(); } catch { /* ref 未就绪时忽略 */ }
+        try {
+          const input = sharesInputRef.current?.nativeElement?.querySelector('input')
+            ?? document.querySelector('.sell-modal .ant-input-number input');
+          if (input) {
+            const desc = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+            if (desc?.set) {
+              desc.set.call(input, displayText);
+              input.setSelectionRange(displayText.length, displayText.length);
+            }
+          }
+        } catch { /* input 未就绪时忽略，blur 时 rc 会用 store 值兜底 */ }
       });
     }
   };
@@ -148,7 +156,6 @@ export default function SellModal({ open, fundCode, fundName, maxShares, onClose
       <Form form={form} layout="vertical">
         <Form.Item name="shares" label="卖出份额" rules={[{ required: true, message: '请输入卖出份额' }]}>
           <InputNumber
-            key={sharesKey}
             ref={sharesInputRef}
             min={0}
             max={sharesKnown ? availableShares! : undefined}
