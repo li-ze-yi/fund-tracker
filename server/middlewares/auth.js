@@ -1,8 +1,29 @@
 const jwt = require('jsonwebtoken');
+const User = require('../models/user');
 
 // JWT 密钥校验：未配置时给出清晰报错，避免用 undefined 静默验签
 if (!process.env.JWT_SECRET) {
   throw new Error('[认证中间件] 缺少环境变量 JWT_SECRET，请在 .env 中配置密钥');
+}
+
+// 活跃度采集节流：同一实例内每用户每小时最多写库一次，避免高并发下每个请求都产生 UPDATE
+const ACTIVITY_TOUCH_INTERVAL_MS = 60 * 60 * 1000;
+const MAX_TOUCH_CACHE_SIZE = 100000;
+const touchCache = new Map();
+
+/**
+ * 记录用户最后活跃时间（用于后台"7天活跃用户"统计）。
+ * 内存节流 + 后台执行：写库失败不重试也不影响请求，不阻塞响应。
+ * @param {number} userId
+ */
+function touchActive(userId) {
+  if (!userId) return;
+  const now = Date.now();
+  const last = touchCache.get(userId) || 0;
+  if (now - last < ACTIVITY_TOUCH_INTERVAL_MS) return;
+  if (touchCache.size >= MAX_TOUCH_CACHE_SIZE) touchCache.clear();
+  touchCache.set(userId, now);
+  User.touchActive(userId).catch(() => {});
 }
 
 // 滑动续期：JWT 剩余有效期低于该阈值时签发新 token，并通过响应头下发
@@ -43,6 +64,7 @@ function authenticate(req, res, next) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = { id: decoded.id, username: decoded.username, role: decoded.role };
+    touchActive(decoded.id); // 记录活跃（节流）
     maybeRenew(decoded, res); // 滑动续期
     next();
   } catch (err) {
@@ -57,6 +79,7 @@ function optionalAuth(req, res, next) {
       const token = header.split(' ')[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       req.user = { id: decoded.id, username: decoded.username, role: decoded.role };
+      touchActive(decoded.id); // 记录活跃（节流）
       maybeRenew(decoded, res); // 滑动续期
     } catch {}
   }
@@ -70,4 +93,4 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-module.exports = { authenticate, optionalAuth, requireAdmin };
+module.exports = { authenticate, optionalAuth, requireAdmin, touchActive };

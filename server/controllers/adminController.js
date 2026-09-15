@@ -15,7 +15,7 @@ exports.dashboard = async (req, res, next) => {
           "SELECT COUNT(*) AS today_new FROM users WHERE DATE(created_at) = CURDATE()"
         );
         const [activeRows] = await pool.query(
-          "SELECT COUNT(DISTINCT user_id) AS active_count FROM transactions WHERE transaction_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
+          'SELECT COUNT(*) AS active_count FROM users WHERE last_active_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)'
         );
         return {
           total: totalRows[0].total,
