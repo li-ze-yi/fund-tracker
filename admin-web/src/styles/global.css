@@ -1,0 +1,298 @@
+/* ─── FundTracker 管理控制台 · 深墨 × 鎏金 设计系统 ─── */
+
+:root {
+  /* 鎏金主色 */
+  --gold: #d4a84b;
+  --gold-deep: #8f6a06;
+  --gold-soft: rgba(212, 168, 75, 0.14);
+
+  /* 墨色底（侧边栏恒定深色，形成管理端的"仪表舱"质感） */
+  --ink: #0e1526;
+  --ink-2: #131c30;
+  --ink-line: rgba(148, 163, 184, 0.12);
+
+  /* 展示字体：衬线，与用户端金色金融调性呼应 */
+  --font-display: 'Palatino Linotype', Palatino, Georgia, 'Songti SC', 'STSong', 'SimSun', serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── 登录页：墨色天幕 + 鎏金光晕 + 颗粒噪点 ─── */
+
+.login-stage {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(1100px 520px at 78% -10%, rgba(212, 168, 75, 0.16), transparent 60%),
+    radial-gradient(900px 600px at 12% 108%, rgba(59, 91, 219, 0.10), transparent 55%),
+    linear-gradient(160deg, #0b1120 0%, #0e1526 55%, #101a30 100%);
+}
+
+/* 颗粒噪点层：纯 CSS 颗粒，营造纸感，避免"纯渐变"的廉价感 */
+.login-stage::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* 装饰性细网格：财务报表的坐标感 */
+.login-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 78%);
+}
+
+.login-brand {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.login-brand .brand-kicker {
+  font-size: 12px;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  color: var(--gold);
+  text-transform: uppercase;
+  margin-bottom: 14px;
+  opacity: 0.85;
+}
+
+.login-brand .brand-title {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 700;
+  color: #f1f5f9;
+  letter-spacing: 0.04em;
+}
+
+.login-brand .brand-title em {
+  font-style: normal;
+  color: var(--gold);
+}
+
+.login-brand .brand-sub {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #94a3b8;
+  letter-spacing: 0.14em;
+}
+
+.login-panel {
+  position: relative;
+  z-index: 1;
+  width: 380px;
+  padding: 34px 34px 30px;
+  border-radius: 16px;
+  background: rgba(19, 28, 48, 0.82);
+  border: 1px solid rgba(212, 168, 75, 0.22);
+  box-shadow:
+    0 24px 70px -18px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(14px);
+}
+
+.login-footer-note {
+  position: relative;
+  z-index: 1;
+  margin-top: 22px;
+  font-size: 12px;
+  color: #64748b;
+  letter-spacing: 0.06em;
+}
+
+/* ─── 管理端布局 ─── */
+
+/* 侧边栏：恒定深墨色（不随明暗主题切换），鎏金高亮 */
+.admin-sider {
+  background: linear-gradient(180deg, #0c1222 0%, #0e1526 100%) !important;
+  border-right: 1px solid var(--ink-line);
+}
+
+.admin-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.sider-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--ink-line);
+}
+
+.sider-brand .brand-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--gold);
+  background: rgba(212, 168, 75, 0.12);
+  border: 1px solid rgba(212, 168, 75, 0.35);
+  flex-shrink: 0;
+}
+
+.sider-brand .brand-name {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: #f1f5f9;
+  letter-spacing: 0.03em;
+}
+
+.sider-brand .brand-tag {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.admin-sider .ant-menu {
+  background: transparent !important;
+  border-inline-end: none !important;
+  padding: 8px;
+}
+
+.admin-sider .ant-menu-item {
+  border-radius: 8px !important;
+  color: #94a3b8 !important;
+  margin: 2px 0 !important;
+}
+
+.admin-sider .ant-menu-item:hover {
+  color: #e2e8f0 !important;
+  background: rgba(148, 163, 184, 0.08) !important;
+}
+
+.admin-sider .ant-menu-item-selected {
+  background: linear-gradient(90deg, rgba(212, 168, 75, 0.22), rgba(212, 168, 75, 0.08)) !important;
+  color: var(--gold) !important;
+  box-shadow: inset 2px 0 0 var(--gold);
+}
+
+.sider-footer {
+  margin-top: auto;
+  padding: 14px 20px;
+  border-top: 1px solid var(--ink-line);
+  font-size: 11px;
+  color: #475569;
+  letter-spacing: 0.08em;
+}
+
+/* 顶栏 */
+.admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 60px;
+  border-bottom: 1px solid var(--ink-line);
+  backdrop-filter: blur(8px);
+}
+
+.admin-header .page-title {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* 页面通用 */
+.admin-page {
+  padding: 24px;
+}
+
+.stat-card-gold {
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card-gold::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--gold), rgba(212, 168, 75, 0.1));
+}
+
+/* 表格行悬浮的鎏金提示 */
+.ant-table-tbody > tr:hover > td {
+  transition: background 0.2s ease;
+}
+
+/* 入场动画：页面卡片错峰浮现 */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rise-in {
+  animation: rise-in 0.45s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.rise-in-delay-1 { animation-delay: 0.06s; }
+.rise-in-delay-2 { animation-delay: 0.12s; }
+.rise-in-delay-3 { animation-delay: 0.18s; }
+.rise-in-delay-4 { animation-delay: 0.24s; }
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
