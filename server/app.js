@@ -106,7 +106,12 @@ app.listen(PORT, async () => {
   globalCache.startPersistence();
   globalCache.startCleanup();
 
-  // 定投计划定时调度
+  // ★ PM2 cluster 集群模式防护：定时任务只在实例 0 上执行。
+  // cluster 模式下每个 worker 都会跑一份 app.js，若不拦截，定投/日收益/结算任务会重复执行。
+  // fork 模式（无 NODE_APP_INSTANCE 变量）时该表达式为 true，行为保持不变。
+  const isCronWorker = !process.env.NODE_APP_INSTANCE || process.env.NODE_APP_INSTANCE === '0';
+  if (isCronWorker) {
+    // 定投计划定时调度
   // 净值确认时间说明：A股基金净值通常在收盘后18:00-20:00间由基金公司确认发布
   // 调度策略：10:00 创建 pending 订单（用估值预估） → 20:00 结算 pending + 处理新到期计划
   const planCronTimes = [
@@ -164,4 +169,5 @@ app.listen(PORT, async () => {
   executeDuePlans()
     .then(result => logger.info(`启动时定投检查完成 | 成功=${result.success} 待确认=${result.pending}`))
     .catch(err => logger.error(`启动时执行定投计划异常: ${err.message}`, err.stack));
+  } // end isCronWorker
 });
