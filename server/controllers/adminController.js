@@ -15,7 +15,7 @@ exports.dashboard = async (req, res, next) => {
           "SELECT COUNT(*) AS today_new FROM users WHERE DATE(created_at) = CURDATE()"
         );
         const [activeRows] = await pool.query(
-          "SELECT COUNT(DISTINCT user_id) AS active_count FROM transactions WHERE transaction_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
+          'SELECT COUNT(*) AS active_count FROM users WHERE last_active_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)'
         );
         return {
           total: totalRows[0].total,
@@ -199,23 +199,29 @@ exports.deleteFund = async (req, res, next) => {
 
 exports.cacheStats = async (req, res, next) => {
   try {
-    const stats = globalCache.getStats();
-    const entries = [];
-    for (const [key, value] of globalCache.cache.entries()) {
-      const ttl = globalCache.getTTL(value.type);
-      const age = Date.now() - value.timestamp;
-      const remaining = Math.max(0, ttl - age);
-      entries.push({
-        key,
-        type: value.type,
-        ageSeconds: Math.round(age / 1000),
-        ttlSeconds: Math.round(ttl / 1000),
-        remainingSeconds: Math.round(remaining / 1000),
-        expired: remaining <= 0,
-      });
+    // stats 保持跨实例聚合：Redis 模式读 Redis 全局计数 / 无 Redis 回退本实例
+    const stats = await globalCache.getStats();
+    // entries 按当前激活后端（Redis 或内存）枚举真实缓存条目
+    const limit = parseInt(req.query.limit, 10) || 200;
+    const keyword = (req.query.keyword || '').trim();
+    const entries = await globalCache.listEntries({ limit, keyword });
+    // Redis 多实例下 stats.size 原本只看本进程内存(恒为0)，这里覆盖为真实条目数，
+    // 保证"缓存条目的数量"字段在 Redis 模式下也正确（原始字段名不变）。
+    stats.size = await globalCache.countEntries();
+    // 过期清理数量直接映射 Redis 自统计的 expired_keys（Redis 用 TTL 自删，应用侧无法精确累计）；
+    // 附加 evictedKeys 供区分"内存淘汰"。非 Redis 模式保持应用侧 evictions 计数。
+    const redisExpiry = await globalCache.getRedisExpiryStats();
+    if (redisExpiry) {
+      stats.evictions = redisExpiry.expiredKeys;
+      stats.expiredKeys = redisExpiry.expiredKeys;
+      stats.evictedKeys = redisExpiry.evictedKeys;
     }
-    entries.sort((a, b) => a.remainingSeconds - b.remainingSeconds);
-    res.json({ stats, entries, recentMisses: stats.recentMisses || [] });
+    // 按缓存类型聚合条目数，便于观察各类型缓存规模
+    const typeBreakdown = {};
+    for (const e of entries) {
+      typeBreakdown[e.type] = (typeBreakdown[e.type] || 0) + 1;
+    }
+    res.json({ stats, entries, typeBreakdown, recentMisses: stats.recentMisses || [] });
   } catch (err) {
     next(err);
   }
@@ -227,22 +233,8 @@ exports.cacheCheck = async (req, res, next) => {
     if (!key) {
       return res.status(400).json({ message: '请提供缓存key参数' });
     }
-    const cached = globalCache.cache.get(key);
-    if (!cached) {
-      return res.json({ hit: false, key });
-    }
-    const ttl = globalCache.getTTL(cached.type);
-    const age = Date.now() - cached.timestamp;
-    const remaining = Math.max(0, ttl - age);
-    res.json({
-      hit: true,
-      key,
-      type: cached.type,
-      ageSeconds: Math.round(age / 1000),
-      ttlSeconds: Math.round(ttl / 1000),
-      remainingSeconds: Math.round(remaining / 1000),
-      expired: remaining <= 0,
-    });
+    const result = await globalCache.peekEntry(key);
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -252,7 +244,8 @@ exports.cacheClear = async (req, res, next) => {
   try {
     const { key } = req.body;
     if (key) {
-      globalCache.cache.delete(key);
+      // 作用于当前激活后端（Redis 可用时同步删除 Redis 与本地镜像）
+      await globalCache.delete(key);
       res.json({ message: `缓存key "${key}" 已清除` });
     } else {
       // 仅清除缓存条目列表，保留命中率等统计信息

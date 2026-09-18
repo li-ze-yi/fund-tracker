@@ -9,6 +9,7 @@ const globalCache = require('../services/globalCache');
 const ocrService = require('../services/ocrService');
 const { createLogger } = require('../utils/logger');
 const { getLocalToday, normalizeDateStr } = require('../utils/date');
+const { toPositiveNumber, toOptionalNumber } = require('../utils/validate');
 
 const logger = createLogger('ImageImportController');
 
@@ -77,12 +78,17 @@ const storage = multer.diskStorage({
   }
 });
 
+// 允许的图片扩展名白名单（mimetype 可被客户端伪造，扩展名决定实际落盘文件类型）
+const ALLOWED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.bmp'];
+
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/bmp'];
-    if (allowedTypes.includes(file.mimetype)) {
+    // 双重校验：mimetype 与扩展名都必须在白名单内
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (allowedTypes.includes(file.mimetype) && ALLOWED_EXTENSIONS.includes(ext)) {
       cb(null, true);
     } else {
       cb(new Error('仅支持 PNG/JPEG/WebP/BMP 格式的图片'));
@@ -232,6 +238,15 @@ exports.confirmImport = async (req, res, next) => {
           continue;
         }
 
+        // 入参校验：金额必须为正数；累计收益可选但须为有限数（允许负数）
+        const amountNum = toPositiveNumber(amount);
+        const totalReturnNum = toOptionalNumber(totalReturn);
+        if (Number.isNaN(amountNum) || Number.isNaN(totalReturnNum)) {
+          results.failed++;
+          results.errors.push({ fundCode, error: '持仓金额必须为正数，累计收益必须为数字' });
+          continue;
+        }
+
         // 验证基金代码存在
         const fund = await Fund.findByCode(fundCode);
         if (!fund) {
@@ -309,9 +324,9 @@ exports.confirmImport = async (req, res, next) => {
         }
 
         // 计算份额和成本（与 holdingController.js 逻辑一致）
-        const currentValue = amount;
+        const currentValue = amountNum;
         const shares = currentValue / netValue;
-        const totalCost = amount - (totalReturn || 0);
+        const totalCost = amountNum - totalReturnNum;
         const costPrice = shares > 0 ? totalCost / shares : 0;
 
         logger.info(`创建持仓: fund=${fundCode}, shares=${shares.toFixed(2)}, costPrice=${costPrice.toFixed(4)}, netValue=${netValue}`);
@@ -335,7 +350,7 @@ exports.confirmImport = async (req, res, next) => {
           type: 'buy',
           shares,
           price: netValue,
-          amount,
+          amount: amountNum,
           fee: 0,
           transactionDate: confirmedNavDate || getLocalToday()
         });

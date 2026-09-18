@@ -117,7 +117,7 @@ async function getHolidayYearData(year) {
   const cacheKey = `holiday_year_${year}`;
 
   // 1. 正常缓存命中（30 天 TTL）
-  const cached = globalCache.checkCache(cacheKey, HOLIDAY_YEAR_CACHE_TYPE);
+  const cached = await globalCache.checkCache(cacheKey, HOLIDAY_YEAR_CACHE_TYPE);
   if (cached.hit && cached.data) return cached.data;
 
   // 2. 最近失败（429/网络异常），5 分钟内不再请求同一 year
@@ -177,7 +177,7 @@ async function isHoliday(dateStr) {
   const cacheKey = `holiday_${dateStr}`;
 
   // 1. 正常缓存命中 → 直接返回（fast path，不走并发合并）
-  const cached = globalCache.checkCache(cacheKey, HOLIDAY_DAY_CACHE_TYPE);
+  const cached = await globalCache.checkCache(cacheKey, HOLIDAY_DAY_CACHE_TYPE);
   if (cached.hit) {
     logger.info(`缓存命中: date=${dateStr}, isHoliday=${cached.data.isHoliday}`);
     return cached.data.isHoliday;

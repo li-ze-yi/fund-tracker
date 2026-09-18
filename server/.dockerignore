@@ -1,0 +1,26 @@
+# 依赖（镜像内单独安装）
+node_modules
+npm-debug.log*
+
+# 环境与密钥（进镜像时不要打包）
+.env
+*.local
+
+# 测试与源码辅助
+tests
+coverage
+
+# 运行时数据（用挂载卷注入）
+uploads
+data
+
+# 版本控制与编辑器
+.git
+.gitignore
+.vscode
+.idea
+
+# 日志与临时文件
+logs
+*.log
+.DS_Store

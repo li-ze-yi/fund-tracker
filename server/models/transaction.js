@@ -22,7 +22,7 @@ const Transaction = {
     return rows;
   },
 
-  async findByUserId(userId, limit = 50) {
+  async findByUserId(userId, limit = 200) {
     const [rows] = await pool.query(
       `SELECT t.*, f.name as fund_name
        FROM transactions t
@@ -47,9 +47,15 @@ const Transaction = {
     return rows;
   },
 
-  async updateToConfirmed(id, userId, { shares, price, amount }) {
+  /**
+   * pending → confirmed 乐观锁更新。
+   * @param {*} conn 可选：事务连接。结算事务内先执行本更新抢占状态行锁，
+   *   后到的并发事务 UPDATE 命中 0 行 → already_settled，防止双重结算/双重加仓
+   */
+  async updateToConfirmed(id, userId, { shares, price, amount }, conn = null) {
+    const exec = conn || pool;
     // ★ 乐观锁：只有 status='pending' 时才能更新为 confirmed，防止并发重复结算
-    const [result] = await pool.query(
+    const [result] = await exec.query(
       `UPDATE transactions SET status = 'confirmed', shares = ?, price = ?, amount = ? WHERE id = ? AND user_id = ? AND status = 'pending'`,
       [shares, price, amount, id, userId]
     );

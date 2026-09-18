@@ -1,0 +1,124 @@
+# Kubernetes Deployment —— Adapter B
+#
+# 无状态多副本后端。所有副本（replica）完全等价，定时/调度任务通过 Redis 队列
+# 在其中分发消费，无需单独的 scheduler Deployment。
+# 探针均使用 GET /health（后端 server/app.js 提供该健康检查端点，存活时返回 200）。
+#
+# 注意：本文件仅覆盖 Deployment。对外暴露需另建 Service / Ingress（不在本文件范围内）。
+#
+# 应用前需先创建 Secret（含必需与可选凭据）：
+#   kubectl create secret generic fund-backend-secrets \
+#     --from-literal=JWT_SECRET='<强随机串，至少32字符>' \
+#     --from-literal=MYSQL_HOST='<db-host>' \
+#     --from-literal=MYSQL_USER='<db-user>' \
+#     --from-literal=MYSQL_PASSWORD='<db-password>' \
+#     --from-literal=MYSQL_DATABASE='real_time'
+#   kubectl create secret generic redis \
+#     --from-literal=REDIS_URL='redis://:CHANGE_ME_PASSWORD@redis-svc:6379/0'
+# 镜像名占位 {REGISTRY} 需替换为你的私有仓库地址。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fund-backend
+  labels:
+    app: fund-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: fund-backend
+  template:
+    metadata:
+      labels:
+        app: fund-backend
+    spec:
+      containers:
+        - name: fund-backend
+          # TODO: 替换为你实际的容器镜像（例如 registry.example.com/fund/backend:1.0.0）
+          image: {REGISTRY}/fund/backend:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3001"
+            - name: NODE_ENV
+              value: "production"
+            # 必填：JWT 签名密钥（至少 32 字符，从 Secret 注入）
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: fund-backend-secrets
+                  key: JWT_SECRET
+            # 可选：JWT 过期时间
+            - name: JWT_EXPIRES_IN
+              value: "7d"
+            # 必填：MySQL 连接，从 Secret 注入（config/database.js 读取 host/port/user/password/database）
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: fund-backend-secrets
+                  key: MYSQL_HOST
+            - name: MYSQL_PORT
+              value: "3306"
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: fund-backend-secrets
+                  key: MYSQL_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fund-backend-secrets
+                  key: MYSQL_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: fund-backend-secrets
+                  key: MYSQL_DATABASE
+            # REDIS_URL 从 Secret 中引用。
+            # 前提：集群中必须存在名为 `redis` 的 Secret，且其中包含键 `REDIS_URL`。
+            #   kubectl create secret generic redis --from-literal=REDIS_URL=redis://redis-svc:6379
+            # 未配置时回退为单进程模式（内存+文件缓存、进程内定时任务）。
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: REDIS_URL
+            # 可选：全局外部拉取并发护栏（默认 20）
+            - name: EXTERNAL_FETCH_CONCURRENCY
+              value: "20"
+            # 可选：跨域来源（逗号分隔）。生产必须显式配置为前端域名，留空 = 不限制（不安全）
+            # 示例：https://fund.example.com
+            - name: CORS_ORIGIN
+              value: "https://CHANGE_ME_FRONTEND_ORIGIN"
+            # 可选：百度 OCR（图片识别导入，未配置则功能不可用）
+            - name: BAIDU_OCR_APP_ID
+              value: ""
+            - name: BAIDU_OCR_API_KEY
+              value: ""
+            - name: BAIDU_OCR_SECRET_KEY
+              value: ""
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 600Mi

@@ -1,10 +1,17 @@
 const pool = require('../config/database');
 
+// LIKE 通配符转义：用户输入中的 %/_/\ 会被 MySQL 解释为通配符，需转义为字面量
+// （配合 ESCAPE '\' 子句），防止"%"一次命中全表 20 条干扰搜索/匹配结果
+function escapeLike(str) {
+  return String(str).replace(/[%_\\]/g, '\\$&');
+}
+
 const Fund = {
   async search(keyword) {
-    const like = `%${keyword}%`;
+    const like = `%${escapeLike(keyword)}%`;
+    // 注意：JS 字符串 '\\' 发送到 MySQL 即单个反斜杠转义符（ESCAPE '\'）
     const [rows] = await pool.query(
-      'SELECT * FROM funds WHERE code LIKE ? OR name LIKE ? LIMIT 20',
+      'SELECT * FROM funds WHERE code LIKE ? ESCAPE \'\\\' OR name LIKE ? ESCAPE \'\\\' LIMIT 20',
       [like, like]
     );
     return rows;
@@ -35,8 +42,9 @@ const Fund = {
     const conditions = [];
     const params = [];
     if (keyword) {
-      conditions.push('(f.code LIKE ? OR f.name LIKE ?)');
-      params.push(`%${keyword}%`, `%${keyword}%`);
+      conditions.push('(f.code LIKE ? ESCAPE \'\\\' OR f.name LIKE ? ESCAPE \'\\\')');
+      const like = `%${escapeLike(keyword)}%`;
+      params.push(like, like);
     }
     if (type) {
       conditions.push('f.type = ?');

@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/user');
 const UserSetting = require('../models/userSetting');
+const { touchActive } = require('../middlewares/auth');
 
 exports.register = async (req, res, next) => {
   try {
@@ -54,6 +55,7 @@ exports.login = async (req, res, next) => {
     }
 
     const role = user.role || 'user';
+    touchActive(user.id); // 登录即活跃（节流，不阻塞响应）
     const token = jwt.sign({ id: user.id, username: user.username, role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
     res.json({ token, user: { id: user.id, username: user.username, role, created_at: user.created_at } });
   } catch (err) {
