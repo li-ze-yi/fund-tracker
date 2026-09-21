@@ -62,6 +62,21 @@ function findBestMatch(ocrName, candidates) {
   return scored[0].fund;
 }
 
+/**
+ * 生成名称反查的"核心词"候选，用于容错匹配。
+ * 截图显示名与数据库登记名可能存在差异（如"中航机遇领航混合C" vs 库中"…混合发起C"），
+ * 剥离末尾份额后缀与"混合/指数/发起/ETF/联接"等词后得到核心词，子串命中库中带"发起"等登记名。
+ */
+function buildCoreSearchNames(fundName) {
+  const core = String(fundName || '')
+    .replace(/[A-C](类)?$/i, '')          // 去末尾份额后缀（C/A）
+    .replace(/(联接|ETF)(联接)?/gi, '')
+    .replace(/混合|指数|股票|债券|货币|增强|发起/g, '')
+    .replace(/\s+/g, '')
+    .trim();
+  return core && core.length >= 2 ? [core] : [];
+}
+
 // 配置 multer 用于图片上传
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -152,7 +167,8 @@ exports.recognize = [upload.single('image'), async (req, res, next) => {
           if (!fund) {
             item.valid = false;
             item.error = '基金代码不存在于数据库';
-          } else if (!item.fundName && fund.name) {
+          } else if (fund.name) {
+            // 命中后始终显示数据库中的完整登记名（覆盖 OCR 显示名，如"…混合发起C"）
             item.fundName = fund.name;
           }
         } else if (item.fundName) {
@@ -166,19 +182,20 @@ exports.recognize = [upload.single('image'), async (req, res, next) => {
             item.fundName = bestMatch.name;
             logger.info(`名称反查: "${holding.fundName}" -> ${bestMatch.code} ${bestMatch.name}`);
           } else {
-            // 尝试缩短名称再搜索（去掉可能的OCR噪声）
-            const shortName = item.fundName.replace(/[选智领]/g, '').substring(0, 4);
-            if (shortName.length >= 2) {
-              const retryResults = await Fund.search(shortName);
+            // 精确搜索无果：容错匹配——剥离"份额后缀/混合/指数/发起/ETF/联接"等生成核心词再搜，
+            // 兼容数据库登记名（如"…混合发起C"）与截图显示名（"…混合C"）的差异
+            let bestMatch = null;
+            for (const cand of buildCoreSearchNames(item.fundName)) {
+              const retryResults = await Fund.search(cand);
               if (retryResults && retryResults.length > 0) {
-                const bestMatch = findBestMatch(item.fundName, retryResults);
-                item.fundCode = bestMatch.code;
-                item.fundName = bestMatch.name;
-                logger.info(`名称反查(缩短): "${holding.fundName}" -> "${shortName}" -> ${bestMatch.code} ${bestMatch.name}`);
-              } else {
-                item.valid = false;
-                item.error = '未找到匹配的基金，请手动输入基金代码';
+                bestMatch = findBestMatch(item.fundName, retryResults);
+                logger.info(`名称反查(容错): "${holding.fundName}" -> "${cand}" -> ${bestMatch.code} ${bestMatch.name}`);
+                break;
               }
+            }
+            if (bestMatch) {
+              item.fundCode = bestMatch.code;
+              item.fundName = bestMatch.name;
             } else {
               item.valid = false;
               item.error = '未找到匹配的基金，请手动输入基金代码';
