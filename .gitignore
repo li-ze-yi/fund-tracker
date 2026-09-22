@@ -8,7 +8,7 @@ dist/
 Thumbs.db
 *.apk
 android/
-admin/
+# 管理前端源码（admin/ 下 node_modules 与 dist 仍被上方全局规则忽略）
 test/
 server/data/
 .workbuddy/
