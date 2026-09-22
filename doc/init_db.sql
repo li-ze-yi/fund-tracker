@@ -1,7 +1,7 @@
 -- ============================================================
 -- 养基发财 - Fund Tracker 数据库初始化脚本
 -- 数据库：real_time | 字符集：utf8mb4 | 引擎：InnoDB
--- 生成时间：2026-07-21（v6 - user_settings 新增估值方法字段）
+-- 生成时间：2026-09-22（v7 - 新增 user_logins 用户登录记录表，用于每日活跃 DAU 统计）
 -- ============================================================
 
 CREATE DATABASE IF NOT EXISTS `real_time`
@@ -205,3 +205,17 @@ CREATE TABLE `announcements` (
   KEY `idx_status` (`status`),
   KEY `idx_date_range` (`start_date`,`end_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='公告表';
+
+-- -----------------------------------------------------------
+-- 12. 用户登录记录表（用于每日活跃用户 DAU 统计）
+-- -----------------------------------------------------------
+CREATE TABLE `user_logins` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `user_id` int NOT NULL,
+  `login_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '登录/活跃时间（同一用户每日去重只记一条）',
+  `ip` varchar(45) DEFAULT NULL COMMENT '客户端IP（trust proxy=1 时经 nginx 为真实公网IP）',
+  PRIMARY KEY (`id`),
+  KEY `idx_user_time` (`user_id`,`login_time`),
+  KEY `idx_login_time` (`login_time`),
+  CONSTRAINT `user_logins_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='用户登录记录（按日去重统计每日活跃用户DAU）';
