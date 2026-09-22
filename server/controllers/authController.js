@@ -30,6 +30,7 @@ exports.register = async (req, res, next) => {
     const newUser = await User.findById(userId);
     const role = newUser.role || 'user';
     const token = jwt.sign({ id: userId, username, role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
+    touchActive(userId, req.ip); // 注册即活跃，记入 DAU 统计（含客户端 IP）
     res.json({ token, user: { id: newUser.id, username: newUser.username, role, created_at: newUser.created_at } });
   } catch (err) {
     next(err);
@@ -55,7 +56,7 @@ exports.login = async (req, res, next) => {
     }
 
     const role = user.role || 'user';
-    touchActive(user.id); // 登录即活跃（节流，不阻塞响应）
+    touchActive(user.id, req.ip); // 登录即活跃，记入 DAU 统计（每日去重，含客户端 IP）
     const token = jwt.sign({ id: user.id, username: user.username, role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
     res.json({ token, user: { id: user.id, username: user.username, role, created_at: user.created_at } });
   } catch (err) {

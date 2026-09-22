@@ -47,6 +47,10 @@ if (!process.env.REDIS_URL) {
 
 const app = express();
 
+// 请求统计中间件：在路由之前挂载，捕获所有请求的耗时与状态码
+const { metricsMiddleware } = require('./services/requestMetrics');
+app.use(metricsMiddleware);
+
 // 信任一层反向代理（nginx），使 req.ip 使用 X-Forwarded-For 中的真实客户端 IP。
 // 缺少此配置时 express-rate-limit 会报 ERR_ERL_UNEXPECTED_X_FORWARDED_FOR，
 // 且所有经 nginx 的用户被识别为同一 IP，登录/注册限流变为全站共享计数。

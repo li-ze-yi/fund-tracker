@@ -1,10 +1,12 @@
 const pool = require('../config/database');
 const bcrypt = require('bcryptjs');
+const os = require('os');
 const User = require('../models/user');
 const UserSetting = require('../models/userSetting');
 const Fund = require('../models/fund');
 const fundService = require('../services/fundService');
 const globalCache = require('../services/globalCache');
+const { getMetrics } = require('../services/requestMetrics');
 
 exports.dashboard = async (req, res, next) => {
   try {
@@ -335,6 +337,166 @@ exports.dbHealth = async (req, res, next) => {
       mysqlThreadsConnected: mysqlThreads ? parseInt(mysqlThreads, 10) : null,
       timestamp: new Date().toISOString(),
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 交易趋势：按日统计近 N 天的交易额、买入/卖出笔数
+exports.transactionTrend = async (req, res, next) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
+    // 预计算起始日期（YYYY-MM-DD），避免 INTERVAL ? DAY 参数化不生效
+    const start = new Date();
+    start.setDate(start.getDate() - (days - 1));
+    const startDate = start.toISOString().slice(0, 10);
+    const [rows] = await pool.query(
+      `SELECT DATE_FORMAT(transaction_date, '%Y-%m-%d') AS date,
+              COALESCE(SUM(amount), 0) AS total_amount,
+              SUM(type = 'buy') AS buy_count,
+              SUM(type = 'sell') AS sell_count
+       FROM transactions
+       WHERE transaction_date >= ?
+       GROUP BY DATE_FORMAT(transaction_date, '%Y-%m-%d')
+       ORDER BY date ASC`,
+      [startDate]
+    );
+    // 补全无数据的日期（近 days 天）
+    const map = new Map(rows.map((r) => [r.date, r]));
+    const result = [];
+    const today = new Date();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      const r = map.get(key);
+      result.push({
+        date: key,
+        totalAmount: r ? parseFloat(r.total_amount) : 0,
+        buyCount: r ? parseInt(r.buy_count, 10) : 0,
+        sellCount: r ? parseInt(r.sell_count, 10) : 0,
+      });
+    }
+    res.json({ days, list: result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 用户增长：按日统计近 N 天的新增用户数与累计用户数
+exports.userGrowth = async (req, res, next) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
+    const start = new Date();
+    start.setDate(start.getDate() - (days - 1));
+    const startDate = start.toISOString().slice(0, 10);
+    const [rows] = await pool.query(
+      `SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS date, COUNT(*) AS new_users
+       FROM users
+       WHERE created_at >= ?
+       GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')
+       ORDER BY date ASC`,
+      [startDate]
+    );
+    // 先拿到 days 天前的累计基数
+    const [baseRows] = await pool.query(
+      'SELECT COUNT(*) AS base FROM users WHERE created_at < ?',
+      [startDate]
+    );
+    let cumulative = parseInt(baseRows[0].base, 10) || 0;
+    const map = new Map(rows.map((r) => [r.date, r.new_users]));
+    const result = [];
+    const today = new Date();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      const newUsers = map.get(key) ? parseInt(map.get(key), 10) : 0;
+      cumulative += newUsers;
+      result.push({ date: key, newUsers, cumulative });
+    }
+    res.json({ days, list: result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 每日活跃用户数（DAU）：按日统计近 N 天的独立登录用户数
+exports.dailyActive = async (req, res, next) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 90);
+    const start = new Date();
+    start.setDate(start.getDate() - (days - 1));
+    const startDate = start.toISOString().slice(0, 10);
+    const [rows] = await pool.query(
+      `SELECT DATE_FORMAT(login_time, '%Y-%m-%d') AS date,
+              COUNT(DISTINCT user_id) AS active_users
+       FROM user_logins
+       WHERE login_time >= ?
+       GROUP BY DATE_FORMAT(login_time, '%Y-%m-%d')
+       ORDER BY date ASC`,
+      [startDate]
+    );
+    const map = new Map(rows.map((r) => [r.date, r.active_users]));
+    const result = [];
+    const today = new Date();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      result.push({ date: key, activeUsers: map.get(key) ? parseInt(map.get(key), 10) : 0 });
+    }
+    res.json({ days, list: result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 系统监控：服务器信息 + API 统计 + Redis/MySQL 状态
+exports.systemMetrics = async (req, res, next) => {
+  try {
+    const memUsage = process.memoryUsage();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const serverInfo = {
+      nodeVersion: process.version,
+      platform: `${os.platform()} ${os.arch()}`,
+      uptimeSeconds: Math.floor(process.uptime()),
+      cpuCores: os.cpus().length,
+      memory: {
+        totalMB: Math.round(totalMem / 1024 / 1024),
+        freeMB: Math.round(freeMem / 1024 / 1024),
+        usedPercent: Math.round(((totalMem - freeMem) / totalMem) * 1000) / 10,
+      },
+      processMemory: {
+        rssMB: Math.round(memUsage.rss / 1024 / 1024),
+        heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
+        heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
+      },
+    };
+
+    // Redis 状态
+    let redisStatus = { enabled: false, available: false };
+    try {
+      redisStatus.enabled = globalCache._isRedis ? globalCache._isRedis() : false;
+      redisStatus.available = globalCache._redisAvailable ? globalCache._redisAvailable() : false;
+    } catch (e) {
+      redisStatus.error = e.message;
+    }
+
+    // MySQL 状态（执行一次轻量查询）
+    let mysqlStatus = { available: false };
+    try {
+      const [rows] = await pool.query('SELECT 1 AS ok');
+      mysqlStatus.available = rows[0].ok === 1;
+    } catch (e) {
+      mysqlStatus.error = e.message;
+    }
+
+    // API 统计（Redis 可用时为跨实例聚合值）
+    const apiStats = await getMetrics();
+
+    res.json({ serverInfo, redisStatus, mysqlStatus, apiStats });
   } catch (err) {
     next(err);
   }

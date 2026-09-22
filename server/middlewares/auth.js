@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/user');
+const pool = require('../config/database');
 
 // JWT 密钥校验：未配置时给出清晰报错，避免用 undefined 静默验签
 if (!process.env.JWT_SECRET) {
@@ -11,12 +12,48 @@ const ACTIVITY_TOUCH_INTERVAL_MS = 60 * 60 * 1000;
 const MAX_TOUCH_CACHE_SIZE = 100000;
 const touchCache = new Map();
 
+// DAU 记录去重：同一用户同一天只写一条 user_logins
+// key 为 `${userId}_${YYYY-MM-DD}`，存在即表示今日已记录
+const dailyRecorded = new Map();
+const MAX_DAILY_CACHE_SIZE = 100000;
+
+function todayStr() {
+  // 使用本地日期，与 MySQL DATE_FORMAT(login_time) 的时区一致
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * 记录用户每日活跃（DAU）：同一用户同一天只写一条 user_logins，并保存客户端 IP。
+ * 在 touchActive 节流通过后调用，避免高频请求重复写入。
+ * 写库失败静默降级，不影响请求。
+ * @param {number} userId
+ * @param {string|null} ip 客户端 IP（trust proxy=1 时经 nginx 反代为真实公网 IP）
+ */
+async function recordDailyActive(userId, ip) {
+  const key = `${userId}_${todayStr()}`;
+  if (dailyRecorded.has(key)) return;
+  if (dailyRecorded.size >= MAX_DAILY_CACHE_SIZE) dailyRecorded.clear();
+  dailyRecorded.set(key, true);
+  try {
+    await pool.query('INSERT INTO user_logins (user_id, ip) VALUES (?, ?)', [userId, ip || null]);
+  } catch {
+    // 失败不影响主流程，移除缓存以便下次重试
+    dailyRecorded.delete(key);
+  }
+}
+
 /**
  * 记录用户最后活跃时间（用于后台"7天活跃用户"统计）。
  * 内存节流 + 后台执行：写库失败不重试也不影响请求，不阻塞响应。
+ * 同时记录每日活跃（DAU），用于后台每日活跃用户统计。
  * @param {number} userId
+ * @param {string|null} ip 客户端 IP，随 DAU 记录一并写入
  */
-function touchActive(userId) {
+function touchActive(userId, ip) {
   if (!userId) return;
   const now = Date.now();
   const last = touchCache.get(userId) || 0;
@@ -24,6 +61,7 @@ function touchActive(userId) {
   if (touchCache.size >= MAX_TOUCH_CACHE_SIZE) touchCache.clear();
   touchCache.set(userId, now);
   User.touchActive(userId).catch(() => {});
+  recordDailyActive(userId, ip); // 记录 DAU（每日去重，含 IP）
 }
 
 // 滑动续期：JWT 剩余有效期低于该阈值时签发新 token，并通过响应头下发
@@ -64,7 +102,7 @@ function authenticate(req, res, next) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = { id: decoded.id, username: decoded.username, role: decoded.role };
-    touchActive(decoded.id); // 记录活跃（节流）
+    touchActive(decoded.id, req.ip); // 记录活跃（节流，含客户端 IP）
     maybeRenew(decoded, res); // 滑动续期
     next();
   } catch (err) {
@@ -79,7 +117,7 @@ function optionalAuth(req, res, next) {
       const token = header.split(' ')[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       req.user = { id: decoded.id, username: decoded.username, role: decoded.role };
-      touchActive(decoded.id); // 记录活跃（节流）
+      touchActive(decoded.id, req.ip); // 记录活跃（节流，含客户端 IP）
       maybeRenew(decoded, res); // 滑动续期
     } catch {}
   }
