@@ -17,7 +17,7 @@ interface FavoriteItem {
   accumulated_profit?: number;
   last_updated?: string | null;
   is_fresh?: boolean;
-  update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate';
+  update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate' | 'stale';
   data_source?: 'actual' | 'estimated';
   day_of_week?: string;
 }

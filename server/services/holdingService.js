@@ -1050,7 +1050,7 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
       update_time: updateTime || null,
       last_updated: updateTime || null,
       is_fresh: false,
-      update_status: 'no_estimate',
+      update_status: 'stale',   // 净值陈旧（停更/无数据）：前端显示"待更新"
       data_source: 'actual',
       fund_code: holding.fund_code,
       is_confirmed: false

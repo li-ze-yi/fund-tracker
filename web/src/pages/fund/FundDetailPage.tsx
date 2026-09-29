@@ -695,6 +695,7 @@ export default function FundDetailPage() {
   const isUp = (fund.estimated_change ?? 0) >= 0;
   const isMarketClosed = fund.update_status === 'market_closed' || fund.update_status === 'pre_market';
   const isNoEstimate = fund.update_status === 'no_estimate';
+  const isStale = fund.update_status === 'stale';
 
   return (
     <div className="fund-detail-page" style={{ paddingTop: 20, paddingLeft: 16, paddingRight: 16, paddingBottom: 100 }}>
@@ -879,17 +880,17 @@ export default function FundDetailPage() {
           </div>
           <div>
             <div className="fund-detail-data-label" style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {fund.update_status === 'confirmed' ? '涨幅' : (isNoEstimate ? '前一日涨幅' : '估算涨幅')}
+              {fund.update_status === 'confirmed' ? '涨幅' : (isStale ? '待更新' : (isNoEstimate ? '前一日涨幅' : '估算涨幅'))}
             </div>
             <div className="fund-detail-data-value number-tabular" style={{
               fontSize: 28,
               fontWeight: 800,
-              color: isMarketClosed ? 'var(--text-dim)' : (isUp ? 'var(--gain)' : 'var(--loss)'),
+              color: (isMarketClosed || isStale) ? 'var(--text-dim)' : (isUp ? 'var(--gain)' : 'var(--loss)'),
               fontFamily: 'var(--font-mono)',
               letterSpacing: '-0.02em',
             }}>
-              {isMarketClosed ? '--' : `${isUp ? '+' : ''}${fund.estimated_change?.toFixed(2) || '0.00'}%`}
-              {isNoEstimate && fund.update_time && (
+              {(isMarketClosed || isStale) ? '--' : `${isUp ? '+' : ''}${fund.estimated_change?.toFixed(2) || '0.00'}%`}
+              {(isNoEstimate || isStale) && fund.update_time && (
                 <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', marginTop: 2, fontWeight: 400 }}>
                   ({(() => {
                     const d = new Date(fund.update_time);

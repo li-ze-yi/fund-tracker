@@ -211,6 +211,9 @@ exports.getByCode = async (req, res, next) => {
     } else if (status.update_status === 'no_estimate') {
       result.estimated_change = realTime?.gainPercent ?? null;
       result.net_value = realTime?.netValue ?? null;
+    } else if (status.update_status === 'stale') {
+      // 净值陈旧（停更/接口无数据）：不展示陈旧涨跌
+      result.estimated_change = null;
     }
 
     if (req.user) {
@@ -557,6 +560,9 @@ exports.batchGetInfo = async (req, res, next) => {
       } else if (status.update_status === 'no_estimate') {
         result.estimated_change = realTime?.gainPercent ?? null;
         result.net_value = realTime?.netValue ?? null;
+      } else if (status.update_status === 'stale') {
+        // 净值陈旧（停更/接口无数据）：不展示陈旧涨跌
+        result.estimated_change = null;
       }
 
       // 持仓信息
