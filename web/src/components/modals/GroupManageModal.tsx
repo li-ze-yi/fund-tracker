@@ -253,7 +253,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                 borderRadius: 8,
                 transition: 'all 0.3s ease',
                 color: activeTab === 'groups' ? 'var(--text-primary)' : 'var(--text-muted)',
-                background: activeTab === 'groups' ? 'linear-gradient(135deg, rgba(212, 168, 75, 0.12), rgba(212, 168, 75, 0.06))' : 'transparent',
+                background: activeTab === 'groups' ? 'linear-gradient(135deg, color-mix(in srgb, var(--accent-gold) 12%, transparent), color-mix(in srgb, var(--accent-gold) 6%, transparent))' : 'transparent',
               }}>
                 <FolderOpenOutlined style={{ fontSize: 18 }} />
                 分组管理
@@ -266,9 +266,9 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                   gap: 12,
                   marginBottom: 20,
                   padding: '16px',
-                  background: 'linear-gradient(135deg, rgba(212, 168, 75, 0.06), rgba(212, 168, 75, 0.02))',
+                  background: 'linear-gradient(135deg, color-mix(in srgb, var(--accent-gold) 6%, transparent), color-mix(in srgb, var(--accent-gold) 2%, transparent))',
                   borderRadius: 12,
-                  border: '1px solid rgba(212, 168, 75, 0.15)'
+                  border: '1px solid color-mix(in srgb, var(--accent-gold) 15%, transparent)'
                 }}>
                   <Input
                     placeholder="输入新分组名称..."
@@ -312,8 +312,8 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                       key={item.id}
                       className="group-list-item"
                       onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLElement).style.borderColor = 'rgba(212, 168, 75, 0.25)';
-                        (e.currentTarget as HTMLElement).style.background = 'rgba(212, 168, 75, 0.04)';
+                        (e.currentTarget as HTMLElement).style.borderColor = 'color-mix(in srgb, var(--accent-gold) 25%, transparent)';
+                        (e.currentTarget as HTMLElement).style.background = 'color-mix(in srgb, var(--accent-gold) 4%, transparent)';
                         (e.currentTarget as HTMLElement).style.transform = 'translateX(4px)';
                       }}
                       onMouseLeave={(e) => {
@@ -363,7 +363,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                                 fontWeight: 500,
                                 borderRadius: 6,
                                 color: 'var(--accent-gold)',
-                                borderColor: 'rgba(212, 168, 75, 0.3)'
+                                borderColor: 'color-mix(in srgb, var(--accent-gold) 30%, transparent)'
                               }}
                             >
                               编辑
@@ -463,13 +463,13 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                 <div className="fund-selector-section" style={{
                   marginBottom: 16,
                   padding: '14px 18px',
-                  background: 'linear-gradient(135deg, rgba(212, 168, 75, 0.1), rgba(212, 168, 75, 0.05))',
+                  background: 'linear-gradient(135deg, color-mix(in srgb, var(--accent-gold) 10%, transparent), color-mix(in srgb, var(--accent-gold) 5%, transparent))',
                   borderRadius: 12,
                   borderLeft: '4px solid var(--accent-gold)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  boxShadow: '0 2px 8px rgba(212, 168, 75, 0.12)'
+                  boxShadow: '0 2px 8px color-mix(in srgb, var(--accent-gold) 12%, transparent)'
                 }}>
                   <span className="fund-selector-label" style={{
                     fontWeight: 700,
@@ -516,8 +516,8 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                           key={fund.id}
                           className="fund-card-item"
                           onMouseEnter={(e) => {
-                            (e.currentTarget as HTMLElement).style.borderColor = 'rgba(212, 168, 75, 0.5)';
-                            (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 20px rgba(212, 168, 75, 0.18), 0 0 0 1px var(--border-default)';
+                            (e.currentTarget as HTMLElement).style.borderColor = 'color-mix(in srgb, var(--accent-gold) 50%, transparent)';
+                            (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 20px color-mix(in srgb, var(--accent-gold) 18%, transparent), 0 0 0 1px var(--border-default)';
                             (e.currentTarget as HTMLElement).style.transform = 'translateY(-3px)';
                           }}
                           onMouseLeave={(e) => {

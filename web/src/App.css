@@ -1,64 +1,65 @@
 /* 使用国内 CDN 镜像替代 Google Fonts（原 fonts.googleapis.com 国内无法访问） */
-@import url('https://fonts.loli.net/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.loli.net/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Cormorant+Garamond:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 :root {
-  --font-display: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  /* 浅色「沙丘米白 · C 方案」：正文=思源黑体；标题/大数字=Cormorant Garamond 衬线；等宽=JetBrains Mono */
+  --font-display: 'Noto Sans SC', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', 'Consolas', monospace;
+  --font-serif: 'Cormorant Garamond', Georgia, 'Songti SC', serif;
 
-  --bg-base: #F5F7FA;
-  --bg-elevated: #FFFFFF;
-  --bg-card: rgba(255, 255, 255, 0.85);
-  --bg-card-hover: rgba(241, 245, 249, 0.9);
-  --bg-glass: rgba(255, 255, 255, 0.55);
-  --bg-input: rgba(248, 250, 252, 0.95);
-  --bg-content-area: #F8FAFC;
-  --bg-header: rgba(255, 255, 255, 0.60);
-  --bg-tabbar: rgba(255, 255, 255, 0.64);
-  --bg-row-even: rgba(255, 255, 255, 0.7);
-  --bg-row-odd: rgba(238, 241, 246, 0.5);
-  --bg-row-hover: rgba(220, 226, 236, 0.6);
+  --bg-base: #F2ECE1;
+  --bg-elevated: #FBF7F0;
+  --bg-card: rgba(251, 247, 240, 0.85);
+  --bg-card-hover: rgba(237, 229, 216, 0.92);
+  --bg-glass: rgba(251, 247, 240, 0.72);
+  --bg-input: rgba(251, 247, 240, 0.95);
+  --bg-content-area: #F5F0E6;
+  --bg-header: rgba(251, 247, 240, 0.88);
+  --bg-tabbar: rgba(251, 247, 240, 0.90);
+  --bg-row-even: rgba(251, 247, 240, 0.72);
+  --bg-row-odd: rgba(237, 229, 216, 0.42);
+  --bg-row-hover: rgba(229, 219, 201, 0.62);
 
-  --border-subtle: rgba(148, 163, 184, 0.15);
-  --border-default: rgba(148, 163, 184, 0.25);
-  --border-strong: rgba(148, 163, 184, 0.40);
+  --border-subtle: rgba(63, 74, 52, 0.15);
+  --border-default: rgba(63, 74, 52, 0.30);
+  --border-strong: rgba(63, 74, 52, 0.45);
 
-  --text-primary: #1E293B;
-  --text-secondary: #475569;
-  --text-tertiary: #64748B;
-  --text-muted: #78859B;
-  --text-dim: #94A3B8;
+  --text-primary: #2B3128;
+  --text-secondary: #5C6353;
+  --text-tertiary: #8C9182;
+  --text-muted: #8C9182;
+  --text-dim: #B3B5A9;
 
-  --accent-gold: #8F6A06;
-  --accent-gold-light: #A5710A;
-  --accent-gold-dim: rgba(143, 106, 6, 0.12);
-  --primary: #8F6A06;
+  --accent-gold: #C4703F;
+  --accent-gold-light: #D98A5C;
+  --accent-gold-dim: rgba(196, 112, 63, 0.12);
+  --primary: #3E4A33;
 
-  /* 金色奢华风扩展令牌（浅色=鎏金，值已按 WCAG AA 对比度校准） */
-  --btn-gold-a: #8F6A06;            /* 主按钮渐变起色（深金，白字 4.96:1） */
-  --btn-gold-b: #B8860B;            /* 主按钮渐变止色（白字 3.25:1） */
-  --grad-num-a: #8F6A06;            /* 金色大数字渐变起色（大字 4.62:1） */
-  --grad-num-b: #B8860B;            /* 金色大数字渐变止色（大字 3.03:1） */
-  --noise-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  /* 沙丘陶土扩展令牌（浅色：主按钮=深橄榄，强调/大数字=陶土） */
+  --btn-gold-a: #3E4A33;            /* 主按钮渐变起色（橄榄，米白字 ≥7:1） */
+  --btn-gold-b: #55663F;            /* 主按钮渐变止色 */
+  --grad-num-a: #B4612F;            /* 陶土大数字渐变起色（大字 ≥4.5:1） */
+  --grad-num-b: #C4703F;            /* 陶土大数字渐变止色 */
 
-  --gain: #DC2626;
-  --gain-bg: rgba(220, 38, 38, 0.06);
-  --gain-border: rgba(220, 38, 38, 0.18);
-  --loss: #16A34A;
-  --loss-bg: rgba(22, 163, 74, 0.06);
-  --loss-border: rgba(22, 163, 74, 0.18);
-  --flat: #94A3B8;
-  --flat-bg: rgba(148, 163, 184, 0.06);
+  --gain: #C0432E;
+  --gain-bg: rgba(192, 67, 46, 0.07);
+  --gain-border: rgba(192, 67, 46, 0.20);
+  --loss: #3E7A5A;
+  --loss-bg: rgba(62, 122, 90, 0.07);
+  --loss-border: rgba(62, 122, 90, 0.20);
+  --flat: #8C9182;
+  --flat-bg: rgba(140, 145, 130, 0.08);
 
-  /* 绿色涨/正常语义（浅色主题） */
-  --accent-green: #16A34A;
-  --accent-green-dim: rgba(22, 163, 74, 0.08);
+  /* 绿色涨/正常语义（浅色主题：橄榄绿） */
+  --accent-green: #3E7A5A;
+  --accent-green-dim: rgba(62, 122, 90, 0.10);
 
-  --shadow-sm: 0 1px 2px rgba(160, 120, 20, 0.08), inset 0 1px 0 rgba(255,255,255,0.5);
-  --shadow-md: 0 4px 16px rgba(160, 120, 20, 0.08), 0 0 0 1px var(--border-subtle);
-  --shadow-lg: 0 8px 32px rgba(160, 120, 20, 0.10), 0 0 0 1px var(--border-subtle);
-  --shadow-glow-gold: 0 0 20px rgba(184, 134, 11, 0.12), 0 0 60px rgba(184, 134, 11, 0.05);
-  --shadow-glow-gain: 0 0 12px rgba(220, 38, 38, 0.08);
-  --shadow-glow-loss: 0 0 12px rgba(22, 163, 74, 0.08);
+  --shadow-sm: 0 1px 2px rgba(120, 88, 50, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  --shadow-md: 0 4px 16px rgba(120, 88, 50, 0.09), 0 0 0 1px var(--border-subtle);
+  --shadow-lg: 0 10px 26px -16px rgba(60, 50, 35, 0.45), 0 0 0 1px var(--border-subtle);
+  --shadow-glow-gold: 0 0 20px rgba(196, 112, 63, 0.14), 0 0 60px rgba(196, 112, 63, 0.06);
+  --shadow-glow-gain: 0 0 12px rgba(192, 67, 46, 0.10);
+  --shadow-glow-loss: 0 0 12px rgba(62, 122, 90, 0.10);
 
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -71,118 +72,127 @@
   --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
 
   /* Hero 卡片渐变（浅色主题） */
-  --hero-gradient-start: rgba(255, 255, 255, 0.95);
-  --hero-gradient-end: rgba(245, 247, 250, 0.9);
-  --hero-border-light: rgba(184, 134, 11, 0.12);
-  --hero-accent-glow: radial-gradient(ellipse at 100% 0%, rgba(184, 134, 11, 0.06), transparent 60%);
-  --neon-glow-gold: rgba(184, 134, 11, 0.25);
+  --hero-gradient-start: rgba(251, 247, 240, 0.95);
+  --hero-gradient-end: rgba(242, 236, 225, 0.90);
+  --hero-border-light: rgba(196, 112, 63, 0.20);
+  --hero-accent-glow: radial-gradient(ellipse at 100% 0%, rgba(196, 112, 63, 0.10), transparent 60%);
+  --neon-glow-gold: rgba(196, 112, 63, 0.28);
 
   /* 状态标记色（更新指示器） */
-  --status-pre-market: #3B82F6;
-  --status-pre-market-bg: rgba(59, 130, 246, 0.1);
-  --status-standby: #6B7280;
-  --status-standby-bg: rgba(107, 114, 128, 0.1);
-  --status-estimating: #EF4444;
-  --status-estimating-bg: rgba(239, 68, 68, 0.1);
-  --status-pending: #F97316;
-  --status-pending-bg: rgba(249, 115, 22, 0.1);
-  --status-confirmed: #f5d584;
-  --status-confirmed-bg: rgba(245, 213, 132, 0.15);
-  --status-pending-purchase: #8B5CF6;
-  --status-pending-purchase-bg: rgba(139, 92, 246, 0.1);
+  --status-pre-market: #3E5F8A;
+  --status-pre-market-bg: rgba(62, 95, 138, 0.10);
+  --status-standby: #8C9182;
+  --status-standby-bg: rgba(140, 145, 130, 0.12);
+  --status-estimating: #C0432E;
+  --status-estimating-bg: rgba(192, 67, 46, 0.10);
+  --status-pending: #A9701F;
+  --status-pending-bg: rgba(169, 112, 31, 0.12);
+  --status-confirmed: #B4612F;
+  --status-confirmed-bg: rgba(196, 112, 63, 0.14);
+  --status-pending-purchase: #6B5B8A;
+  --status-pending-purchase-bg: rgba(107, 91, 138, 0.10);
 
   /* 涨跌渐变条 */
-  --gain-bar: linear-gradient(180deg, rgba(239, 68, 68, 0.8), rgba(239, 68, 68, 0.1));
-  --loss-bar: linear-gradient(180deg, rgba(34, 197, 94, 0.8), rgba(34, 197, 94, 0.1));
-  --gain-band-end: rgba(220, 38, 38, 0.3);
-  --loss-band-end: rgba(22, 163, 74, 0.3);
+  --gain-bar: linear-gradient(180deg, rgba(192, 67, 46, 0.8), rgba(192, 67, 46, 0.1));
+  --loss-bar: linear-gradient(180deg, rgba(62, 122, 90, 0.8), rgba(62, 122, 90, 0.1));
+  --gain-band-end: rgba(192, 67, 46, 0.3);
+  --loss-band-end: rgba(62, 122, 90, 0.3);
 }
 
 /* ========== 深色主题 ========== */
 [data-theme="dark"] {
-  --bg-base: #0B1120;
-  --bg-elevated: #111827;
-  --bg-card: rgba(17, 24, 39, 0.7);
-  --bg-card-hover: rgba(30, 41, 59, 0.6);
-  --bg-glass: rgba(17, 24, 39, 0.45);
-  --bg-input: rgba(15, 23, 42, 0.8);
-  --bg-content-area: #0E1628;
-  --bg-header: rgba(17, 24, 39, 0.52);
-  --bg-tabbar: rgba(17, 24, 39, 0.58);
-  --bg-row-even: rgba(31, 41, 55, 0.5);
-  --bg-row-odd: rgba(18, 28, 45, 0.42);
-  --bg-row-hover: rgba(42, 56, 80, 0.55);
+  /* 深色「墨金 · C 方案」：正文=思源黑体；标题/大数字=Cormorant Garamond 衬线；等宽=JetBrains Mono */
+  --font-display: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', 'Consolas', monospace;
+  --font-serif: 'Cormorant Garamond', Georgia, 'Songti SC', serif;
 
-  --border-subtle: rgba(148, 163, 184, 0.08);
-  --border-default: rgba(148, 163, 184, 0.14);
-  --border-strong: rgba(148, 163, 184, 0.24);
+  --bg-base: #0A0E14;
+  --bg-elevated: #111823;
+  --bg-card: rgba(17, 24, 35, 0.72);
+  --bg-card-hover: rgba(22, 30, 42, 0.78);
+  --bg-glass: rgba(13, 18, 26, 0.58);
+  --bg-input: rgba(17, 24, 35, 0.85);
+  --bg-content-area: #0D121A;
+  --bg-header: rgba(10, 14, 20, 0.90);
+  --bg-tabbar: rgba(10, 14, 20, 0.90);
+  --bg-row-even: rgba(27, 36, 50, 0.50);
+  --bg-row-odd: rgba(20, 28, 40, 0.42);
+  --bg-row-hover: rgba(28, 38, 52, 0.75);
 
-  --text-primary: #F1F5F9;
-  --text-secondary: #CBD5E1;
-  --text-tertiary: #94A3B8;
-  --text-muted: #8896AB;
-  --text-dim: #64748B;
+  --border-subtle: rgba(214, 182, 110, 0.12);
+  --border-default: rgba(214, 182, 110, 0.22);
+  --border-strong: rgba(214, 182, 110, 0.36);
 
-  --accent-gold: #D4A84B;
-  --accent-gold-light: #F0D78C;
-  --accent-gold-dim: rgba(212, 168, 75, 0.15);
-  --primary: #D4A84B;
+  --text-primary: #EDE8DC;
+  --text-secondary: #C6BDA9;
+  --text-tertiary: #A69D8B;
+  --text-muted: #8A8171;
+  --text-dim: #6F6858;
 
-  /* 金色奢华风扩展令牌（深色=墨玉金，按钮渐变已按 WCAG AA 白字 ≥3:1 校准） */
-  --btn-gold-a: #B8860B;            /* 主按钮渐变起色（白字 3.25:1） */
-  --btn-gold-b: #C08A1E;            /* 主按钮渐变止色（白字 3.05:1） */
-  --grad-num-a: #D4A84B;
-  --grad-num-b: #F0D78C;
-  --gold-deep: #B8860B;             /* 极小辅助文字专用金（Tag 等，≥4.5:1） */
+  --accent-gold: #D9B863;
+  --accent-gold-light: #F2DFA3;
+  --accent-gold-dim: rgba(217, 184, 99, 0.12);
+  --primary: #D9B863;
 
-  --gain: #EF4444;
-  --gain-bg: rgba(239, 68, 68, 0.10);
-  --gain-border: rgba(239, 68, 68, 0.25);
-  --loss: #22C55E;
-  --loss-bg: rgba(34, 197, 94, 0.10);
-  --loss-border: rgba(34, 197, 94, 0.25);
-  --flat: #94A3B8;
-  --flat-bg: rgba(148, 163, 184, 0.08);
+  /* 墨金扩展令牌（深色=墨金，按钮渐变按白字 ≥3:1 校准） */
+  --btn-gold-a: #A8873A;            /* 主按钮渐变起色 */
+  --btn-gold-b: #C9A44E;            /* 主按钮渐变止色 */
+  --grad-num-a: #D9B863;
+  --grad-num-b: #F2DFA3;
+  --gold-deep: #A8873A;             /* 极小辅助文字专用金（Tag 等，≥4.5:1） */
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255,255,255,0.03);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--border-subtle);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--border-subtle);
-  --shadow-glow-gold: 0 0 20px rgba(212, 168, 75, 0.15), 0 0 60px rgba(212, 168, 75, 0.06);
-  --shadow-glow-gain: 0 0 12px rgba(239, 68, 68, 0.15);
-  --shadow-glow-loss: 0 0 12px rgba(34, 197, 94, 0.15);
+  --gain: #E0574E;
+  --gain-bg: rgba(224, 87, 78, 0.11);
+  --gain-border: rgba(224, 87, 78, 0.30);
+  --loss: #3FA46A;
+  --loss-bg: rgba(63, 164, 106, 0.11);
+  --loss-border: rgba(63, 164, 106, 0.30);
+  --flat: #6F6858;
+  --flat-bg: rgba(255, 255, 255, 0.05);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.40), 0 0 0 1px var(--border-subtle);
+  --shadow-lg: 0 20px 44px -28px #000, 0 0 0 1px var(--border-subtle);
+  --shadow-glow-gold: 0 0 20px rgba(217, 184, 99, 0.18), 0 0 60px rgba(217, 184, 99, 0.07);
+  --shadow-glow-gain: 0 0 12px rgba(224, 87, 78, 0.16);
+  --shadow-glow-loss: 0 0 12px rgba(63, 164, 106, 0.16);
+
+  /* 墨金制表风：锐利小圆角（弹窗/表格容器保留 12px） */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 12px;
 
   /* Hero 卡片渐变（深色主题：半透明让毛玻璃透出背景） */
-  --hero-gradient-start: rgba(31, 41, 55, 0.78);
-  --hero-gradient-end: rgba(17, 24, 39, 0.82);
-  --hero-border-light: rgba(212, 168, 75, 0.30);
-  --hero-accent-glow: radial-gradient(ellipse at 100% 0%, rgba(212, 168, 75, 0.16), transparent 60%);
-  --neon-glow-gold: rgba(212, 168, 75, 0.30);
+  --hero-gradient-start: rgba(27, 36, 50, 0.78);
+  --hero-gradient-end: rgba(13, 18, 26, 0.85);
+  --hero-border-light: rgba(217, 184, 99, 0.30);
+  --hero-accent-glow: radial-gradient(ellipse at 100% 0%, rgba(217, 184, 99, 0.16), transparent 60%);
+  --neon-glow-gold: rgba(217, 184, 99, 0.30);
 
   /* 状态标记色（深色主题：提亮以增强对比） */
-  --status-pre-market: #60A5FA;
-  --status-pre-market-bg: rgba(96, 165, 250, 0.15);
-  --status-standby: #94A3B8;
-  --status-standby-bg: rgba(148, 163, 184, 0.12);
-  --status-estimating: #F87171;
-  --status-estimating-bg: rgba(248, 113, 113, 0.15);
-  --status-pending: #FB923C;
-  --status-pending-bg: rgba(251, 146, 60, 0.15);
-  --status-confirmed: #f5d584;
-  --status-confirmed-bg: rgba(245, 213, 132, 0.15);
-  --status-pending-purchase: #A78BFA;
-  --status-pending-purchase-bg: rgba(167, 139, 250, 0.15);
+  --status-pre-market: #6E9BD8;
+  --status-pre-market-bg: rgba(110, 155, 216, 0.15);
+  --status-standby: #8A8171;
+  --status-standby-bg: rgba(138, 129, 113, 0.14);
+  --status-estimating: #E0574E;
+  --status-estimating-bg: rgba(224, 87, 78, 0.15);
+  --status-pending: #DCA44A;
+  --status-pending-bg: rgba(220, 164, 74, 0.15);
+  --status-confirmed: #D9B863;
+  --status-confirmed-bg: rgba(217, 184, 99, 0.15);
+  --status-pending-purchase: #A98BC9;
+  --status-pending-purchase-bg: rgba(169, 139, 201, 0.15);
 }
 
 [data-theme="dark"] body {
   background:
-    var(--noise-bg),
-    radial-gradient(ellipse 70% 45% at 50% -15%, rgba(212, 168, 75, 0.12), transparent 60%),
-    radial-gradient(ellipse 50% 35% at 100% 0%, rgba(59, 130, 246, 0.09), transparent 60%),
-    radial-gradient(ellipse 40% 30% at 0% 100%, rgba(212, 168, 75, 0.07), transparent 50%),
+    radial-gradient(820px 420px at 50% -14%, rgba(217, 184, 99, 0.085), transparent 66%),
+    radial-gradient(520px 300px at 92% 8%, rgba(74, 110, 170, 0.07), transparent 62%),
+    repeating-linear-gradient(48deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(-48deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 5px),
     var(--bg-base);
   background-attachment: fixed;
-  background-size: 180px 180px, auto, auto, auto, auto;
-  background-repeat: repeat, no-repeat, no-repeat, no-repeat, no-repeat;
 }
 
 [data-theme="dark"] .glass-card {
@@ -207,7 +217,7 @@
 [data-theme="dark"] .ant-input-focused,
 [data-theme="dark"] .ant-input-affix-wrapper-focused {
   border-color: var(--accent-gold) !important;
-  box-shadow: 0 0 0 2px rgba(212, 168, 75, 0.15) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-gold) 15%, transparent) !important;
 }
 
 [data-theme="dark"] .ant-card {
@@ -336,6 +346,7 @@
 html, body, #root {
   height: 100%;
   font-family: var(--font-display);
+  font-weight: 300;
   font-size: 15px;
   color: var(--text-primary);
   background-color: var(--bg-base);
@@ -345,14 +356,13 @@ html, body, #root {
 
 body {
   background:
-    var(--noise-bg),
-    radial-gradient(ellipse 70% 45% at 50% -15%, rgba(184, 134, 11, 0.05), transparent 60%),
-    radial-gradient(ellipse 50% 35% at 100% 0%, rgba(59, 130, 246, 0.03), transparent 60%),
-    radial-gradient(ellipse 40% 30% at 0% 100%, rgba(184, 134, 11, 0.03), transparent 50%),
+    radial-gradient(900px 520px at 50% -8%, rgba(196, 112, 63, 0.13), transparent 70%),
+    radial-gradient(680px 420px at 100% 104%, rgba(62, 74, 51, 0.08), transparent 70%),
+    radial-gradient(rgba(63, 74, 52, 0.05) 1px, transparent 1.2px),
     var(--bg-base);
   background-attachment: fixed;
-  background-size: 180px 180px, auto, auto, auto, auto;
-  background-repeat: repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+  background-size: auto, auto, 4px 4px;
+  background-repeat: no-repeat, no-repeat, repeat;
 }
 
 a { color: var(--accent-gold); text-decoration: none; }
@@ -388,8 +398,8 @@ a { color: var(--accent-gold); text-decoration: none; }
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(212, 168, 75, 0.2); }
-  50% { box-shadow: 0 0 16px 2px rgba(212, 168, 75, 0.15); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-gold) 20%, transparent); }
+  50% { box-shadow: 0 0 16px 2px color-mix(in srgb, var(--accent-gold) 15%, transparent); }
 }
 
 /* 实时更新标记脉冲动画 */
@@ -474,14 +484,14 @@ a { color: var(--accent-gold); text-decoration: none; }
 @media screen and (min-width: 1400px) {
   .page-content {
     background:
-      radial-gradient(ellipse 500px 400px at 0% 0%, rgba(184, 134, 11, 0.05), transparent 60%),
-      radial-gradient(ellipse 500px 400px at 100% 100%, rgba(59, 130, 246, 0.03), transparent 60%);
+      radial-gradient(ellipse 500px 400px at 0% 0%, color-mix(in srgb, var(--accent-gold) 5%, transparent), transparent 60%),
+      radial-gradient(ellipse 500px 400px at 100% 100%, color-mix(in srgb, var(--primary) 4%, transparent), transparent 60%);
   }
 
   [data-theme="dark"] .page-content {
     background:
-      radial-gradient(ellipse 500px 400px at 0% 0%, rgba(212, 168, 75, 0.08), transparent 60%),
-      radial-gradient(ellipse 500px 400px at 100% 100%, rgba(59, 130, 246, 0.05), transparent 60%);
+      radial-gradient(ellipse 500px 400px at 0% 0%, color-mix(in srgb, var(--accent-gold) 8%, transparent), transparent 60%),
+      radial-gradient(ellipse 500px 400px at 100% 100%, color-mix(in srgb, var(--status-pre-market) 5%, transparent), transparent 60%);
   }
 }
 
@@ -577,7 +587,7 @@ input.ant-input {
 .ant-input-focused,
 .ant-input-affix-wrapper-focused {
   border-color: var(--accent-gold) !important;
-  box-shadow: 0 0 0 2px rgba(212, 168, 75, 0.15) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-gold) 15%, transparent) !important;
 }
 
 .ant-input::placeholder {
@@ -729,6 +739,26 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   z-index: 1;
 }
 
+/* C 方案：斜向高光缓慢扫过（制表/钟表质感） */
+@keyframes sheen {
+  0% { left: -40%; }
+  55% { left: 130%; }
+  100% { left: 130%; }
+}
+.portfolio-summary-container::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -30%;
+  width: 40%;
+  height: 220%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+  transform: rotate(18deg);
+  animation: sheen 6.5s ease-in-out infinite;
+  z-index: 0;
+}
+
 /* 分组切换器：收窄纵向留白，贴近顶部 */
 .portfolio-summary-container .portfolio-group-switcher {
   padding: 8px 6px 2px;
@@ -754,7 +784,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   box-shadow:
     0 8px 28px rgba(0, 0, 0, 0.40),
     0 2px 8px rgba(0, 0, 0, 0.20),
-    0 0 0 1px rgba(212, 168, 75, 0.10),
+    0 0 0 1px color-mix(in srgb, var(--accent-gold) 10%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     inset 0 -18px 30px -20px var(--accent-gold-dim);
 }
@@ -768,14 +798,14 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 .ant-btn-primary {
   background: linear-gradient(135deg, var(--btn-gold-a), var(--btn-gold-b)) !important;
   border-color: transparent !important;
-  box-shadow: 0 4px 14px rgba(212, 168, 75, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent-gold) 22%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
   font-weight: 600;
   letter-spacing: 0.01em;
   transition: transform var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast) !important;
 }
 .ant-btn-primary:not(:disabled):hover {
   background: linear-gradient(135deg, var(--btn-gold-b), var(--btn-gold-a)) !important;
-  box-shadow: 0 4px 18px rgba(212, 168, 75, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent-gold) 32%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
   filter: brightness(1.05);
   transform: translateY(-1px);
 }
@@ -849,16 +879,16 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 .ant-segmented-item-selected {
   background: linear-gradient(135deg, var(--btn-gold-a), var(--btn-gold-b)) !important;
   color: #fff !important;
-  box-shadow: 0 2px 6px rgba(212, 160, 23, 0.28) !important;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent-gold) 28%, transparent) !important;
 }
 .ant-segmented-thumb {
   background: linear-gradient(135deg, var(--btn-gold-a), var(--btn-gold-b)) !important;
-  box-shadow: 0 2px 6px rgba(212, 160, 23, 0.28) !important;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent-gold) 28%, transparent) !important;
 }
 [data-theme="dark"] .ant-segmented-item-selected {
   background: linear-gradient(135deg, var(--btn-gold-a), var(--btn-gold-b)) !important;
   color: #fff !important;
-  box-shadow: 0 2px 6px rgba(212, 160, 23, 0.3) !important;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent-gold) 30%, transparent) !important;
 }
 [data-theme="dark"] .ant-segmented-thumb {
   background: linear-gradient(135deg, var(--btn-gold-a), var(--btn-gold-b)) !important;
@@ -959,18 +989,21 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 /* ========== 移动端响应式优化 (≤768px) ========== */
 @media screen and (max-width: 768px) {
   :root {
-    --font-display: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    --font-mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+    --font-display: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SFMono-Regular', 'Consolas', monospace;
     --content-padding: 4px;
     /* 移动端性能降级：提高毛玻璃背景不透明度，保证滚动可读与 GPU 开销可控 */
-    --bg-header: rgba(255, 255, 255, 0.82);
-    --bg-tabbar: rgba(255, 255, 255, 0.85);
-    --bg-glass: rgba(255, 255, 255, 0.75);
+    --bg-header: rgba(251, 247, 240, 0.94);
+    --bg-tabbar: rgba(251, 247, 240, 0.95);
+    --bg-glass: rgba(251, 247, 240, 0.86);
   }
   [data-theme="dark"] {
-    --bg-header: rgba(17, 24, 39, 0.78);
-    --bg-tabbar: rgba(17, 24, 39, 0.82);
-    --bg-glass: rgba(17, 24, 39, 0.62);
+    --font-display: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SFMono-Regular', 'Consolas', monospace;
+    --font-serif: 'Cormorant Garamond', Georgia, 'Songti SC', serif;
+    --bg-header: rgba(10, 14, 20, 0.94);
+    --bg-tabbar: rgba(10, 14, 20, 0.95);
+    --bg-glass: rgba(13, 18, 26, 0.82);
   }
 
   html {
@@ -1648,8 +1681,8 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   margin-left: -2.5px;
   margin-top: -2.5px;
   border-radius: 50%;
-  background: #F0D78C;
-  box-shadow: 0 0 8px rgba(240, 215, 140, 0.9), 0 0 16px rgba(212, 168, 75, 0.5);
+  background: var(--accent-gold-light);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-gold-light) 90%, transparent), 0 0 16px color-mix(in srgb, var(--accent-gold) 50%, transparent);
   transform-origin: 2.5px 2.5px;
   animation: burst-fly 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
 }
@@ -1683,7 +1716,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 
 @keyframes hourglass-breathe {
   0%, 100% { opacity: 0.8; }
-  50% { opacity: 1; filter: drop-shadow(0 0 5px rgba(240, 215, 140, 0.8)); }
+  50% { opacity: 1; filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent-gold-light) 80%, transparent)); }
 }
 
 /* 主题图标切换：旋转淡入 */
@@ -2887,9 +2920,9 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 
   /* 确保减仓按钮在移动端也有红色背景 */
   .fund-detail-actions button:nth-child(2) {
-    background-color: #e3787d !important;
+    background-color: var(--status-estimating) !important;
     color: white !important;
-    border-color: #e3787d !important;
+    border-color: var(--status-estimating) !important;
   }
 
   /* 交易记录卡片 */
@@ -3502,13 +3535,13 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 .stats-controls-row .ant-segmented-item-selected {
   background: var(--accent-gold);
   color: #fff;
-  box-shadow: 0 2px 6px rgba(212, 160, 23, 0.25);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent-gold) 25%, transparent);
   font-weight: 500;
 }
 .stats-controls-row .ant-segmented-thumb {
   border-radius: 10px;
   background: var(--accent-gold);
-  box-shadow: 0 2px 6px rgba(212, 160, 23, 0.25);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent-gold) 25%, transparent);
 }
 .stats-controls-row .ant-segmented-item .anticon {
   display: inline-flex;

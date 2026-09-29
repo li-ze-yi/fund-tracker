@@ -243,28 +243,28 @@ export default function MarketDetailPage() {
       trigger: 'axis',
       // 移动端用 touchstart 触发，十字跟手
       triggerOn: isMobile ? 'mousemove|touchstart|click' : 'mousemove',
-      backgroundColor: isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(17, 24, 39, 0.95)',
-      borderColor: 'rgba(148, 163, 184, 0.2)',
+      backgroundColor: isLight ? 'rgba(251, 247, 240, 0.95)' : 'rgba(17, 24, 35, 0.95)',
+      borderColor: isLight ? 'rgba(63, 74, 52, 0.30)' : 'rgba(214, 182, 110, 0.22)',
       borderWidth: 1,
       padding: [isMobile ? 8 : 10, isMobile ? 12 : 14],
-      textStyle: { color: isLight ? '#1E293B' : '#F1F5F9', fontSize: isMobile ? 11 : 13 },
+      textStyle: { color: isLight ? '#2B3128' : '#EDE8DC', fontSize: isMobile ? 11 : 13 },
       axisPointer: {
         type: 'cross',
         snap: true,
-        crossStyle: { color: isLight ? 'rgba(100,116,139,0.45)' : 'rgba(148,163,184,0.45)', type: 'dashed', width: 1 },
-        lineStyle: { color: isLight ? 'rgba(100,116,139,0.45)' : 'rgba(148,163,184,0.45)', type: 'dashed', width: 1 },
-        label: { backgroundColor: isLight ? '#475569' : '#334155', color: '#fff', fontSize: isMobile ? 10 : 12, borderColor: 'transparent' },
+        crossStyle: { color: isLight ? 'rgba(63,74,52,0.35)' : 'rgba(214,182,110,0.30)', type: 'dashed', width: 1 },
+        lineStyle: { color: isLight ? 'rgba(63,74,52,0.35)' : 'rgba(214,182,110,0.30)', type: 'dashed', width: 1 },
+        label: { backgroundColor: isLight ? '#3E4A33' : '#1B2432', color: '#FBF7F0', fontSize: isMobile ? 10 : 12, borderColor: 'transparent' },
         z: 100,
       },
       formatter: (params: any) => {
         const p = params[0];
         if (!intradayData || !intradayData.prices || intradayData.prices.length === 0) {
-          return `<div style="color: #94A3B8;">暂无分时数据</div>`;
+          return `<div style="color: #8C9182;">暂无分时数据</div>`;
         }
 
         const currentPrice = p.value;
         if (currentPrice == null || Number.isNaN(currentPrice)) {
-          return `<div style="color: #94A3B8;">尚未走到的时段</div>`;
+          return `<div style="color: #8C9182;">尚未走到的时段</div>`;
         }
         // ★ 涨跌幅基准统一为昨收（与卡片一致），而非分时首点
         const basePrice = prevClose > 0 ? prevClose : intradayData.prices[0];
@@ -272,18 +272,18 @@ export default function MarketDetailPage() {
         const changeAmount = (currentPrice - basePrice).toFixed(2);
 
         return `<div style="min-width: ${isMobile ? '140px' : '160px'};">
-          <div style="font-weight: 600; margin-bottom: ${isMobile ? '4px' : '6px'}; font-size: ${isMobile ? '12px' : '13px'}; color: ${isLight ? '#64748B' : '#94A3B8'};">${p.name}</div>
+          <div style="font-weight: 600; margin-bottom: ${isMobile ? '4px' : '6px'}; font-size: ${isMobile ? '12px' : '13px'}; color: ${isLight ? '#5C6353' : '#A69D8B'};">${p.name}</div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-            <span style="color: ${isLight ? '#64748B' : '#94A3B8'};">指数点位</span>
-            <span style="color: ${isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E')}; font-weight: 700; font-size: ${isMobile ? '13px' : '14px'};">${currentPrice}</span>
+            <span style="color: ${isLight ? '#5C6353' : '#A69D8B'};">指数点位</span>
+            <span style="color: ${isUp ? (isLight ? '#C0432E' : '#E0574E') : (isLight ? '#3E7A5A' : '#3FA46A')}; font-weight: 700; font-size: ${isMobile ? '13px' : '14px'};">${currentPrice}</span>
           </div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-            <span style="color: ${isLight ? '#64748B' : '#94A3B8'};">涨跌额</span>
-            <span style="color: ${Number(changeAmount) >= 0 ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E')}; font-weight: 600;">${Number(changeAmount) >= 0 ? '+' : ''}${changeAmount}</span>
+            <span style="color: ${isLight ? '#5C6353' : '#A69D8B'};">涨跌额</span>
+            <span style="color: ${Number(changeAmount) >= 0 ? (isLight ? '#C0432E' : '#E0574E') : (isLight ? '#3E7A5A' : '#3FA46A')}; font-weight: 600;">${Number(changeAmount) >= 0 ? '+' : ''}${changeAmount}</span>
           </div>
           <div style="display: flex; justify-content: space-between;">
-            <span style="color: ${isLight ? '#64748B' : '#94A3B8'};">涨跌幅</span>
-            <span style="color: ${Number(changePercent) >= 0 ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E')}; font-weight: 600;">${Number(changePercent) >= 0 ? '+' : ''}${changePercent}%</span>
+            <span style="color: ${isLight ? '#5C6353' : '#A69D8B'};">涨跌幅</span>
+            <span style="color: ${Number(changePercent) >= 0 ? (isLight ? '#C0432E' : '#E0574E') : (isLight ? '#3E7A5A' : '#3FA46A')}; font-weight: 600;">${Number(changePercent) >= 0 ? '+' : ''}${changePercent}%</span>
           </div>
         </div>`;
       },
@@ -297,14 +297,14 @@ export default function MarketDetailPage() {
         // 有副图时主图隐藏时间标签，避免与下方副图重复
         axisLabel: hasVolume ? { show: false } : {
           fontSize: isMobile ? 10 : 11,
-          color: isLight ? '#64748B' : '#94A3B8',
+          color: isLight ? '#5C6353' : '#A69D8B',
           hideOverlap: true,
           showMinLabel: true,
           showMaxLabel: true,
           interval: 0,
           formatter: xAxisTimeFormatter,
         },
-        axisLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' } },
+        axisLine: { lineStyle: { color: isLight ? 'rgba(63, 74, 52, 0.15)' : 'rgba(214, 182, 110, 0.12)' } },
         axisTick: { show: false },
       },
       ...(hasVolume ? [{
@@ -312,8 +312,8 @@ export default function MarketDetailPage() {
         boundaryGap: false,
         gridIndex: 1,
         data: displayTimes.length ? displayTimes : ['09:30', '10:00', '10:30', '11:00', '11:30', '13:00', '13:30', '14:00', '14:30', '15:00'],
-        axisLabel: { fontSize: isMobile ? 10 : 11, color: isLight ? '#64748B' : '#94A3B8', hideOverlap: true, showMinLabel: true, showMaxLabel: true, interval: 0, formatter: xAxisTimeFormatter },
-        axisLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' } },
+        axisLabel: { fontSize: isMobile ? 10 : 11, color: isLight ? '#5C6353' : '#A69D8B', hideOverlap: true, showMinLabel: true, showMaxLabel: true, interval: 0, formatter: xAxisTimeFormatter },
+        axisLine: { lineStyle: { color: isLight ? 'rgba(63, 74, 52, 0.15)' : 'rgba(214, 182, 110, 0.12)' } },
         axisTick: { show: false },
       }] : []),
     ],
@@ -327,7 +327,7 @@ export default function MarketDetailPage() {
         axisLabel: {
           inside: false,
           fontSize: isMobile ? 9 : 11,
-          color: isLight ? (isMobile ? '#475569' : '#64748B') : (isMobile ? '#CBD5E1' : '#94A3B8'),
+          color: isLight ? (isMobile ? '#2B3128' : '#5C6353') : (isMobile ? '#C6BDA9' : '#A69D8B'),
           margin: isMobile ? 6 : 8,
           // y 轴刻度不显示小数位(去掉 .00 噪声)，整数更清爽
           formatter: (v: number) => v.toFixed(0),
@@ -335,9 +335,9 @@ export default function MarketDetailPage() {
         // 整列淡色刻度带（替代每个值独立气泡），移动端成片更整洁
         splitArea: {
           show: isMobile,
-          areaStyle: { color: ['transparent', isLight ? 'rgba(148,163,184,0.05)' : 'rgba(148,163,184,0.045)'] },
+          areaStyle: { color: ['transparent', isLight ? 'rgba(63,74,52,0.05)' : 'rgba(214,182,110,0.045)'] },
         },
-        splitLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)' } },
+        splitLine: { lineStyle: { color: isLight ? 'rgba(63, 74, 52, 0.10)' : 'rgba(214, 182, 110, 0.08)' } },
         axisLine: { show: false },
       },
       ...(hasVolume ? [{
@@ -368,7 +368,7 @@ export default function MarketDetailPage() {
           scale: true,
           itemStyle: {
             shadowBlur: 10,
-            shadowColor: isUp ? (isLight ? 'rgba(220, 38, 38, 0.4)' : 'rgba(239, 68, 68, 0.5)') : (isLight ? 'rgba(22, 163, 74, 0.4)' : 'rgba(34, 197, 94, 0.5)'),
+            shadowColor: isUp ? (isLight ? 'rgba(192, 67, 46, 0.4)' : 'rgba(224, 87, 78, 0.5)') : (isLight ? 'rgba(62, 122, 90, 0.4)' : 'rgba(63, 164, 106, 0.5)'),
           }
         },
         markPoint: displayPrices.length ? {
@@ -378,14 +378,14 @@ export default function MarketDetailPage() {
             {
               type: 'max',
               name: '最高',
-              itemStyle: { color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'), borderColor: '#fff', borderWidth: 2 },
-              label: { show: true, fontSize: isMobile ? 9 : 11, color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'), fontWeight: 600, formatter: '{b}\n{c}' },
+              itemStyle: { color: isUp ? (isLight ? '#C0432E' : '#E0574E') : (isLight ? '#3E7A5A' : '#3FA46A'), borderColor: '#fff', borderWidth: 2 },
+              label: { show: true, fontSize: isMobile ? 9 : 11, color: isUp ? (isLight ? '#C0432E' : '#E0574E') : (isLight ? '#3E7A5A' : '#3FA46A'), fontWeight: 600, formatter: '{b}\n{c}' },
             },
             {
               type: 'min',
               name: '最低',
-              itemStyle: { color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'), borderColor: '#fff', borderWidth: 2 },
-              label: { show: true, fontSize: isMobile ? 9 : 11, color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'), fontWeight: 600, formatter: '{b}\n{c}' },
+              itemStyle: { color: isUp ? (isLight ? '#C0432E' : '#E0574E') : (isLight ? '#3E7A5A' : '#3FA46A'), borderColor: '#fff', borderWidth: 2 },
+              label: { show: true, fontSize: isMobile ? 9 : 11, color: isUp ? (isLight ? '#C0432E' : '#E0574E') : (isLight ? '#3E7A5A' : '#3FA46A'), fontWeight: 600, formatter: '{b}\n{c}' },
             },
             // 曲线末端"最新价"标签：贴在最后一个有效点，带涨跌色背景
             ...(lastValidIndex >= 0 ? [{
@@ -399,7 +399,7 @@ export default function MarketDetailPage() {
                 position: isMobile ? 'insideTop' : 'right',
                 offset: isMobile ? [-24, 0] : [0, 0],
                 formatter: '{c}',
-                backgroundColor: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'),
+                backgroundColor: isUp ? (isLight ? '#C0432E' : '#E0574E') : (isLight ? '#3E7A5A' : '#3FA46A'),
                 color: '#fff', fontSize: isMobile ? 10 : 11, padding: [2, 5], borderRadius: 3, fontWeight: 600,
               },
             }] : []),
@@ -409,12 +409,12 @@ export default function MarketDetailPage() {
         markLine: displayPrices.length ? {
           symbol: 'none',
           silent: true,
-          lineStyle: { color: isLight ? 'rgba(100,116,139,0.55)' : 'rgba(148,163,184,0.5)', type: 'dashed', width: 1 },
+          lineStyle: { color: isLight ? 'rgba(63,74,52,0.35)' : 'rgba(214,182,110,0.30)', type: 'dashed', width: 1 },
           data: [
             ...(getLunchBreak(selectedIndex) ? [{ xAxis: getLunchBreak(selectedIndex), label: { show: false } }] : []),
             {
               yAxis: prevClose,
-              label: { show: true, position: isMobile ? 'insideStartTop' : 'insideEndTop', formatter: `昨收 ${prevClose.toFixed(2)}`, fontSize: isMobile ? 9 : 10, color: isLight ? '#64748B' : '#94A3B8' },
+              label: { show: true, position: isMobile ? 'insideStartTop' : 'insideEndTop', formatter: `昨收 ${prevClose.toFixed(2)}`, fontSize: isMobile ? 9 : 10, color: isLight ? '#5C6353' : '#A69D8B' },
             },
           ],
         } : undefined,
@@ -422,14 +422,14 @@ export default function MarketDetailPage() {
         markArea: displayPrices.length ? {
           silent: true,
           data: [
-            [{ yAxis: prevClose, itemStyle: { color: isLight ? 'rgba(220,38,38,0.04)' : 'rgba(239,68,68,0.05)' } }, { yAxis: 'max' }],
-            [{ yAxis: 'min', itemStyle: { color: isLight ? 'rgba(22,163,74,0.04)' : 'rgba(34,197,94,0.05)' } }, { yAxis: prevClose }],
+            [{ yAxis: prevClose, itemStyle: { color: isLight ? 'rgba(192,67,46,0.04)' : 'rgba(224,87,78,0.05)' } }, { yAxis: 'max' }],
+            [{ yAxis: 'min', itemStyle: { color: isLight ? 'rgba(62,122,90,0.04)' : 'rgba(63,164,106,0.05)' } }, { yAxis: prevClose }],
           ],
         } : undefined,
         lineStyle: {
-          color: isUp ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'),
+          color: isUp ? (isLight ? '#C0432E' : '#E0574E') : (isLight ? '#3E7A5A' : '#3FA46A'),
           width: isMobile ? 2 : 2.5,
-          shadowColor: isUp ? (isLight ? 'rgba(220, 38, 38, 0.2)' : 'rgba(239, 68, 68, 0.3)') : (isLight ? 'rgba(22, 163, 74, 0.2)' : 'rgba(34, 197, 94, 0.3)'),
+          shadowColor: isUp ? (isLight ? 'rgba(192, 67, 46, 0.2)' : 'rgba(224, 87, 78, 0.3)') : (isLight ? 'rgba(62, 122, 90, 0.2)' : 'rgba(63, 164, 106, 0.3)'),
           shadowBlur: isMobile ? 6 : 10,
           shadowOffsetY: isMobile ? 3 : 5,
         },
@@ -438,9 +438,9 @@ export default function MarketDetailPage() {
             type: 'linear',
             x: 0, y: 0, x2: 0, y2: 1,
             colorStops: [
-              { offset: 0, color: isUp ? (isLight ? 'rgba(220, 38, 38, 0.2)' : 'rgba(239, 68, 68, 0.25)') : (isLight ? 'rgba(22, 163, 74, 0.2)' : 'rgba(34, 197, 94, 0.25)') },
-              { offset: 0.5, color: isUp ? (isLight ? 'rgba(220, 38, 38, 0.06)' : 'rgba(239, 68, 68, 0.08)') : (isLight ? 'rgba(22, 163, 74, 0.06)' : 'rgba(34, 197, 94, 0.08)') },
-              { offset: 1, color: isUp ? (isLight ? 'rgba(220, 38, 38, 0.01)' : 'rgba(239, 68, 68, 0.01)') : (isLight ? 'rgba(22, 163, 74, 0.01)' : 'rgba(34, 197, 94, 0.01)') },
+              { offset: 0, color: isUp ? (isLight ? 'rgba(192, 67, 46, 0.2)' : 'rgba(224, 87, 78, 0.25)') : (isLight ? 'rgba(62, 122, 90, 0.2)' : 'rgba(63, 164, 106, 0.25)') },
+              { offset: 0.5, color: isUp ? (isLight ? 'rgba(192, 67, 46, 0.06)' : 'rgba(224, 87, 78, 0.08)') : (isLight ? 'rgba(62, 122, 90, 0.06)' : 'rgba(63, 164, 106, 0.08)') },
+              { offset: 1, color: isUp ? (isLight ? 'rgba(192, 67, 46, 0.01)' : 'rgba(224, 87, 78, 0.01)') : (isLight ? 'rgba(62, 122, 90, 0.01)' : 'rgba(63, 164, 106, 0.01)') },
             ],
           },
         },
@@ -454,7 +454,7 @@ export default function MarketDetailPage() {
           const up = p == null ? isUp : p >= prevClose;
           return {
             value: v ?? 0,
-            itemStyle: { color: up ? (isLight ? 'rgba(220,38,38,0.45)' : 'rgba(239,68,68,0.5)') : (isLight ? 'rgba(22,163,74,0.45)' : 'rgba(34,197,94,0.5)') },
+            itemStyle: { color: up ? (isLight ? 'rgba(192,67,46,0.45)' : 'rgba(224,87,78,0.5)') : (isLight ? 'rgba(62,122,90,0.45)' : 'rgba(63,164,106,0.5)') },
           };
         }),
         barWidth: '55%',
@@ -555,8 +555,8 @@ export default function MarketDetailPage() {
       <Card
         style={{
           marginBottom: 20,
-          background: `linear-gradient(135deg, ${isUp ? 'rgba(239, 68, 68, 0.05)' : 'rgba(34, 197, 94, 0.05)'}, ${isLight ? 'rgba(255, 255, 255, 0.9)' : 'rgba(17, 24, 39, 0.8)'})`,
-          borderColor: isUp ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+          background: `linear-gradient(135deg, ${isUp ? 'rgba(224, 87, 78, 0.05)' : 'rgba(63, 164, 106, 0.05)'}, ${isLight ? 'rgba(251, 247, 240, 0.9)' : 'rgba(17, 24, 35, 0.8)'})`,
+          borderColor: isUp ? 'rgba(224, 87, 78, 0.15)' : 'rgba(63, 164, 106, 0.15)',
           boxShadow: 'var(--shadow-lg)',
         }}
         styles={{ body: { padding: '24px' } }}
@@ -694,7 +694,7 @@ export default function MarketDetailPage() {
             <>
               <span style={{
                 fontSize: 11,
-                color: '#22C55E',
+                color: 'var(--loss)',
                 fontWeight: 500,
                 padding: '2px 8px',
                 borderRadius: '10px',
@@ -709,7 +709,7 @@ export default function MarketDetailPage() {
                 fontWeight: 400,
                 padding: '2px 6px',
                 borderRadius: '8px',
-                background: 'rgba(148, 163, 184, 0.08)',
+                background: 'var(--bg-row-odd)',
               }}>
                 {getSourceLabel(intradayData.source)}
               </span>

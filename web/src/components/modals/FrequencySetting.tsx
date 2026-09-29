@@ -96,7 +96,7 @@ export default function FrequencySetting({ value, onChange }: Props) {
               padding: '10px 14px',
               borderRadius: 8,
               transition: 'all 0.2s ease',
-              background: value === opt.value ? 'rgba(212, 160, 23, 0.08)' : 'transparent',
+              background: value === opt.value ? 'color-mix(in srgb, var(--accent-gold) 8%, transparent)' : 'transparent',
               border: `1px solid ${value === opt.value ? 'var(--accent-gold)' : 'var(--border-default)'}`,
               display: 'flex',
               alignItems: 'center',

@@ -358,13 +358,13 @@ export default function FundDetailPage() {
               padding: isMobile ? '1px 6px' : '2px 10px',
               fontSize: isMobile ? 9 : 12,
               background: isPending
-                ? 'rgba(250, 173, 20, 0.1)'
+                ? 'var(--status-pending-bg)'
                 : isBuy ? 'var(--gain-bg)' : 'var(--loss-bg)',
               color: isPending
-                ? '#d48806'
+                ? 'var(--status-pending)'
                 : isBuy ? 'var(--gain)' : 'var(--loss)',
               border: `1px solid ${isPending
-                ? 'rgba(250, 173, 20, 0.3)'
+                ? 'color-mix(in srgb, var(--status-pending) 30%, transparent)'
                 : isBuy ? 'var(--gain-border)' : 'var(--loss-border)'}`,
             }}
           >
@@ -451,7 +451,7 @@ export default function FundDetailPage() {
               whiteSpace: 'nowrap',
               maxWidth: '100%',
               display: 'inline-block',
-              color: isPending ? '#d48806' : undefined,
+              color: isPending ? 'var(--status-pending)' : undefined,
             }}
             title={'¥' + num.toLocaleString() + (isPending ? ' (待确认)' : '')}
           >
@@ -504,10 +504,10 @@ export default function FundDetailPage() {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
-      backgroundColor: isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(17, 24, 39, 0.95)',
-      borderColor: isLight ? 'rgba(148, 163, 184, 0.2)' : '#D4A84B',
+      backgroundColor: isLight ? 'rgba(251, 247, 240, 0.95)' : 'rgba(17, 24, 35, 0.95)',
+      borderColor: isLight ? 'rgba(63, 74, 52, 0.30)' : '#D9B863',
       borderWidth: 1,
-      textStyle: { color: isLight ? '#1E293B' : '#F1F5F9', fontSize: isMobile ? 11 : 13 },
+      textStyle: { color: isLight ? '#2B3128' : '#EDE8DC', fontSize: isMobile ? 11 : 13 },
       formatter: (params: any) => {
         const p = params[0];
         if (!p || p.value == null) return '';
@@ -516,10 +516,10 @@ export default function FundDetailPage() {
         // 查找排序后的原始净值用于tooltip显示
         const originalNav = sortedHistory[p.dataIndex]?.nav || sortedHistory[p.dataIndex]?.net_value || sortedHistory[p.dataIndex]?.净值 || '-';
         return `<div style="font-weight: 600; margin-bottom: ${isMobile ? '3px' : '4px'}; font-size: ${isMobile ? '12px' : '13px'};">${p.name}</div>
-                <div style="color: ${value >= 0 ? (isLight ? '#DC2626' : '#E53935') : (isLight ? '#16A34A' : '#43A047')}; font-weight: 600; font-size: ${isMobile ? '13px' : '14px'};">
+                <div style="color: ${value >= 0 ? (isLight ? '#C0432E' : '#E0574E') : (isLight ? '#3E7A5A' : '#3FA46A')}; font-weight: 600; font-size: ${isMobile ? '13px' : '14px'};">
                   收益率: ${sign}${value.toFixed(2)}%
                 </div>
-                <div style="color: ${isLight ? '#64748B' : '#94A3B8'}; font-size: ${isMobile ? '11px' : '12px'}; margin-top: ${isMobile ? '2px' : '4px'};">
+                <div style="color: ${isLight ? '#5C6353' : '#A69D8B'}; font-size: ${isMobile ? '11px' : '12px'}; margin-top: ${isMobile ? '2px' : '4px'};">
                   净值: ${originalNav}
                 </div>`;
       },
@@ -529,14 +529,14 @@ export default function FundDetailPage() {
       data: sortedDates,
       axisLabel: {
         fontSize: isMobile ? 9 : 11,
-        color: isLight ? '#64748B' : '#94A3B8',
+        color: isLight ? '#5C6353' : '#A69D8B',
         rotate: 0,  // ✅ 不旋转
         interval: isMobile && sortedDates.length > 15
           ? Math.floor(sortedDates.length / 6)  // ✅ 平均分布，显示约6个标签
           : xAxisConfig.interval,
         formatter: xAxisConfig.formatter,
       },
-      axisLine: { lineStyle: { color: isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' } },
+      axisLine: { lineStyle: { color: isLight ? 'rgba(63, 74, 52, 0.15)' : 'rgba(214, 182, 110, 0.12)' } },
       axisTick: { show: false },
     },
     yAxis: {
@@ -544,7 +544,7 @@ export default function FundDetailPage() {
       scale: true,
       axisLabel: {
         fontSize: isMobile ? 10 : 11,
-        color: isLight ? '#64748B' : '#94A3B8',
+        color: isLight ? '#5C6353' : '#A69D8B',
         formatter: (v: number) => {
           const sign = v >= 0 ? '+' : '';
           return `${sign}${v.toFixed(1)}%`;
@@ -552,7 +552,7 @@ export default function FundDetailPage() {
       },
       splitLine: {
         lineStyle: {
-          color: isLight ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+          color: isLight ? 'rgba(63, 74, 52, 0.10)' : 'rgba(214, 182, 110, 0.08)',
           type: 'dashed',
         },
       },
@@ -564,9 +564,9 @@ export default function FundDetailPage() {
       smooth: false,
       symbol: isMobile ? 'none' : 'none',
       lineStyle: {
-        color: isLight ? '#B8860B' : '#D4A84B',
+        color: isLight ? '#B4612F' : '#D9B863',
         width: isMobile ? 1.5 : 2,  // ✅ 折线变细
-        shadowColor: isLight ? 'rgba(184, 134, 11, 0.15)' : 'rgba(212, 168, 75, 0.25)',
+        shadowColor: isLight ? 'rgba(196, 112, 63, 0.15)' : 'rgba(217, 184, 99, 0.25)',
         shadowBlur: isMobile ? 4 : 8,
         shadowOffsetY: isMobile ? 2 : 4,
       },
@@ -575,9 +575,9 @@ export default function FundDetailPage() {
           type: 'linear',
           x: 0, y: 0, x2: 0, y2: 1,
           colorStops: [
-            { offset: 0, color: isLight ? 'rgba(184, 134, 11, 0.2)' : 'rgba(212, 168, 75, 0.25)' },
-            { offset: 0.5, color: isLight ? 'rgba(184, 134, 11, 0.06)' : 'rgba(212, 168, 75, 0.08)' },
-            { offset: 1, color: isLight ? 'rgba(184, 134, 11, 0.01)' : 'rgba(212, 168, 75, 0.01)' },
+            { offset: 0, color: isLight ? 'rgba(196, 112, 63, 0.2)' : 'rgba(217, 184, 99, 0.25)' },
+            { offset: 0.5, color: isLight ? 'rgba(196, 112, 63, 0.06)' : 'rgba(217, 184, 99, 0.08)' },
+            { offset: 1, color: isLight ? 'rgba(196, 112, 63, 0.01)' : 'rgba(217, 184, 99, 0.01)' },
           ],
         },
       },
@@ -589,7 +589,7 @@ export default function FundDetailPage() {
           {
             yAxis: 0, // 0%位置
             lineStyle: {
-              color: isLight ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.35)', // 灰色虚线
+              color: isLight ? 'rgba(63, 74, 52, 0.30)' : 'rgba(214, 182, 110, 0.22)', // 灰色虚线
               width: 1,
               type: 'dashed',
             },
@@ -598,7 +598,7 @@ export default function FundDetailPage() {
               position: 'insideEndTop',
               formatter: '0%',
               fontSize: isMobile ? 10 : 11,
-              color: isLight ? '#64748B' : '#94A3B8',
+              color: isLight ? '#5C6353' : '#A69D8B',
               fontWeight: 500,
             },
           },
@@ -646,7 +646,7 @@ export default function FundDetailPage() {
               symbol: 'circle',
               symbolSize: isMobile ? 6 : 8,
               itemStyle: {
-                color: t.type === 'buy' ? (isLight ? '#DC2626' : '#EF4444') : (isLight ? '#16A34A' : '#22C55E'),
+                color: t.type === 'buy' ? (isLight ? '#C0432E' : '#E0574E') : (isLight ? '#3E7A5A' : '#3FA46A'),
                 borderColor: isLight ? '#fff' : 'transparent',  // ✅ 去掉白边
                 borderWidth: 0,               // ✅ 无边框
               },
@@ -664,8 +664,8 @@ export default function FundDetailPage() {
     dataZoom: [
       {
         type: 'inside',
-        backgroundColor: isLight ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)',
-        fillerColor: isLight ? 'rgba(184, 134, 11, 0.12)' : 'rgba(212, 168, 75, 0.15)',
+        backgroundColor: isLight ? 'rgba(63, 74, 52, 0.10)' : 'rgba(214, 182, 110, 0.08)',
+        fillerColor: isLight ? 'rgba(196, 112, 63, 0.12)' : 'rgba(217, 184, 99, 0.15)',
         borderColor: 'transparent',
       },
     ],
@@ -856,8 +856,8 @@ export default function FundDetailPage() {
         className="fund-detail-summary-card"
         style={{
           marginBottom: 12,  // ✅ 减小与上方模块的间距
-          background: isLight ? 'linear-gradient(135deg, rgba(184, 134, 11, 0.04), rgba(255, 255, 255, 0.9))' : 'linear-gradient(135deg, rgba(212, 168, 75, 0.05), rgba(17, 24, 39, 0.8))',
-          borderColor: isLight ? 'rgba(184, 134, 11, 0.12)' : 'rgba(212, 168, 75, 0.15)',
+          background: isLight ? 'linear-gradient(135deg, rgba(196, 112, 63, 0.05), rgba(251, 247, 240, 0.9))' : 'linear-gradient(135deg, rgba(217, 184, 99, 0.06), rgba(17, 24, 35, 0.8))',
+          borderColor: isLight ? 'rgba(196, 112, 63, 0.14)' : 'rgba(217, 184, 99, 0.16)',
           boxShadow: 'var(--shadow-lg)',
         }}
         styles={{ body: { padding: '20px 24px' } }}
@@ -1027,7 +1027,7 @@ export default function FundDetailPage() {
                 fontSize: 15,
                 fontWeight: 600,
                 borderRadius: 'var(--radius-md)',
-                boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
+                boxShadow: '0 4px 14px color-mix(in srgb, var(--accent-gold) 25%, transparent)',
               }}
             >
               {isMobile ? '加仓' : '买入加仓'}
@@ -1041,9 +1041,9 @@ export default function FundDetailPage() {
                 fontSize: 15,
                 fontWeight: 600,
                 borderRadius: 'var(--radius-md)',
-                backgroundColor: '#e3787d',
+                backgroundColor: 'var(--status-estimating)',
                 color: 'white',
-                border: '1px solid #e3787d',
+                border: '1px solid var(--status-estimating)',
               }}
             >
               {isMobile ? '减仓' : '卖出减仓'}
@@ -1075,7 +1075,7 @@ export default function FundDetailPage() {
                 fontSize: 15,
                 fontWeight: 600,
                 borderRadius: 'var(--radius-md)',
-                boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
+                boxShadow: '0 4px 14px color-mix(in srgb, var(--accent-gold) 25%, transparent)',
               }}
             >
               {isMobile ? '添加' : '添加持仓'}
@@ -1090,7 +1090,7 @@ export default function FundDetailPage() {
                 fontSize: 15,
                 fontWeight: 600,
                 borderRadius: 'var(--radius-md)',
-                boxShadow: '0 4px 14px rgba(212, 168, 75, 0.25)',
+                boxShadow: '0 4px 14px color-mix(in srgb, var(--accent-gold) 25%, transparent)',
               }}
             >
               {isMobile ? '新购' : '新购基金'}

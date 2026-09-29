@@ -254,10 +254,10 @@ export default function Header() {
                 style={{
                   border: favoritedCodes.has(f.code) || animatingStar === f.code ? '1px solid var(--accent-gold)' : '1px solid var(--border-default)',
                   color: favoritedCodes.has(f.code) || animatingStar === f.code ? 'var(--accent-gold)' : 'var(--text-muted)',
-                  background: favoritedCodes.has(f.code) || animatingStar === f.code ? 'rgba(212, 160, 23, 0.1)' : 'transparent',
+                  background: favoritedCodes.has(f.code) || animatingStar === f.code ? 'var(--accent-gold-dim)' : 'transparent',
                   transform: animatingStar === f.code ? 'scale(1.2)' : 'scale(1)',
                   transition: 'all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55)',
-                  boxShadow: animatingStar === f.code ? '0 0 12px rgba(212, 160, 23, 0.5)' : 'none',
+                  boxShadow: animatingStar === f.code ? '0 0 12px color-mix(in srgb, var(--accent-gold) 50%, transparent)' : 'none',
                 }}
               />
             </div>
@@ -299,9 +299,9 @@ export default function Header() {
           <BrandBadge size={isMobile ? 26 : 30} />
           <span
             style={{
-              fontWeight: 800,
-              fontSize: 19,
-              letterSpacing: '-0.02em',
+              fontWeight: 500,
+              fontSize: 17,
+              letterSpacing: '0.24em',
               marginLeft: 8,
               background: 'linear-gradient(135deg, var(--accent-gold), var(--accent-gold-light))',
               WebkitBackgroundClip: 'text',
@@ -400,8 +400,8 @@ export default function Header() {
               <svg width={isMobile ? 24 : 30} height={isMobile ? 28 : 35} viewBox="0 0 24 28">
                 <defs>
                   <linearGradient id="hdrSand" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0" stopColor="#F0D78C" />
-                    <stop offset="1" stopColor="#C79A3B" />
+                    <stop offset="0" style={{ stopColor: 'var(--accent-gold-light)' }} />
+                    <stop offset="1" style={{ stopColor: 'var(--accent-gold)' }} />
                   </linearGradient>
                 </defs>
                 {/* 瓶身实心底（凸显沙漏形状） */}
@@ -421,7 +421,7 @@ export default function Header() {
                   return <polygon points={`${12 - wBot / 2},${yBot} ${12 + wBot / 2},${yBot} 22,26 2,26`} fill="url(#hdrSand)" />;
                 })()}
                 {/* 瓶颈流沙亮点 */}
-                <rect x="11.2" y="12.6" width="1.6" height="2.2" fill="#E8C96A" opacity="0.95" />
+                <rect x="11.2" y="12.6" width="1.6" height="2.2" style={{ fill: 'var(--accent-gold-light)' }} opacity="0.95" />
                 {/* 瓶身描边（加粗，强化轮廓） */}
                 <path d="M2 2 L22 2 L12 13 Z M12 15 L22 26 L2 26 Z" fill="none" stroke="var(--hero-border-light)" strokeWidth="1.5" strokeLinejoin="round" />
               </svg>
@@ -470,8 +470,8 @@ export default function Header() {
             >
               <span key={themeMode} className="theme-icon-swap">
                 {themeMode === 'dark'
-                  ? <SunOutlined style={{ fontSize: isMobile ? 15 : 17, color: '#FFB300' }} />
-                  : <MoonOutlined style={{ fontSize: isMobile ? 15 : 17, color: '#C9D2E0' }} />}
+                  ? <SunOutlined style={{ fontSize: isMobile ? 15 : 17, color: 'var(--accent-gold)' }} />
+                  : <MoonOutlined style={{ fontSize: isMobile ? 15 : 17, color: 'var(--text-secondary)' }} />}
               </span>
             </div>
           </Tooltip>

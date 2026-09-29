@@ -97,12 +97,12 @@ export default function GroupSwitcher({ activeId, onChange }: GroupSwitcherProps
               fontSize: 13,
               letterSpacing: '0.01em',
               background: isActive
-                ? 'linear-gradient(135deg, var(--accent-gold), #C49A3F)'
+                ? 'linear-gradient(135deg, var(--accent-gold), var(--accent-gold-light))'
                 : 'var(--bg-card)',
-              color: isActive ? '#0B1120' : 'var(--text-primary)',
+              color: isActive ? 'var(--bg-base)' : 'var(--text-primary)',
               border: isActive ? 'none' : '1px solid var(--border-subtle)',
               boxShadow: isActive
-                ? '0 0 0 1px rgba(184,134,11,0.3), 0 2px 8px rgba(184,134,11,0.25), 0 0 24px rgba(184,134,11,0.06), inset 0 1px 0 rgba(255,255,255,0.2)'
+                ? '0 0 0 1px color-mix(in srgb, var(--accent-gold) 30%, transparent), 0 2px 8px color-mix(in srgb, var(--accent-gold) 25%, transparent), 0 0 24px color-mix(in srgb, var(--accent-gold) 6%, transparent), inset 0 1px 0 rgba(255,255,255,0.2)'
                 : '0 1px 2px rgba(0,0,0,0.03)',
               transition: 'all var(--transition-base)',
               transform: isActive ? 'scale(1.05)' : 'scale(1)',

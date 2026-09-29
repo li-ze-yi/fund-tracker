@@ -323,7 +323,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           e.currentTarget.style.borderColor = 'var(--accent-gold-dim)';
           e.currentTarget.style.background = 'var(--bg-row-hover)';
           e.currentTarget.style.transform = 'translateX(2px)';
-          e.currentTarget.style.boxShadow = '0 2px 10px rgba(212, 168, 75, 0.12), 0 0 0 1px var(--accent-gold-dim)';
+          e.currentTarget.style.boxShadow = '0 2px 10px color-mix(in srgb, var(--accent-gold) 12%, transparent), 0 0 0 1px var(--accent-gold-dim)';
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.borderColor = 'var(--border-subtle)';
@@ -503,7 +503,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
         e.currentTarget.style.borderColor = 'var(--accent-gold-dim)';
         e.currentTarget.style.background = 'var(--bg-row-hover)';
         e.currentTarget.style.transform = 'translateX(2px)';
-        e.currentTarget.style.boxShadow = '0 2px 10px rgba(212, 168, 75, 0.12), 0 0 0 1px var(--accent-gold-dim)';
+        e.currentTarget.style.boxShadow = '0 2px 10px color-mix(in srgb, var(--accent-gold) 12%, transparent), 0 0 0 1px var(--accent-gold-dim)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.borderColor = 'var(--border-subtle)';

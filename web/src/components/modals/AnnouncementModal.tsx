@@ -165,7 +165,7 @@ export default function AnnouncementModal() {
               fontWeight: 600,
               cursor: 'pointer',
               background: 'linear-gradient(135deg, var(--accent-gold), var(--accent-gold-light))',
-              color: '#111827',
+              color: 'var(--bg-base)',
               transition: 'all var(--transition-fast)',
               boxShadow: 'var(--shadow-sm)',
             }}
