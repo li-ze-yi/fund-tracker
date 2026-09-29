@@ -50,16 +50,17 @@ export default function App() {
   const isLight = themeMode === 'light';
   // 暗色模式使用 darkAlgorithm，避免 Ant Design 组件按浅色算法渲染导致界面偏白
   const antAlgorithm = isLight ? antTheme.defaultAlgorithm : antTheme.darkAlgorithm;
+  // 与 App.css 令牌保持一致：浅色「沙丘米白 F」/ 深色「墨金 V3」
   const antToken = {
-    colorPrimary: isLight ? '#8F6A06' : '#D4A84B',
-    borderRadius: 8,
-    colorBgContainer: isLight ? '#FFFFFF' : '#111827',
-    colorBgElevated: isLight ? '#FFFFFF' : '#111827',
-    colorBgLayout: isLight ? '#F7F8FA' : '#0B1120',
-    colorText: isLight ? '#1E293B' : '#F1F5F9',
-    colorTextSecondary: isLight ? '#64748B' : '#94A3B8',
-    colorBorder: isLight ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.14)',
-    colorBorderSecondary: isLight ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.08)',
+    colorPrimary: isLight ? '#3E4A33' : '#D9B863',
+    borderRadius: isLight ? 8 : 3,
+    colorBgContainer: isLight ? '#FBF7F0' : '#111823',
+    colorBgElevated: isLight ? '#FBF7F0' : '#111823',
+    colorBgLayout: isLight ? '#F2ECE1' : '#0A0E14',
+    colorText: isLight ? '#2B3128' : '#EDE8DC',
+    colorTextSecondary: isLight ? '#8C9182' : '#A69D8B',
+    colorBorder: isLight ? 'rgba(63, 74, 52, 0.30)' : 'rgba(214, 182, 110, 0.22)',
+    colorBorderSecondary: isLight ? 'rgba(63, 74, 52, 0.15)' : 'rgba(214, 182, 110, 0.12)',
   };
 
   if (!isInitialized) {

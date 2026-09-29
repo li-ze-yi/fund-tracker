@@ -265,14 +265,15 @@ export default function PortfolioPage() {
               gap: 14,
             }}>
               <div style={{ marginBottom: 2 }}>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.02em' }}>总资产</span>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 400, letterSpacing: '0.24em' }}>总资产</span>
                 <span
                   className="number-tabular gold-text-gradient"
                   onClick={toggleHideAmount}
                   style={{
                     fontSize: 'clamp(24px, 5vw, 34px)',
-                    fontWeight: 800,
-                    fontFamily: 'var(--font-mono)',
+                    fontWeight: 600,
+                    fontFamily: 'var(--font-serif)',
+                    letterSpacing: '-0.01em',
                     marginLeft: 10,
                     cursor: 'pointer',
                     userSelect: 'none',
@@ -287,30 +288,30 @@ export default function PortfolioPage() {
 
               <div style={{ display: 'flex', gap: 24, alignItems: 'flex-end' }}>
                 <div>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.02em' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 400, letterSpacing: '0.14em' }}>
                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: totalDaily >= 0 ? 'var(--gain)' : 'var(--loss)', display: 'inline-block', flexShrink: 0 }} />
                     当日收益
                   </span>
                   <span className="number-tabular" style={{
                     fontSize: 18,
-                    fontWeight: 700,
+                    fontWeight: 600,
                     color: totalDaily >= 0 ? 'var(--gain)' : 'var(--loss)',
-                    fontFamily: 'var(--font-mono)',
+                    fontFamily: 'var(--font-serif)',
                     marginLeft: 8,
                   }}>
                     {hideAmount ? '****' : `${animatedDaily >= 0 ? '+' : ''}¥${Math.abs(animatedDaily).toFixed(2)}`}
                   </span>
                 </div>
                 <div>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.02em' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 400, letterSpacing: '0.14em' }}>
                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: totalAccumulated >= 0 ? 'var(--gain)' : 'var(--loss)', display: 'inline-block', flexShrink: 0 }} />
                     累计收益
                   </span>
                   <span className="number-tabular" style={{
                     fontSize: 18,
-                    fontWeight: 700,
+                    fontWeight: 600,
                     color: totalAccumulated >= 0 ? 'var(--gain)' : 'var(--loss)',
-                    fontFamily: 'var(--font-mono)',
+                    fontFamily: 'var(--font-serif)',
                     marginLeft: 8,
                   }}>
                     {hideAmount ? '****' : `${animatedAccumulated >= 0 ? '+' : ''}¥${Math.abs(animatedAccumulated).toFixed(2)}`}
@@ -342,9 +343,10 @@ export default function PortfolioPage() {
             <div
               style={{
                 display: 'flex',
-                fontSize: 15,
-                color: 'var(--text-secondary)',
-                fontWeight: 700,
+                fontSize: 11,
+                color: 'var(--text-tertiary)',
+                fontWeight: 400,
+                letterSpacing: '0.22em',
               }}
             >
               {LIST_HEADER_COLS.map(col => (
@@ -368,10 +370,10 @@ export default function PortfolioPage() {
                   {col.key !== 'fund_name' && (
                     <span style={{ display: 'inline-flex', flexDirection: 'column', fontSize: 8, lineHeight: 0.85 }}>
                       <span style={{
-                        color: sortField === col.key && sortDir === 'asc' ? '#fbcc56' : 'var(--text-muted)',
+                        color: sortField === col.key && sortDir === 'asc' ? 'var(--accent-gold)' : 'var(--text-muted)',
                       }}>▲</span>
                       <span style={{
-                        color: sortField === col.key && sortDir === 'desc' ? '#fbcc56' : 'var(--text-muted)',
+                        color: sortField === col.key && sortDir === 'desc' ? 'var(--accent-gold)' : 'var(--text-muted)',
                       }}>▼</span>
                     </span>
                   )}

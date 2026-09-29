@@ -155,7 +155,7 @@ export default function InvestmentPlanPage() {
                   {plan.pending_count > 0 && (
                     <span className="plan-info-item">
                       <ClockCircleOutlined />
-                      <span className="plan-info-value" style={{ color: '#d48806' }}>{plan.pending_count}笔待确认</span>
+                      <span className="plan-info-value" style={{ color: 'var(--status-pending)' }}>{plan.pending_count}笔待确认</span>
                     </span>
                   )}
                 </div>

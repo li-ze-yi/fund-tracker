@@ -323,8 +323,8 @@ export default function ImageImportModal({ open, onClose, onSuccess }: Props) {
       <div style={{
         padding: '8px 12px',
         marginBottom: 12,
-        background: 'rgba(250, 173, 20, 0.1)',
-        border: '1px solid rgba(250, 173, 20, 0.3)',
+        background: 'var(--status-pending-bg)',
+        border: '1px solid color-mix(in srgb, var(--status-pending) 30%, transparent)',
         borderRadius: 'var(--radius-md, 6px)',
         fontSize: 12,
         color: 'var(--text-secondary)',

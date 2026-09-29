@@ -76,7 +76,7 @@ export default function BottomTabBar() {
               minHeight: 48,
               background: active ? 'linear-gradient(135deg, var(--accent-gold-dim), rgba(255,255,255,0.06))' : 'transparent',
               border: active ? '1px solid var(--accent-gold-dim)' : '1px solid transparent',
-              boxShadow: active ? '0 2px 10px rgba(212, 168, 75, 0.18), inset 0 1px 0 rgba(255,255,255,0.06)' : 'none',
+              boxShadow: active ? '0 2px 10px color-mix(in srgb, var(--accent-gold) 18%, transparent), inset 0 1px 0 rgba(255,255,255,0.06)' : 'none',
               transform: active ? 'translateY(-2px)' : 'translateY(0)',
             }}
             onMouseEnter={(e) => {
@@ -99,15 +99,15 @@ export default function BottomTabBar() {
               lineHeight: 1,
               display: 'block',
               transform: active ? 'scale(1.06)' : 'scale(1)',
-              filter: active ? 'drop-shadow(0 2px 4px rgba(212,168,75,0.3))' : 'none',
+              filter: active ? 'drop-shadow(0 2px 4px color-mix(in srgb, var(--accent-gold) 30%, transparent))' : 'none',
             }}>
               {tab.icon}
             </span>
             <span style={{
               fontSize: 11,
-              fontWeight: active ? 700 : 600,
+              fontWeight: active ? 700 : 500,
               color: active ? 'var(--accent-gold)' : 'var(--text-secondary)',
-              letterSpacing: '0.02em',
+              letterSpacing: '0.12em',
               transition: 'all var(--transition-fast)',
               lineHeight: 1.2,
             }}>
