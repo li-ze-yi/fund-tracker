@@ -137,7 +137,10 @@ exports.getByCode = async (req, res, next) => {
     if (effectiveMarketStatus.isMarketOpen) {
       try {
         const todayStr = getLocalToday();
-        const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+        // ★ 锚点感知兜底窗口 min(最近交易日−1, 今天−15)：固定 3 天窗口在"节前休市+周末"叠加时
+        // 拉不到节前最后交易日净值，且本接口写的是与持仓/兜底任务共用的 history_*_3d 缓存键，
+        // 用窄窗口写入会污染缓存（仅 1 条净值 → 昨日净值缺失 → 当日盈亏被算成市值）
+        const historyStart = await holdingService.getHistoryFallbackStartDate(todayStr);
         // ★ 统一缓存统计：真实请求按 checkCache 统计（命中 hit / 未命中 miss），未命中才外部拉取，拉取后写回 3d 历史缓存
         // ★ 改用 getOrFetch：单飞 + 全局并发护栏；空数组返回 null 以便不写缓存（与原逻辑一致）
         const historyCacheKey = `history_${code}_3d_${todayStr}`;
@@ -146,7 +149,7 @@ exports.getByCode = async (req, res, next) => {
           history = await globalCache.getOrFetch(
             historyCacheKey,
             async () => {
-              const rows = await fundService.getHistoryNetValues(code, threeDaysAgo, todayStr);
+              const rows = await fundService.getHistoryNetValues(code, historyStart, todayStr);
               return rows && rows.length > 0 ? rows : null;
             },
             { type: 'history_recent' }
@@ -154,17 +157,19 @@ exports.getByCode = async (req, res, next) => {
         } catch (e) { /* 拉取失败按无历史处理 */ }
 
         if (history && history.length > 0) {
-          const todayStr2 = getLocalToday();
           // history 是从新到旧排列
           const latestRecord = history[0];
-          if (latestRecord && latestRecord.date === todayStr2) {
+          // ★ 统一确认判定（与持仓页同口径）：A股/港股=最新净值日=今天或昨天；
+          //   仅美股方向 QDII = 最新净值日 = 今天的前一个 A 股交易日（按基金名称识别美股系）
+          const anchorOfToday = await holdingService.getLatestTradingDayAnchor(todayStr);
+          if (latestRecord && holdingService.isNavConfirmed(latestRecord.date, fund && fund.type, hour, todayStr, anchorOfToday, fund && fund.name)) {
             isConfirmed = true;
             confirmedNav = parseFloat(latestRecord.nav) || 0;
             // 取昨日净值（history[1]）
             if (history.length > 1) {
               yesterdayNav = parseFloat(history[1].nav) || 0;
             }
-            logger.info(`基金 ${code} 今天已有确认净值: ${confirmedNav}, 昨日净值: ${yesterdayNav}`);
+            logger.info(`基金 ${code} 已有确认净值: ${confirmedNav} (净值日 ${latestRecord.date}), 昨日净值: ${yesterdayNav}`);
           }
         }
       } catch (error) {
@@ -334,6 +339,8 @@ exports.batchGetInfo = async (req, res, next) => {
     const today = getLocalToday();
     // ★ 锚点感知兜底窗口（覆盖长假）：startDate = 最近交易日 − 1 天；交易日历不可用时回退 today-3
     const fallbackStartDate = await holdingService.getHistoryFallbackStartDate(today);
+    // 今天的前一个 A 股交易日：QDII（美股等披露晚一个交易日）的确认判定基准，整个请求只回溯一次
+    const anchorOfToday = await holdingService.getLatestTradingDayAnchor(today);
 
     // ★ 全天休市检测（周末/法定节假日）：权威信号为 isTradingDay === false，
     // 不能以 marketStatus.reason==='holiday' 判定（交易日盘后也会返回该值）
@@ -497,7 +504,9 @@ exports.batchGetInfo = async (req, res, next) => {
 
       const latestHistoryNav = history.length > 0 ? parseFloat(history[0].nav) || 0 : 0;
       const latestHistoryDate = history.length > 0 ? history[0].date : null;
-      const isConfirmed = latestHistoryDate === today;
+      // ★ 统一确认判定（与持仓页同口径）：A股/港股=最新净值日=今天或昨天；
+      //   仅美股方向 QDII = 最新净值日 = 今天的前一个 A 股交易日（按基金名称识别美股系）
+      const isConfirmed = holdingService.isNavConfirmed(latestHistoryDate, fund && fund.type, now.getHours(), today, anchorOfToday, fund && fund.name);
       const yesterdayNav = history.length > 1 ? parseFloat(history[1].nav) || 0 : 0;
 
       const fundMarketStatus = holdingService.getFundMarketStatus(realTime, marketStatus);

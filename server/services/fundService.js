@@ -83,6 +83,22 @@ const getTimestamp = () => {
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 };
 
+/**
+ * 历史净值接口的兜底拉取起始日期（固定 15 天窗口）
+ *
+ * 为什么不能用固定 3 天：窗口起点若落在"节前休市日"上（如 2026-09-25 中秋休市 + 09-26/27 周末），
+ * 节前最后交易日（09-24）就被排除在窗口外，接口只剩当天一条净值 → "昨日净值"缺失，
+ * 当日盈亏会被算成持仓市值、盘中估算也失去基准。
+ *
+ * 为什么不用 holdingService.getHistoryFallbackStartDate：它依赖交易日历，而 holdingService
+ * 依赖本模块（holdingService → fundService），反向 require 会形成循环依赖。
+ * 且该函数口径为 min(最近交易日−1, 今天−15)——只有连休超过 14 天才可能早于"今天−15"，
+ * 现实中不存在（春节连休约 10 天），故固定 15 天与之等价，且无需逐日查询节假日接口。
+ */
+function getHistoryFetchStartDate() {
+  return normalizeDateStr(new Date(Date.now() - 15 * 24 * 60 * 60 * 1000));
+}
+
 // 天天基金移动端API请求头（模拟天天基金APP）
 const MOBILE_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
@@ -101,9 +117,10 @@ async function getRealTimeValueRaw(fundCode) {
   try {
     const refererUrl = `http://fundf10.eastmoney.com/jjjz_${fundCode}.html`;
     const today = getLocalToday();
-    const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+    // ★ 15 天窗口兜底：3 天窗口在"节前休市+周末"叠加后拉不到节前最后交易日净值（详见 getHistoryFetchStartDate）
+    const historyStart = getHistoryFetchStartDate();
     const { data } = await axios.get(
-      `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=2&startDate=${threeDaysAgo}&endDate=${today}`,
+      `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=2&startDate=${historyStart}&endDate=${today}`,
       { timeout: TIMEOUT, headers: defaultHeaders(refererUrl) }
     );
     if (data && data.Data && data.Data.LSJZList && data.Data.LSJZList.length) {
@@ -536,6 +553,17 @@ function getFundUsIndexCode(fundName = '') {
 }
 
 /**
+ * 按基金名称识别"美股方向"（美股系 QDII 的口径专用：净值披露比 A 股晚一个交易日）
+ * 仅用于确认判定/估值口径的分支选择，不用于持仓方向判定（那个以持仓里是否含字母代码为准）。
+ * 关键词 = 美指映射那套 + 美国/美股 + 中概类（中概互联/海外中国互联网，投美股 ADR）
+ *        + 全球成长（易方达/万家的全球成长精选，重仓美股）。
+ * 刻意不加"全球/环球/国际"：那会扫进 159 只 QDII（含大量债券型），会让它们误获美股放宽。
+ */
+function isUsFundByName(fundName = '') {
+  return /纳斯达克|纳指|NDX|标普|SP500|S&P|500指数|道琼斯|道指|工业指数|DJI|美国|美股|中概|中国互联网|全球成长/i.test(fundName || '');
+}
+
+/**
  * 日期减法（date-only 字符串）：返回 YYYY-MM-DD，处理跨月/跨年
  */
 function subDaysStr(dateStr, days) {
@@ -602,6 +630,44 @@ async function getIndexChange(indexCode) {
     }
   } catch (e) { /* fall through */ }
   return null;
+}
+
+// 美指日线累计涨跌缓存（同一"指数+起止日"短时间内复用；5 分钟足够——白天美股休市，收盘价不变）
+const indexKlineDayCache = createTtlCache({ ttl: 5 * 60 * 1000, maxSize: 20 });
+
+/**
+ * 通用指数"从 fromDate 到 toDate"的累计涨跌幅（腾讯美股指数日线 usfqkline）
+ * 用于美股 QDII 在"确认净值日落后多场"时的估算：实时行情接口只给最近一交易日的涨跌幅，
+ * 补不了跨周末/假期后的多场缺口（如确认净值日 09-24、指数最新交易日 09-28 → 缺 09-25 + 09-28 两场）。
+ * 日线行格式：[日期, 开, 收, 高, 低, 量…]
+ * @returns {number|null} 累计涨跌幅（%）；取不到返回 null（调用方回退保守逻辑）
+ */
+async function getIndexCumulativeChange(indexCode, fromDate, toDate) {
+  const key = `${indexCode}_${fromDate}_${toDate}`;
+  const cached = indexKlineDayCache.get(key);
+  if (cached !== null) return cached.value;
+  try {
+    const { data } = await axios.get(
+      `http://web.ifzq.gtimg.cn/appstock/app/usfqkline/get?param=${indexCode},day,,,60,qfq`,
+      { timeout: 5000, headers: { 'User-Agent': 'Mozilla/5.0' } }
+    );
+    const rows = data?.data?.[indexCode]?.day || [];
+    const closeOf = (d) => {
+      const row = rows.find(x => String(x[0]) === d);
+      return row ? parseFloat(row[2]) : null;
+    };
+    const c0 = closeOf(fromDate);
+    const c1 = closeOf(toDate);
+    if (!c0 || !c1 || c0 <= 0) {
+      indexKlineDayCache.set(key, { value: null, ts: Date.now() });
+      return null;
+    }
+    const val = parseFloat(((c1 / c0 - 1) * 100).toFixed(2));
+    indexKlineDayCache.set(key, { value: val, ts: Date.now() });
+    return val;
+  } catch (e) {
+    return null;
+  }
 }
 
 /**
@@ -769,9 +835,10 @@ async function getHoldingsEstimatedValue(fundCode) {
   // 基于加权涨跌幅估算净值：需要前一日确认净值
   try {
     const today = getLocalToday();
-    const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+    // ★ 15 天窗口兜底：3 天窗口在"节前休市+周末"叠加后取不到节前最后交易日确认净值，估算失去基准
+    const historyStart = getHistoryFetchStartDate();
     const { data } = await axios.get(
-      `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=1&startDate=${threeDaysAgo}&endDate=${today}`,
+      `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=1&startDate=${historyStart}&endDate=${today}`,
       { timeout: TIMEOUT, headers: defaultHeaders(`http://fundf10.eastmoney.com/jjjz_${fundCode}.html`) }
     );
     if (data && data.Data && data.Data.LSJZList && data.Data.LSJZList.length) {
@@ -1075,29 +1142,46 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
   const isHkFund = !isUsFund && holdings.some(h => /^\d{5}$/.test(h.code));
   const usIndexCode = isUsFund ? getFundUsIndexCode(options.fundName) : null;
 
-  // 3.6 美股增量规则（避免重复计入昨晚已计入确认净值的涨跌）：
+  // 3.6 美股增量规则（避免重复计入确认净值里已包含的涨跌）：
   //     解析美股指数时间戳得最新美股交易日 T；比较确认净值日 D：
-  //       D == T        → 美股部分增量 0（白天美股未开盘，最新变动已计入确认净值，估算恒定）
+  //       D >= T                → 美股部分增量 0（最新一场已计入确认净值）
   //       D == T 的前一美股交易日 → 美股部分增量 = 最近交易日涨跌（确认净值尚未包含）
-  //       D 更早         → 不叠加（回退展示最新确认净值）
+  //       D 更早（跨周末/假期后常见）→ 用指数日线算"D → T"的累计涨跌（覆盖中间所有场次）
+  //     日线取不到 → 回退归零（保守，宁可少算不算错）
   let usZeroed = false;
   let usIndexData = null;
+  let usGapIncrement = null; // 多场缺口时的累计涨跌（%）；null = 不适用/取不到
   if (isQdii && isUsFund) {
     usIndexData = benchmarks?.usIndexMap?.[usIndexCode] || benchmarks?.usIndex || (await getIndexChange(usIndexCode).catch(() => null));
     const T = usIndexData?.date || null;
     const D = options.confirmedNavDate || null;
     usZeroed = !(D && T && String(D) === getPrevUsTradingDay(T)); // 仅 D==T的前一美股交易日时不禁用美股增量
     if (usIndexData) logger.info(`${fundCode} 板块指数=${usIndexCode} 美股交易日T=${T} 确认净值日D=${D} usZeroed=${usZeroed}`);
+    // 落后 ≥ 2 场：单场涨跌幅补不了，改取指数日线累计涨跌（如 09-24 → 09-28 = 09-25 + 09-28 两场）
+    if (usZeroed && D && T && String(D) < String(T)) {
+      const cum = await getIndexCumulativeChange(usIndexCode, String(D), String(T));
+      if (cum != null) {
+        usGapIncrement = cum;
+        logger.info(`${fundCode} 美股多场累计(${usIndexCode}): ${D} → ${T} = ${cum}%`);
+      } else {
+        logger.warn(`${fundCode} 美股累计涨跌不可用(${usIndexCode} ${D} → ${T})，回退归零`);
+      }
+    }
   }
 
-  // 4. 计算已覆盖贡献 & 缺失股票权重（usZeroed 时美股个股权重增量置0）
+  // 4. 计算已覆盖贡献 & 缺失股票权重（美股：多场缺口按累计涨跌；仅差一场时按个股最新涨跌；
+  //    净值已含最新场次时置 0）
   let coveredContribution = 0;
   let missingStockWeight = 0;
 
   for (const h of holdings) {
     const q = stockQuotes[h.code];
     if (q && q.changePercent != null) {
-      const cp = (usZeroed && /^[A-Z]/.test(h.code)) ? 0 : q.changePercent;
+      let cp = q.changePercent;
+      if (isQdii && isUsFund && /^[A-Z]/.test(h.code)) {
+        if (usGapIncrement != null) cp = usGapIncrement;
+        else if (usZeroed) cp = 0;
+      }
       coveredContribution += h.ratio * cp;
     } else {
       missingStockWeight += h.ratio;
@@ -1110,7 +1194,9 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
   let benchmarkReturn = 0;
   if (missingStockWeight > 0 || (isQdii && (isUsFund || isHkFund))) {
     if (isQdii && isUsFund) {
-      benchmarkReturn = usZeroed ? 0 : (benchmarks?.usIndexMap?.[usIndexCode]?.changePercent ?? usIndexData?.changePercent ?? 0);
+      benchmarkReturn = usGapIncrement != null
+        ? usGapIncrement
+        : (usZeroed ? 0 : (benchmarks?.usIndexMap?.[usIndexCode]?.changePercent ?? usIndexData?.changePercent ?? 0));
       logger.info(`${fundCode} 缺失股票权重=${missingStockWeight.toFixed(2)}%, ${usIndexCode}=${benchmarkReturn}%`);
     } else if (isQdii && isHkFund) {
       const hkIndexData = benchmarks.hkIndex || (await getIndexChange('hkHSI').catch(() => null));
@@ -1216,9 +1302,10 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
   // 9. confirmedNav 不可用 → 回退到 lsjz API 获取昨日净值
   try {
     const today = getLocalToday();
-    const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+    // ★ 15 天窗口兜底：3 天窗口在"节前休市+周末"叠加后取不到节前最后交易日净值，回退失效
+    const historyStart = getHistoryFetchStartDate();
     const { data } = await axios.get(
-      `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=1&startDate=${threeDaysAgo}&endDate=${today}`,
+      `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=1&startDate=${historyStart}&endDate=${today}`,
       { timeout: TIMEOUT, headers: defaultHeaders(`http://fundf10.eastmoney.com/jjjz_${fundCode}.html`) }
     );
     if (data?.Data?.LSJZList?.length) {
@@ -1686,6 +1773,7 @@ module.exports = {
   getHistoryNetValues,
   getFundInfo,
   getAllFunds,
+  isUsFundByName,
   // 批量接口
   batchGetSinaEstimatedValues,
   batchGetFundmobapiInfo,

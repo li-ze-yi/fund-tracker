@@ -184,8 +184,11 @@ class DailyProfitService {
   /**
    * ★ 兜底任务专用：仅基于历史确认净值直算日收益（不调用任何实时估值接口）
    * 23:55 A股已收盘，实时估值无意义；此方法只拉历史净值，按确认净值差直算当日盈亏
+   * @param {number} userId
+   * @param {Array} holdings
+   * @param {object} [options] { date } 指定重算日期（供一次性修复脚本使用，缺省为本地今天）
    */
-  async calculateAndSaveDailyProfitFromConfirmedNav(userId, holdings) {
+  async calculateAndSaveDailyProfitFromConfirmedNav(userId, holdings, options = {}) {
     try {
       if (!holdings || holdings.length === 0) {
         logger.info(`用户 ${userId} 无持仓，跳过`);
@@ -193,7 +196,8 @@ class DailyProfitService {
       }
 
       const now = new Date();
-      const today = getLocalToday();
+      // ★ options.date：仅供一次性修复脚本重算历史日期使用，缺省为本地今天
+      const today = options.date || getLocalToday();
       const cacheKey = `${userId}_${today}`;
 
       const lastUpdate = this.lastUpdateCache.get(cacheKey);
@@ -207,16 +211,21 @@ class DailyProfitService {
       logger.info(`===== 开始处理用户 ${userId} (${today}) [确认净值直算] =====`);
 
       // ★ 只拉历史净值，不调用任何实时估值接口
-      // 优先使用缓存：命中且缓存中最新净值日期 === today 才直接复用（避免白天未含今日净值的旧缓存导致 isConfirmed 误判）
+      // 优先使用缓存：命中且缓存中最新净值日期 === today 才直接复用（避免复用未含今日净值的旧缓存；
+      // QDII 最新净值日通常早于今天 → 天然不吃缓存，每次重新拉取以确认"今天有没有新披露"）
       // 未命中或缓存中无今日净值 → 调 API 拉取并回写缓存（与 enrichHoldingsWithRealTimeData 共享同一 cacheKey，盘中已缓存的兜底可直接复用）
       const fundCodes = holdings.map(h => h.fund_code);
-      const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+      // ★ 锚点感知兜底窗口 min(最近交易日−1, 今天−15)：固定 3 天窗口在"节前休市 + 周末"叠加时
+      // （如 2026-09-25 中秋休市 + 09-26/27 周末，前一个交易日为 09-24）覆盖不到节前最后交易日净值
+      const threeDaysAgo = await holdingService.getHistoryFallbackStartDate(today);
       const historyMap = {};
       const needFetch = [];
       for (const code of fundCodes) {
         const cacheKey = `history_${code}_3d_${today}`;
         const result = await globalCache.checkCache(cacheKey, 'history_recent');
-        if (result.hit && result.data && result.data.length > 0 && result.data[0].date === today) {
+        // ★ 要求缓存至少含"今日 + 昨日"两条：仅 1 条的缓存（长假窗口拉窄 / 单只基金详情接口写入的窄窗口）
+        // 无法算出当日盈亏，必须重新拉取，否则 history[1] 缺失会让当日盈亏退化为持仓市值
+        if (result.hit && result.data && result.data.length > 1 && result.data[0].date === today) {
           historyMap[code] = result.data;
         } else {
           needFetch.push(code);
@@ -238,7 +247,8 @@ class DailyProfitService {
         logger.info(`历史净值: 全部缓存命中 ${fundCodes.length}/${fundCodes.length}`);
       }
 
-      // ★ 批量查询基金类型（识别 QDII/海外：其确认净值合法滞后 A 股 1-2 天，需放宽"已确认"判定）
+      // ★ 批量查询基金类型：识别 QDII/海外（其收益按"披露日"记账，判定口径与 A 股不同）
+      //   与货币基金（按日计息、节假日照常公布净值，基准取前一条已公布净值日）
       let fundTypeMap = {};
       try {
         const fundRows = await Fund.findByCodes(fundCodes);
@@ -249,17 +259,21 @@ class DailyProfitService {
         logger.warn(`批量查询基金类型失败，QDII 识别降级为严格判定: ${e.message}`);
       }
 
-      // ★ 读取最近一条日收益记录中各基金已计入的净值日期（nav_date）：
-      // QDII 净值停滞（美股节假日等）时最新净值日期未推进 → 跳过防重复计入
-      let prevNavDateMap = {};
+      // ★ 取"严格早于今天"的最近一条记录作为参照（而非含当天的最近一条）：
+      // ① "上次已计入净值"必须来自上一天及更早的记录——若把当天（盘中生成的）部分记录算进来，
+      //    会把当天净值当成"上次已计入"，算出 0 或重复计入
+      // ② 当天记录被 upsert 覆盖式重算，用当天记录作参照会自我循环
+      let prevFundMap = {};
       try {
-        const prevRecord = await DailyProfit.findLatestByUserId(userId);
+        const prevRecord = await DailyProfit.findLatestBeforeDate(userId, today);
         if (prevRecord && prevRecord.details) {
           let pd = prevRecord.details;
           if (typeof pd === 'string') pd = JSON.parse(pd);
           if (pd && Array.isArray(pd.funds)) {
             for (const f of pd.funds) {
-              if (f && f.fund_code && f.nav_date) prevNavDateMap[f.fund_code] = f.nav_date;
+              if (f && f.fund_code && f.nav_date) {
+                prevFundMap[f.fund_code] = { date: f.nav_date, nav: parseFloat(f.net_value) || 0 };
+              }
             }
           }
         }
@@ -292,36 +306,92 @@ class DailyProfitService {
       let totalDailyProfit = 0;
       const fundsDetails = [];
 
+      // 上一交易日按给定日期回溯，同一日期的基金复用同一次回溯（避免逐只重复查交易日历）
+      const prevTradingDayCache = new Map();
+      const getPrevTradingDay = async (dateStr) => {
+        if (!dateStr) return null;
+        if (!prevTradingDayCache.has(dateStr)) {
+          prevTradingDayCache.set(dateStr, await holdingService.getLatestTradingDayAnchor(dateStr));
+        }
+        return prevTradingDayCache.get(dateStr);
+      };
+      // 今天的"上一交易日"锚点：用于识别净值陈旧（停更 / 尚无净值数据）的基金；
+      // 交易日历不可用时降级为"昨天"，此时 QDII 会退回旧的严格判定（宁可少算不算错）
+      const anchorOfToday = await getPrevTradingDay(today)
+        || normalizeDateStr(new Date(new Date(today + 'T00:00:00').getTime() - 24 * 3600 * 1000));
+
       for (const holding of holdings) {
         const fundCode = holding.fund_code;
         const history = historyMap[fundCode] || [];
-        const latestHistoryDate = history.length > 0 ? history[0].date : null;
-        // ★ QDII/海外基金：与展示"盘后已确认"口径一致——最新净值日期 = 昨天（今晚已公布）才视为确认参与。
-        // 不再用 ≤2 天放宽：美股节假日/净值停滞时最新净值日 ≠ 昨天，今天确无新增确认收益，不参与。
-        const isQDII = holdingService.isQdiiFundType(fundTypeMap[fundCode]);
-        const yesterdayStr = normalizeDateStr(new Date(new Date(today + 'T00:00:00').getTime() - 24 * 3600 * 1000));
-        const isConfirmed = latestHistoryDate === today ||
-          (isQDII && latestHistoryDate === yesterdayStr);
+        const latestNavDate = history.length > 0 ? history[0].date : null;
+        const todayNav = history.length > 0 ? (parseFloat(history[0].nav) || 0) : 0;
+        const fundType = fundTypeMap[fundCode];
+        const isQDII = holdingService.isQdiiFundType(fundType);
+        // 上一条日收益记录里该基金已计入的确认净值 { date, nav }（= "上次已计入"口径）
+        const prevCounted = prevFundMap[fundCode];
 
-        // 未确认基金（A 股最新净值 < 今天；QDII 最新净值日 ≠ 昨天）不参与计算
-        if (!isConfirmed) {
+        if (!latestNavDate || todayNav <= 0) {
           unconfirmedFunds.push(holding);
           continue;
         }
 
-        // ★ 净值日去重（仅 QDII）：净值停滞（美股节假日等）时最新净值日期未推进 → 跳过，防止重复计入同一净值差。
-        // 仅对 QDII 生效；A 股最新净值日总是今天，保持原逻辑（每天按当天净值覆盖重算，不受去重影响）
-        const prevNavDate = prevNavDateMap[fundCode];
-        if (isQDII && prevNavDate && latestHistoryDate && latestHistoryDate <= prevNavDate) {
-          logger.debug(`${fundCode}: 最新净值日 ${latestHistoryDate} 未推进(上次计入 ${prevNavDate})，跳过防重复`);
+        // ★ 是否计入今天的收益：按该基金"是否当天披露当天净值"分为两类
+        //   （用"最新净值日是否 = 今天"判定，不对基金名做硬编码分类：
+        //     港股类 QDII 当天披露当天净值 → 自然与 A 股同口径；仅美股等有时差的 QDII 会落后 1~2 天）
+        //   ① 同日披露（A股/债券/货币/港股类 QDII）：最新净值日 = 今天才算已确认
+        //   ② 滞后披露（美股等 QDII）：按"披露当天"记账（如 09-28 晚披露 09-24 净值 → 记入 09-28），
+        //      判定依据是"今天有没有新披露"，与净值所属日无关
+        //   ③ 境内基金当日净值尚未披露 → 今天不计入
+        let baseNav = 0;        // 基准净值（相邻两次披露之差中的前一次）
+        let baseNavDate = null;
+        if (latestNavDate === today) {
+          // 基准净值日：货币基金按日计息、节假日照常公布净值 → 取前一条已公布净值日；
+          // 其余基金 = 上一交易日锚点；锚点日期在该基金序列中缺失（跳过估值）时回退自身前一条已公布净值日
+          baseNavDate = holdingService.isMoneyFundType(fundType)
+            ? (history[1] ? history[1].date : null)
+            : (await getPrevTradingDay(latestNavDate) || (history[1] ? history[1].date : null));
+          baseNav = this._pickNavByDate(history, baseNavDate);
+          if (baseNav <= 0) {
+            baseNav = this._resolveYesterdayNavFromDb(holding, prevCounted, baseNavDate);
+            if (baseNav > 0) {
+              logger.info(`[基准净值DB兜底] fund=${fundCode}: history=${history.length}条，采用 DB 值 ${baseNav} (${baseNavDate}=基准净值日)`);
+            }
+          }
+        } else if (isQDII) {
+          // ① 净值陈旧（早于上一个交易日）→ 停更 / 尚无净值数据，不计入
+          if (anchorOfToday && latestNavDate < anchorOfToday) {
+            unconfirmedFunds.push(holding);
+            continue;
+          }
+          // ② 最新净值日未推进 = 今天没有新披露 → 不计入，保持"待更新"（同时防重复计入同一净值差）
+          if (prevCounted && prevCounted.date && latestNavDate <= prevCounted.date) {
+            logger.debug(`${fundCode}: 最新净值日 ${latestNavDate} 未推进(上次已计入 ${prevCounted.date})，今日无新披露，不计入`);
+            unconfirmedFunds.push(holding);
+            continue;
+          }
+          // ③ 基准 = 上次已计入的净值（相邻两次披露之差，即平台"昨日净值 − 上个交易日净值"口径）；
+          //    首次记录（无历史明细）时退回"上一交易日"锚点
+          if (prevCounted && prevCounted.nav > 0) {
+            baseNav = prevCounted.nav;
+            baseNavDate = prevCounted.date;
+          } else {
+            baseNavDate = await getPrevTradingDay(latestNavDate) || (history[1] ? history[1].date : null);
+            baseNav = this._pickNavByDate(history, baseNavDate);
+            if (baseNav <= 0) baseNav = this._resolveYesterdayNavFromDb(holding, null, baseNavDate);
+          }
+        } else {
           unconfirmedFunds.push(holding);
+          continue;
+        }
+
+        if (baseNav <= 0) {
+          unconfirmedFunds.push(holding);
+          logger.warn(`[基准净值缺失] fund=${fundCode}: 最新净值日=${latestNavDate}，基准日=${baseNavDate || '未知'}，history=${history.length}条且 DB 无该日净值，跳过该基金`);
           continue;
         }
 
         const shares = parseFloat(holding.shares) || 0;
         const costPrice = parseFloat(holding.cost_price) || 0;
-        const todayNav = parseFloat(history[0].nav) || 0;
-        const yesterdayNav = history[1] ? (parseFloat(history[1].nav) || 0) : 0;
 
         // ★ 回写确认净值到 holdings（保证 DB confirmed_nav 新鲜，供盘中估算三级解析命中 DB/缓存）
         // 幂等：todayNav<=0 或 DB 日期已不早于最新确认交易日时不写库，重复运行不覆盖更新的值
@@ -333,11 +403,11 @@ class DailyProfitService {
             const dbNavDate = holding.confirmed_nav_date
               ? this._normalizeDateStr(holding.confirmed_nav_date)
               : null;
-            if (!dbNavDate || dbNavDate < latestHistoryDate) {
-              logger.info(`[回写确认净值] fund=${fundCode}, nav=${todayNav}, date=${latestHistoryDate}, 回写 holdings`);
+            if (!dbNavDate || dbNavDate < latestNavDate) {
+              logger.info(`[回写确认净值] fund=${fundCode}, nav=${todayNav}, date=${latestNavDate}, 回写 holdings`);
               Holding.update(holding.id, holding.user_id, {
                 confirmedNav: todayNav,
-                confirmedNavDate: latestHistoryDate
+                confirmedNavDate: latestNavDate
               }).catch(err => {
                 logger.error(`[回写确认净值] 失败 fund=${fundCode}, holdingId=${holding.id}: ${err.message}`);
               });
@@ -357,17 +427,17 @@ class DailyProfitService {
 
         confirmedFunds.push(holding);
 
-        const dailyProfit = yesterdayShares * (todayNav - yesterdayNav);
+        const dailyProfit = yesterdayShares * (todayNav - baseNav);
         const marketValue = shares * todayNav;
         const totalCostForFund = shares * costPrice;
-        const gainPercent = yesterdayNav > 0 ? ((todayNav - yesterdayNav) / yesterdayNav) * 100 : 0;
+        const gainPercent = baseNav > 0 ? ((todayNav - baseNav) / baseNav) * 100 : 0;
 
         totalMarketValue += marketValue;
         totalCost += totalCostForFund;
         totalDailyProfit += dailyProfit;
         confirmedProfits.push(dailyProfit);
 
-        logger.debug(`${fundCode}: 今日净值=${todayNav}, 昨日净值=${yesterdayNav}, 当日盈亏=¥${dailyProfit.toFixed(2)}`);
+        logger.debug(`${fundCode}: 今日净值=${todayNav}, 基准净值=${baseNav}(${baseNavDate}), 当日盈亏=¥${dailyProfit.toFixed(2)}`);
 
         fundsDetails.push({
           fund_code: fundCode,
@@ -381,7 +451,7 @@ class DailyProfitService {
           gain_percent: Math.round(gainPercent * 10000) / 10000,
           data_source: 'actual',
           update_status: 'confirmed',
-          nav_date: latestHistoryDate
+          nav_date: latestNavDate
         });
       }
 
@@ -707,6 +777,44 @@ class DailyProfitService {
    */
   _normalizeDateStr(dateVal) {
     return normalizeDateStr(dateVal);
+  }
+
+  /**
+   * 从历史净值数组中按日期精确取净值（不按数组位置取 history[1]）：
+   * 历史数组按日期倒序，但一旦某日净值缺失/重复，位置取值就会取错日期，必须按日期匹配。
+   * @param {Array} history 历史净值数组 [{ date, nav }]
+   * @param {string|null} date 目标日期
+   * @returns {number} 该日净值；无匹配返回 0
+   */
+  _pickNavByDate(history, date) {
+    if (!date || !Array.isArray(history)) return 0;
+    const matched = history.find(h => h && h.date === date);
+    return matched ? (parseFloat(matched.nav) || 0) : 0;
+  }
+
+  /**
+   * 昨日净值 DB 兜底：history 中缺失"昨日净值日"净值时，从数据库取该日期的净值
+   * 候选来源：
+   *   ① holdings.confirmed_nav / confirmed_nav_date（该用户该持仓最近一次确认净值）
+   *   ② 上一条 daily_profits.details 中该基金的 net_value / nav_date
+   * 候选日期必须**精确等于昨日净值日**才采用——仅"早于最新净值日"不算，
+   * 否则会把更早的净值当成昨日净值，或把今日净值当成昨日净值。
+   * @param {object} holding 持仓行（含 confirmed_nav / confirmed_nav_date）
+   * @param {object|null} prevFund 上一条日收益明细中的该基金 { date, nav }
+   * @param {string|null} prevNavDate 昨日净值应属日期（A股上一交易日 / 货币基金前一条已公布净值日）
+   * @returns {number} 该日净值；无匹配返回 0
+   */
+  _resolveYesterdayNavFromDb(holding, prevFund, prevNavDate) {
+    if (!prevNavDate) return 0;
+
+    const dbNav = holding ? (parseFloat(holding.confirmed_nav) || 0) : 0;
+    const dbDate = holding && holding.confirmed_nav_date
+      ? this._normalizeDateStr(holding.confirmed_nav_date)
+      : '';
+    if (dbNav > 0 && dbDate === prevNavDate) return dbNav;
+    if (prevFund && prevFund.nav > 0 && prevFund.date === prevNavDate) return prevFund.nav;
+
+    return 0;
   }
 
   clearCache() {

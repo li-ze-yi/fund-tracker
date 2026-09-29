@@ -34,6 +34,8 @@ function subDays(dateStr, n) {
  * - 周末/节假日休市 → 回溯到节前最后一个交易日
  * - 交易日盘中 → 当天净值尚未确认，锚点为上一个交易日
  * 以该锚点校验 DB 确认净值日期，消除固定 4 天窗口导致的旧净值误差。
+ * 反向用法：传入"某个已确认净值日"即得该日的前一个交易日（昨日净值应属日期），
+ * 因此调用方必须先求解上一交易日、再按该日期精确取净值，而非按数组位置取 history[1]。
  * 返回 null 表示交易日历不可用（调用方回退原 4 天窗口，兼容网络故障）。
  * @param {string} todayStr - YYYY-MM-DD
  * @returns {Promise<string|null>} 最近交易日 YYYY-MM-DD
@@ -88,6 +90,44 @@ async function getHistoryFallbackStartDate(todayStr) {
  */
 function isQdiiFundType(type) {
   return !!type && /QDII|海外/.test(type);
+}
+
+/**
+ * 判定基金是否为货币型（东财类型体系：'货币型'、'货币型-普通货币' 等）
+ * 货币基金按日计息，节假日/周末照常公布净值（历史序列含 09-25/26/27 等非交易日），
+ * 因此"昨日净值"应取前一条已公布净值日，而不是 A 股交易日历回溯出的上一交易日——
+ * 否则会把节假日多天的计息差当成单日收益。
+ * @param {string|null} type funds.type
+ * @returns {boolean}
+ */
+function isMoneyFundType(type) {
+  return !!type && /货币/.test(type);
+}
+
+/**
+ * 判定"确认净值是否已披露"（持仓页 / 基金详情统一口径）
+ * - 统一主判定：最新净值日 = 今天（A股/债券/货币/港股等"当天披露当天净值"的基金）
+ * - 仅美股方向 QDII 放宽：净值披露比 A 股晚一个交易日，
+ *   盘后（≥15 点）最新净值日 = **今天的前一个 A 股交易日** 即视为已确认
+ *   例：09-28 晚披露 09-24 净值（09-24 正是 09-28 的前一个 A 股交易日）→ 已确认
+ *   方向识别按基金名称（与美指映射同一套关键词）；港股等其它 QDII 与 A 股同口径，不做放宽
+ * @param {string|null} latestNavDate 最新净值日 YYYY-MM-DD
+ * @param {string|null} fundType funds.type
+ * @param {number} hour 当前小时 0-23
+ * @param {string} today 本地今天 YYYY-MM-DD
+ * @param {string|null} anchorOfToday 今天的前一个 A 股交易日（调用方回溯并复用；null 时退回"昨天"）
+ * @param {string} fundName 基金名称（用于识别美股方向）
+ * @returns {boolean}
+ */
+function isNavConfirmed(latestNavDate, fundType, hour, today, anchorOfToday = null, fundName = '') {
+  if (!latestNavDate) return false;
+  if (latestNavDate === today) return true;
+  if (hour < 15) return false;
+  // 仅美股方向放宽（港股/其它 QDII 与 A 股同口径：只认"= 今天"）
+  if (isQdiiFundType(fundType) && fundService.isUsFundByName(fundName)) {
+    return latestNavDate === (anchorOfToday || subDays(today, 1));
+  }
+  return false;
 }
 
 /**
@@ -452,6 +492,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
   // ★ 查询今日交易份额（使用北京时间，避免凌晨 UTC 日期偏移导致 yesterdayShares=0）
   const _now = new Date();
   const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
+  // 今天的前一个 A 股交易日：QDII（美股等披露晚一个交易日）的"已确认"判定基准，整个请求只回溯一次
+  const anchorOfToday = await getLatestTradingDayAnchor(today);
 
   // ★ 全天休市检测（周末/法定节假日）
   // 注意：不能以 marketStatus.reason === 'holiday' 作为权威信号——checkMarketStatus 在普通工作日
@@ -569,7 +611,10 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     }
 
     // 批量获取历史净值
-    const threeDaysAgo = normalizeDateStr(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+    // ★ 锚点感知兜底窗口 min(最近交易日−1, 今天−15)：固定 3 天窗口在"节前休市 + 周末"叠加时
+    // （如 2026-09-25 中秋休市 + 09-26/27 周末，前一个交易日为 09-24）覆盖不到节前最后交易日净值，
+    // 导致 history 只剩 1 条、yesterdayNav 退化为 0，当日盈亏被算成持仓市值
+    const threeDaysAgo = await getHistoryFallbackStartDate(today);
     // ★ 盘中（本地 9:00-15:00）跳过历史净值 API 拉取：仅复用已有缓存，未命中留空
     const nowHour = new Date().getHours();
     const isTradingHours = nowHour >= 9 && nowHour < 15;
@@ -639,18 +684,46 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
     const latestHistoryNav = historyData && historyData.length > 0 ? parseFloat(historyData[0].nav) || 0 : 0;
     const latestHistoryDate = historyData && historyData.length > 0 ? historyData[0].date : null;
-    // ★ 确认判定：
-    // - A 股：仅当天净值已公布才算已确认（latestHistoryDate === today），盘中/盘后均同
-    // - QDII：盘中（<15 点，今天净值未公布）显示估算中；盘后（≥15 点）最新净值日期已推进到昨天
-    //   （晚间 QDII 净值已公布，确认净值日期合法滞后 1 天）视为已确认，避免净值滞后导致永远"待确认"
+    // ★ 确认判定（isNavConfirmed）：
+    // - 同日披露型（A股/债券/货币/港股）：最新净值日 = 今天
+    // - 滞后披露型（QDII/海外，美股基金披露比 A 股晚一个交易日）：盘后（≥15 点）最新净值日
+    //   = 今天的前一个 A 股交易日即视为已确认，避免净值合法滞后导致永远"待确认"
+    //   （如 09-28 晚披露 09-24 净值，09-24 是 09-28 的前一交易日 → 09-28 当天即为已确认）
     const isQDII = isQdiiFundType(fundTypeMap[fundCode]);
     const hour = new Date().getHours();
-    const isConfirmed = latestHistoryDate === today ||
-      (isQDII && hour >= 15 && latestHistoryDate === subDays(today, 1));
-    const yesterdayNav = historyData && historyData.length > 1 ? parseFloat(historyData[1].nav) || 0 : 0;
+    const isConfirmed = isNavConfirmed(latestHistoryDate, fundTypeMap[fundCode], hour, today, anchorOfToday, holding.fund_name);
 
     const dbConfirmedNav = parseFloat(holding.confirmed_nav) || 0;
     const dbConfirmedNavDate = holding.confirmed_nav_date ? normalizeDateStr(holding.confirmed_nav_date) : null;
+
+    // ★ 昨日净值 = "上一个交易日"的确认净值：
+    //   ① 先求出昨日净值应属的日期（货币基金按日计息、节假日照常公布净值 → 取前一条已公布净值日；
+    //      其余基金以最新确认净值日为锚点回溯上一交易日）
+    //   ② 再按该日期精确取净值（history 按日期匹配 → DB confirmed_nav），不按数组位置取 history[1]
+    //   ③ 该日期在该基金序列中缺失（基金跳过了那次估值）→ 回退自身前一条已公布净值日，
+    //      避免"锚点缺失就永久取不到"；DB 也无 → 保持 0（由 calculateHoldingMetrics 按"无涨幅数据"处理）
+    let prevNavDate = isMoneyFundType(fundTypeMap[fundCode])
+      ? (historyData && historyData.length > 1 ? historyData[1].date : null)
+      : (await getLatestTradingDayAnchor(latestHistoryDate)
+        || (historyData && historyData.length > 1 ? historyData[1].date : null));
+    let yesterdayNav = 0;
+    if (prevNavDate && historyData) {
+      const matched = historyData.find(h => h && h.date === prevNavDate);
+      if (matched) yesterdayNav = parseFloat(matched.nav) || 0;
+    }
+    if (yesterdayNav <= 0 && historyData && historyData.length > 1) {
+      const fallbackDate = historyData[1].date;
+      const fallbackRow = historyData.find(h => h && h.date === fallbackDate);
+      if (fallbackRow) {
+        yesterdayNav = parseFloat(fallbackRow.nav) || 0;
+        logger.info(`昨日净值回退自身前一条已披露净值: fund=${fundCode}, 锚点日=${prevNavDate}, 回退日=${fallbackDate}`);
+        prevNavDate = fallbackDate;
+      }
+    }
+    if (yesterdayNav <= 0 && dbConfirmedNav > 0 && dbConfirmedNavDate === prevNavDate) {
+      yesterdayNav = dbConfirmedNav;
+      logger.info(`昨日净值 DB 兜底: fund=${fundCode}, confirmed_nav=${dbConfirmedNav} (${dbConfirmedNavDate}=昨日净值日), history=${historyData ? historyData.length : 0}条`);
+    }
 
     // ★ 确认净值来源解析（缓存 → 数据库 → API），盘中估算以解析出的确认净值为基准
     // 真实请求按 checkCache 统计（命中 hit / 未命中 miss），获取后由 resolveConfirmedNav 写回缓存
@@ -996,5 +1069,8 @@ module.exports = {
   resolveConfirmedNav,
   resolveUpdateStatus,
   getHistoryFallbackStartDate,
-  isQdiiFundType
+  getLatestTradingDayAnchor,
+  isQdiiFundType,
+  isMoneyFundType,
+  isNavConfirmed
 };
