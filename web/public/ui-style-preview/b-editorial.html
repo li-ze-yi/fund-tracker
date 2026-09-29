@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>风格 B · 纸本编辑风</title>
+<link rel="preconnect" href="https://fonts.loli.net" />
+<link href="https://fonts.loli.net/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Noto+Serif+SC:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --paper:#FAF7F1; --paper2:#F2EDE3; --paper3:#EBE4D6;
+  --ink:#16130F; --ink2:#3F3A33; --ink3:#7C7466; --ink4:#A79E8F;
+  --line:rgba(22,19,15,.13); --line2:rgba(22,19,15,.34);
+  --acc:#B23A2E; --accdim:rgba(178,58,46,.08);
+  --up:#B23A2E; --down:#2E6B4B; --warn:#9A7418;
+  --r:0px;
+  --s:'Playfair Display','Noto Serif SC',Georgia,'Songti SC',serif;
+  --f:'Noto Sans SC','PingFang SC',system-ui,sans-serif;
+  --m:'IBM Plex Mono','SFMono-Regular',Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--f);font-size:13.5px;line-height:1.6;
+  padding-top:60px;padding-bottom:76px;-webkit-font-smoothing:antialiased;
+  background-image:radial-gradient(760px 380px at 10% -6%,rgba(178,58,46,.045),transparent 62%),
+    radial-gradient(620px 320px at 92% 4%,rgba(154,116,24,.05),transparent 60%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E");
+  background-attachment:fixed}
+.up{color:var(--up)} .down{color:var(--down)} .mute{color:var(--ink4)}
+.page{max-width:1080px;margin:0 auto;padding:0 16px 20px}
+.style-label{display:inline-block;margin:12px 0 4px;padding:3px 0;font-family:var(--m);font-size:10px;
+  letter-spacing:.24em;text-transform:uppercase;color:var(--acc);border-bottom:2px solid var(--acc)}
+.back{position:fixed;right:14px;bottom:72px;z-index:120;font-size:10.5px;text-decoration:none;color:var(--ink3);
+  border:1px solid var(--line2);background:var(--paper);padding:6px 11px;font-family:var(--m);letter-spacing:.08em;
+  text-transform:uppercase}
+.back:hover{color:var(--acc);border-color:var(--acc)}
+
+.topbar{position:fixed;top:0;left:0;right:0;height:60px;z-index:100;display:flex;align-items:center;gap:16px;
+  padding:0 16px;background:rgba(250,247,241,.96);backdrop-filter:blur(10px);border-bottom:2px solid var(--ink)}
+.brand{display:flex;align-items:center;gap:10px;white-space:nowrap}
+.brand-mark{width:30px;height:30px;border-radius:var(--r);display:grid;place-items:center;background:var(--acc);color:#fff;
+  font-family:var(--s);font-weight:700;font-size:16px;border:1px solid var(--ink)}
+.brand-name{font-family:var(--s);font-weight:700;font-size:18px;letter-spacing:.06em}
+.search{flex:1;max-width:380px;height:38px;display:flex;align-items:center;gap:9px;padding:0 16px;
+  border:1px solid var(--ink);border-radius:9999px;background:var(--paper2);color:var(--ink3);font-size:12.5px}
+.search .s-ph{flex:1;color:var(--ink4)}
+.search .s-cam{color:var(--ink3);font-size:14px}
+.tools{margin-left:auto;display:flex;align-items:center;gap:10px}
+.tool-btn{width:42px;height:42px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;
+  border:1px solid var(--ink);border-radius:10px;background:transparent;color:var(--ink2);transition:all .18s}
+.tool-btn:hover{background:var(--ink);color:var(--paper)}
+.topbar svg,.group-set svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.6}
+
+.indices{display:flex;gap:30px;padding:12px 0;border-bottom:1px solid var(--line);overflow-x:auto;white-space:nowrap;
+  font-family:var(--m);font-size:11.5px}
+.indices::-webkit-scrollbar{height:0}
+.idx{display:flex;align-items:baseline;gap:8px}
+.idx-name{font-family:var(--s);font-size:12.5px;color:var(--ink)}
+.idx-num{color:var(--ink2)}
+.idx-pct{font-size:11.5px}
+
+.summary-box{margin:16px 10px 0;border:2px solid var(--ink);border-radius:var(--r);background:var(--paper);
+  position:relative;overflow:hidden}
+.summary-box::after{content:'';position:absolute;top:3px;left:0;right:0;height:1px;background:var(--line2)}
+@keyframes ink{0%{opacity:.35}50%{opacity:.9}100%{opacity:.35}}
+.group-row{display:flex;align-items:center;gap:12px;padding:9px 16px 7px}
+.group-tabs{flex:1;min-width:0;display:flex;gap:10px;overflow-x:auto;white-space:nowrap;padding:2px 0}
+.group-tabs::-webkit-scrollbar{height:0}
+.gtab{flex-shrink:0;padding:4px 12px;border:1px solid var(--line2);border-radius:var(--r);background:transparent;
+  color:var(--ink3);font-family:var(--m);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;
+  transition:all .18s}
+.gtab:hover{color:var(--ink)}
+.gtab.on{color:var(--paper);background:var(--ink);border-color:var(--ink)}
+.group-set{flex-shrink:0;width:32px;height:32px;display:grid;place-items:center;cursor:pointer;color:var(--ink3);
+  border:1px solid var(--line2);border-radius:var(--r);background:transparent}
+.group-set:hover{color:var(--acc);border-color:var(--acc)}
+.summary-row{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:14px;
+  padding:18px 20px;border-top:1px solid var(--line2)}
+.total{display:flex;align-items:baseline}
+.total-label{font-family:var(--m);font-size:11px;font-weight:600;color:var(--ink3);letter-spacing:.14em;text-transform:uppercase}
+.total-value{margin-left:10px;font-family:var(--m);font-weight:800;font-size:clamp(24px,5vw,34px);line-height:1.1;
+  color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.pnl-group{display:flex;gap:24px;align-items:flex-end}
+.pnl{display:inline-flex;align-items:center;gap:8px}
+.pnl-label{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--ink3)}
+.pnl-dot{width:6px;height:6px;border-radius:0;background:var(--up);animation:ink 2.4s ease-in-out infinite}
+.pnl-value{font-family:var(--m);font-size:18px;font-weight:700;color:var(--up)}
+
+.thead{display:flex;align-items:center;margin:8px 10px 0;padding:12px 18px;border-radius:12px 12px 0 0;
+  background:var(--paper2);border:2px solid var(--ink);border-bottom:1px solid var(--line2)}
+.th{display:flex;align-items:center;gap:3px;justify-content:flex-end;min-width:0;
+  font-family:var(--s);font-size:15px;font-weight:700;color:var(--ink2)}
+.th:first-child{justify-content:flex-start;padding-left:4px}
+.sort{display:inline-flex;flex-direction:column;font-size:8px;line-height:0.85;color:var(--ink4)}
+.sort i{font-style:normal}
+.thead>*:nth-child(1){flex:2} .thead>*:nth-child(2){flex:1} .thead>*:nth-child(3){flex:.9}
+.thead>*:nth-child(4){flex:1} .thead>*:nth-child(5){flex:1.1}
+
+.row{display:flex;align-items:center;margin:0 10px 2px;padding:13px 16px;position:relative;overflow:hidden;
+  border-radius:0 0 var(--r) var(--r);border-bottom:1px dashed var(--line2);background:transparent;cursor:pointer;
+  transition:background .2s}
+.row:hover{background:linear-gradient(90deg,var(--accdim),transparent 55%)}
+.row::before{content:'';position:absolute;left:0;top:4px;bottom:4px;width:3px;background:var(--up)}
+.row.loss::before{background:var(--down)}
+.row.off::before{background:var(--ink4)}
+.row>*{min-width:0}
+.row>*:nth-child(1){flex:2} .row>*:nth-child(2){flex:1} .row>*:nth-child(3){flex:.9}
+.row>*:nth-child(4){flex:1} .row>*:nth-child(5){flex:1.1}
+.row>*:nth-child(n+2){text-align:right}
+.col-name{display:block}
+.name-line{display:flex;align-items:center;gap:7px;font-size:14.5px;font-weight:600;color:var(--ink);overflow:hidden}
+.fname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background-image:linear-gradient(var(--acc),var(--acc));
+  background-repeat:no-repeat;background-size:0 1px;background-position:0 100%;transition:background-size .35s cubic-bezier(.2,.8,.2,1)}
+.row:hover .fname{background-size:100% 1px}
+.badge{display:inline-flex;align-items:center;gap:5px;flex-shrink:0;font-family:var(--m);font-size:9.5px;
+  font-weight:400;letter-spacing:.12em;text-transform:uppercase;padding:0;border:0}
+.badge i{width:5px;height:5px;border-radius:0;background:currentColor}
+.badge.est{color:var(--up)} .badge.pend{color:var(--warn)} .badge.conf{color:var(--ink3)} .badge.off{color:var(--ink4)}
+.meta-line{display:flex;align-items:center;gap:8px;margin-top:5px}
+.fcode{font-family:var(--m);font-size:12px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.tag{font-family:var(--m);font-size:10px;line-height:17px;padding:0;color:var(--ink3);border-bottom:1px solid var(--line2)}
+.fnav{font-family:var(--m);font-size:11px;padding:0 5px;border-radius:3px;background:var(--paper3);color:var(--ink3)}
+.cell{font-family:var(--m);font-variant-numeric:tabular-nums}
+.cell.amount{font-size:15px;font-weight:600;color:var(--ink)}
+.cell.est{font-size:15px;font-weight:700}
+.cell.day{font-size:14px;font-weight:600}
+.cell.accu{font-size:14px;font-weight:600;color:var(--ink)}
+.accu-sub{font-size:11px;opacity:.7;margin-top:1px}
+
+.nav{position:fixed;left:0;right:0;bottom:0;height:58px;z-index:100;display:flex;align-items:center;
+  justify-content:space-around;padding:0 16px;background:rgba(250,247,241,.96);backdrop-filter:blur(10px);
+  border-top:2px solid var(--ink)}
+.nav-item{display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 16px;cursor:pointer;
+  border-top:2px solid transparent;font-size:11px;color:var(--ink4);transition:all .18s}
+.nav-item svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.5}
+.nav-item.on{color:var(--up);border-top-color:var(--up)}
+.nav-item:hover{color:var(--ink2)}
+
+.modal-stage{display:flex;justify-content:center;margin-top:26px;padding:34px 20px;border-top:1px solid var(--line);
+  border-bottom:1px solid var(--line);
+  background:repeating-linear-gradient(45deg,rgba(22,19,15,.022) 0 8px,transparent 8px 16px)}
+.modal{width:100%;max-width:420px;position:relative;background:var(--paper);border:1px solid var(--ink);
+  border-radius:var(--r);box-shadow:8px 8px 0 rgba(22,19,15,.87);animation:rise .42s cubic-bezier(.2,.85,.25,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.modal-head{padding:18px 22px 14px;border-bottom:1px solid var(--line2)}
+.modal-title{font-family:var(--s);font-size:18px;font-weight:700;letter-spacing:.04em}
+.modal-sub{margin-top:5px;font-family:var(--m);font-size:11px;color:var(--ink3);letter-spacing:.02em}
+.modal-body{padding:20px 22px}
+.field{margin-bottom:18px}
+.field-label{display:block;font-family:var(--m);font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;
+  color:var(--ink3);margin-bottom:9px}
+.amount-input{height:46px;display:flex;align-items:center;padding:0 2px;border:0;border-bottom:1.5px solid var(--ink);
+  border-radius:0;background:transparent;font-family:var(--m);font-size:22px;font-weight:600;color:var(--ink);
+  font-variant-numeric:tabular-nums}
+.amount-input.on::after{content:'';width:2px;height:26px;background:var(--up);margin-left:3px;animation:blink 1.05s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.amount-input .cur{font-size:.6em;color:var(--ink3);margin-right:8px;font-weight:400}
+.quick{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.quick span{padding:4px 12px;border:1px solid var(--line2);border-radius:var(--r);font-family:var(--m);
+  font-size:10.5px;color:var(--ink3);cursor:pointer;transition:all .18s}
+.quick span:hover{color:var(--ink);border-color:var(--ink)}
+.quick span.on{border-color:var(--up);color:var(--up);background:var(--accdim)}
+.radio-row{display:flex;gap:10px}
+.radio-row span{flex:1;text-align:center;padding:10px;border:1px solid var(--line2);border-radius:var(--r);
+  font-size:12.5px;color:var(--ink3);cursor:pointer;transition:all .18s}
+.radio-row span.on{border-color:var(--ink);color:var(--ink);background:var(--paper2)}
+.shares{display:flex;justify-content:space-between;padding-top:13px;border-top:1px solid var(--line);
+  font-family:var(--m);font-size:11.5px;color:var(--ink3)}
+.shares-value{font-family:var(--m);color:var(--ink)}
+.modal-foot{padding:14px 22px;border-top:1px solid var(--line2);display:flex;gap:12px;justify-content:flex-end;
+  background:var(--paper2)}
+.btn{height:38px;padding:0 20px;border-radius:var(--r);cursor:pointer;font-family:var(--m);font-size:11px;
+  letter-spacing:.16em;text-transform:uppercase;border:1px solid var(--ink);background:transparent;color:var(--ink);
+  transition:all .2s}
+.btn:hover{background:var(--ink);color:var(--paper)}
+.btn.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.primary:hover{background:#98291F;border-color:#98291F;color:#fff}
+
+.tokens{margin-top:30px;padding:18px 0;border-top:1px solid var(--line2);display:flex;gap:26px;flex-wrap:wrap;
+  font-family:var(--m);font-size:10.5px;color:var(--ink3)}
+.tok{display:flex;align-items:center;gap:8px}
+.sw{width:15px;height:15px;border-radius:0;border:1px solid var(--line2)}
+.tok-note{flex-basis:100%;padding-top:8px;border-top:1px solid var(--line);color:var(--ink3)}
+
+@media(max-width:768px){
+  .page{padding:0 8px 16px}
+  .thead{padding:10px}
+  .row{padding:11px 10px}
+  .th{font-size:12px} .sort{display:none}
+  .name-line{font-size:12.5px}
+  .cell.amount,.cell.est{font-size:12.5px}
+  .cell.day,.cell.accu{font-size:12px}
+  .fnav{font-size:10px}
+  .summary-row{padding:14px}
+  .total-value{font-size:24px}
+  .pnl-group{gap:14px}
+  .pnl-value{font-size:15px}
+  .pnl-label{font-size:12px}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">养</span>
+    <span class="brand-name">养基发财</span>
+  </div>
+  <div class="search">
+    <span class="s-ico">⌕</span>
+    <span class="s-ph">搜索基金代码 / 名称</span>
+    <span class="s-cam">▣</span>
+  </div>
+  <div class="tools">
+    <button class="tool-btn"><svg viewBox="0 0 24 24"><path d="M6 3h12M6 21h12M7 3c0 4 5 5 5 9s-5 5-5 9M17 3c0 4-5 5-5 9s5 5 5 9"/></svg></button>
+    <button class="tool-btn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg></button>
+    <button class="tool-btn"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.6-3.4 4.2-5 7-5s5.4 1.6 7 5"/></svg></button>
+  </div>
+</header>
+
+<main class="page">
+
+  <div class="style-label">风格 B · 纸本编辑风</div>
+
+  <div class="indices">
+    <div class="idx"><span class="idx-name">上证指数</span><span class="idx-num">3521.14</span><span class="idx-pct up">+0.62%</span></div>
+    <div class="idx"><span class="idx-name">深证成指</span><span class="idx-num">11240.87</span><span class="idx-pct up">+1.14%</span></div>
+    <div class="idx"><span class="idx-name">创业板指</span><span class="idx-num">2318.02</span><span class="idx-pct down">-0.33%</span></div>
+    <div class="idx"><span class="idx-name">沪深300</span><span class="idx-num">4128.55</span><span class="idx-pct up">+0.41%</span></div>
+    <div class="idx"><span class="idx-name">恒生指数</span><span class="idx-num">19420.66</span><span class="idx-pct down">-0.87%</span></div>
+  </div>
+
+  <section class="summary-box">
+    <div class="group-row">
+      <div class="group-tabs">
+        <button class="gtab on">全部</button>
+        <button class="gtab">科技</button>
+        <button class="gtab">医药</button>
+        <button class="gtab">新能源</button>
+      </div>
+      <button class="group-set"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg></button>
+    </div>
+    <div class="summary-row">
+      <div class="total">
+        <span class="total-label">总资产</span>
+        <span class="total-value">¥128,430</span>
+      </div>
+      <div class="pnl-group">
+        <div class="pnl">
+          <span class="pnl-label"><i class="pnl-dot"></i>当日收益</span>
+          <span class="pnl-value up">+¥1,286.40</span>
+        </div>
+        <div class="pnl">
+          <span class="pnl-label"><i class="pnl-dot"></i>累计收益</span>
+          <span class="pnl-value up">+¥18,420.55</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="thead">
+    <div class="th"><span>基金名称</span></div>
+    <div class="th"><span>持仓金额</span><span class="sort"><i>▲</i><i>▼</i></span></div>
+    <div class="th"><span>估算涨幅</span><span class="sort"><i>▲</i><i>▼</i></span></div>
+    <div class="th"><span>当日收益</span><span class="sort"><i>▲</i><i>▼</i></span></div>
+    <div class="th"><span>累计收益</span><span class="sort"><i>▲</i><i>▼</i></span></div>
+  </div>
+
+  <div class="row gain">
+    <div class="col-name">
+      <div class="name-line"><span class="fname">天弘中证全指通信设备指数C</span><span class="badge est"><i></i>估算中</span></div>
+      <div class="meta-line"><span class="fcode">007817</span><span class="tag">指数型</span><span class="fnav">净值 1.8492</span></div>
+    </div>
+    <div class="cell amount">¥45,230.18</div>
+    <div class="cell est up">+2.14%</div>
+    <div class="cell day up">+968.42</div>
+    <div class="cell accu"><div class="accu-main up">+6,120.30</div><div class="accu-sub up">(+15.64%)</div></div>
+  </div>
+
+  <div class="row gain">
+    <div class="col-name">
+      <div class="name-line"><span class="fname">国泰半导体设备ETF联接C</span><span class="badge pend"><i></i>待确认</span></div>
+      <div class="meta-line"><span class="fcode">019633</span><span class="tag">ETF联接</span><span class="fnav">净值 1.2364</span></div>
+    </div>
+    <div class="cell amount">¥32,180.55</div>
+    <div class="cell est up">+1.08%</div>
+    <div class="cell day up">+342.16</div>
+    <div class="cell accu"><div class="accu-main up">+4,890.22</div><div class="accu-sub up">(+17.92%)</div></div>
+  </div>
+
+  <div class="row loss">
+    <div class="col-name">
+      <div class="name-line"><span class="fname">中航机遇领航混合C</span><span class="badge conf"><i></i>已确认</span></div>
+      <div class="meta-line"><span class="fcode">019056</span><span class="tag">混合型</span><span class="fnav">净值 2.1043</span></div>
+    </div>
+    <div class="cell amount">¥28,410.90</div>
+    <div class="cell est down">-0.86%</div>
+    <div class="cell day down">-243.18</div>
+    <div class="cell accu"><div class="accu-main down">-1,240.55</div><div class="accu-sub down">(-4.18%)</div></div>
+  </div>
+
+  <div class="row off">
+    <div class="col-name">
+      <div class="name-line"><span class="fname">永赢先锋半导体智选混合C</span><span class="badge off"><i></i>休市(周日)</span></div>
+      <div class="meta-line"><span class="fcode">018929</span><span class="tag">混合型</span><span class="fnav">净值 1.9781</span></div>
+    </div>
+    <div class="cell amount">¥22,608.99</div>
+    <div class="cell est mute">--</div>
+    <div class="cell day mute">--</div>
+    <div class="cell accu"><div class="accu-main up">+8,650.58</div><div class="accu-sub up">(+62.10%)</div></div>
+  </div>
+
+  <section class="modal-stage">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">买入</div>
+        <div class="modal-sub">天弘中证全指通信设备指数C · 007817</div>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label class="field-label">买入金额</label>
+          <div class="amount-input on"><span class="cur">¥</span>1,000.00</div>
+          <div class="quick"><span>100</span><span class="on">500</span><span>1,000</span><span>5,000</span><span>全部</span></div>
+        </div>
+        <div class="field">
+          <label class="field-label">确认方式</label>
+          <div class="radio-row"><span class="on">T+1 确认</span><span>按份额买入</span></div>
+        </div>
+        <div class="shares">
+          <span class="shares-label">预计获得份额</span>
+          <span class="shares-value">540.72 份</span>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn">取消</button>
+        <button class="btn primary">确认买入</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="tokens">
+    <div class="tok"><span class="sw" style="background:#FAF7F1"></span>纸 #FAF7F1</div>
+    <div class="tok"><span class="sw" style="background:#F2EDE3"></span>纸二 #F2EDE3</div>
+    <div class="tok"><span class="sw" style="background:#16130F"></span>墨 #16130F</div>
+    <div class="tok"><span class="sw" style="background:#B23A2E"></span>朱红 #B23A2E</div>
+    <div class="tok"><span class="sw" style="background:#2E6B4B"></span>松绿 #2E6B4B</div>
+    <div class="tok"><span class="sw" style="background:#9A7418"></span>赭石 #9A7418</div>
+    <div class="tok-note">字体：Playfair Display + 思源宋体 / IBM Plex Mono · 直角 · 无圆角，靠发丝线与硬投影分层</div>
+  </div>
+
+</main>
+
+<nav class="nav">
+  <div class="nav-item on"><svg viewBox="0 0 24 24"><path d="M4 19V9m5 10V5m5 14v-7m5 7V8"/></svg><span>持仓</span></div>
+  <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.6 6 .7-4.4 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.4 9.8l6-.7z"/></svg><span>自选</span></div>
+  <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 3 5-8 4 5"/></svg><span>行情</span></div>
+  <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M4 20V10m4 10V4m4 16v-6m4 6V7m4 13v-9"/></svg><span>统计</span></div>
+  <div class="nav-item"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c1.6-3.4 4.2-5 7-5s5.4 1.6 7 5"/></svg><span>我的</span></div>
+</nav>
+
+<a class="back" href="./index.html">← 返回对比</a>
+</body>
+</html>

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>UI 风格方案对比 · 养基发财</title>
+<link href="https://fonts.loli.net/css2?family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet" />
+<style>
+  :root{ --bg:#0b0c0f; --panel:#14161a; --line:#25282e; --txt:#f2f4f7; --txt2:#8b93a0; --acc:#ffd166; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:'Noto Sans SC',system-ui,sans-serif}
+  .wrap{max-width:1500px;margin:0 auto;padding:28px 22px 60px}
+  h1{font-size:22px;letter-spacing:-.02em}
+  .sub{color:var(--txt2);font-size:13px;margin-top:6px;line-height:1.7}
+  .sub code{font-family:'IBM Plex Mono',monospace;color:var(--acc);background:#1c1f25;padding:1px 5px;border-radius:3px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:24px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .card h2{font-size:14px;padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .card h2 .tag{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--acc);border:1px solid rgba(255,209,102,.3);background:rgba(255,209,102,.08);padding:1px 6px;border-radius:3px}
+  .card h2 a{margin-left:auto;font-size:12px;color:var(--txt2);text-decoration:none;border:1px solid var(--line);padding:3px 9px;border-radius:5px}
+  .card h2 a:hover{color:var(--acc);border-color:rgba(255,209,102,.4)}
+  .card p{font-size:12px;color:var(--txt2);padding:10px 14px;line-height:1.7;border-top:1px solid var(--line)}
+  .score{color:var(--txt);font-weight:700}
+  iframe{width:100%;height:520px;border:0;background:#000;display:block}
+  @media (max-width:900px){ .grid{grid-template-columns:1fr} iframe{height:460px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>养基发财 · 前端风格方案对比</h1>
+  <p class="sub">
+    四种方向都渲染同一套真实业务内容（总资产 / 当日收益 / 累计收益 / 持仓列表 / 状态标记 / 买入弹窗 / 底部导航），
+    便于横向对比配色、字体、形状与信息密度。选定后我把该套语言落地到全部页面与弹窗。<br />
+    可直接访问：<code>/ui-style-preview/a-terminal.html</code> <code>b-editorial.html</code> <code>c-horology.html</code> <code>d-industrial.html</code>
+  </p>
+  <div class="grid">
+    <div class="card">
+      <h2><span class="tag">A</span> 深空数据终端 <a href="./a-terminal.html" target="_blank">新标签打开</a></h2>
+      <iframe src="./a-terminal.html" title="深空数据终端"></iframe>
+      <p>近黑底 + 青色强调 + 等宽数字，网格刻线、2px 方角、高信息密度。<span class="score">专业数据终端</span>气质，与现有金色玻璃风差异最大。</p>
+    </div>
+    <div class="card">
+      <h2><span class="tag">B</span> 纸本编辑风 <a href="./b-editorial.html" target="_blank">新标签打开</a></h2>
+      <iframe src="./b-editorial.html" title="纸本编辑风"></iframe>
+      <p>象牙纸底 + 墨黑文字 + 朱红单点强调，衬线体大数字、极细发丝线、大量留白。<span class="score">冷静克制</span>，出版物质感。</p>
+    </div>
+    <div class="card">
+      <h2><span class="tag">C</span> 墨金制表风 <a href="./c-horology.html" target="_blank">新标签打开</a></h2>
+      <iframe src="./c-horology.html" title="墨金制表风"></iframe>
+      <p>墨玉深底 + 克制金色点睛 + 表盘刻度 + 金属三层光源。<span class="score">克制的奢华</span>，延续现风格但做减法精修。</p>
+    </div>
+    <div class="card">
+      <h2><span class="tag">D</span> 暖陶工业风 <a href="./d-industrial.html" target="_blank">新标签打开</a></h2>
+      <iframe src="./d-industrial.html" title="暖陶工业风"></iframe>
+      <p>暖炭灰底 + 赤陶/琥珀强调，2px 粗描边、大圆角模块、颗粒质感。<span class="score">厚重质朴</span>的工业仪表盘感。</p>
+    </div>
+  </div>
+  <h2 style="font-size:16px;margin-top:34px;border-left:3px solid var(--acc);padding-left:10px">第二批 · 新增方向</h2>
+  <div class="grid">
+    <div class="card">
+      <h2><span class="tag">E</span> 瑞士信号白 <a href="./e-swiss.html" target="_blank">新标签打开</a></h2>
+      <iframe src="./e-swiss.html" title="瑞士信号白"></iframe>
+      <p>冷白底 + 纯黑结构线 + 极小面积信号红，零圆角、零阴影、8px 网格底纹、全大写微字距标签。<span class="score">国际主义网格</span>的瑞士排版。</p>
+    </div>
+    <div class="card">
+      <h2><span class="tag">F</span> 沙丘米白 <a href="./f-dune.html" target="_blank">新标签打开</a></h2>
+      <iframe src="./f-dune.html" title="沙丘米白"></iframe>
+      <p>暖沙米白底 + 深橄榄主交互 + 陶土色点缀，衬线大数字、20px 大圆角、柔和投影与暖沙光晕。<span class="score">温暖有机</span>的柔和质感。</p>
+    </div>
+    <div class="card">
+      <h2><span class="tag">G</span> 暮色紫晶 <a href="./g-amethyst.html" target="_blank">新标签打开</a></h2>
+      <iframe src="./g-amethyst.html" title="暮色紫晶"></iframe>
+      <p>深紫底 + 紫罗兰渐变强调 + 呼吸光晕，24px 大圆角、发光胶囊状态、多层径向紫光晕。<span class="score">夜间发光</span>的沉浸柔光。</p>
+    </div>
+    <div class="card">
+      <h2><span class="tag">H</span> 荧光海报 <a href="./h-fluoro.html" target="_blank">新标签打开</a></h2>
+      <iframe src="./h-fluoro.html" title="荧光海报"></iframe>
+      <p>纯黑底 + 3px 白粗描边 + 荧光黄绿强调 + 印刷硬投影，超粗 Archivo 大数字、网点底纹、位移硬切换。<span class="score">粗野海报</span>的高对比冲击。</p>
+    </div>
+  </div>
+  <h2 style="font-size:16px;margin-top:34px;border-left:3px solid var(--acc);padding-left:10px">终选方案 · 深色（C 墨金全套 · 只换字体，3 个变体）</h2>
+  <div class="grid">
+    <div class="card">
+      <h2><span class="tag">V1</span> DM Sans（App 现有） <a href="./final-dark.html" target="_blank">新标签打开</a></h2>
+      <iframe src="./final-dark.html" title="深色 V1 DM Sans"></iframe>
+      <p>C 的配色/圆角/光晕/刻线 <b>全部不动</b>，只把 Cormorant Garamond 换成 App 现有 <code>DM Sans</code> + JetBrains Mono。<span class="score">最中性、最正常</span>。</p>
+    </div>
+    <div class="card">
+      <h2><span class="tag">V2</span> Archivo <a href="./final-dark-v2.html" target="_blank">新标签打开</a></h2>
+      <iframe src="./final-dark-v2.html" title="深色 V2 Archivo"></iframe>
+      <p>同上，数字/展示换成 <code>Archivo</code>。字面更宽更硬，数据终端感最强。<span class="score">硬朗理性</span>。</p>
+    </div>
+    <div class="card">
+      <h2><span class="tag">V3</span> 单一家族（思源黑体） <a href="./final-dark-v3.html" target="_blank">新标签打开</a></h2>
+      <iframe src="./final-dark-v3.html" title="深色 V3 单一家族"></iframe>
+      <p>全站只用思源黑体一个家族（数字/正文/代码同源），彻底消除混排带来的“有大有小”观感。<span class="score">最统一、零杂音</span>。</p>
+    </div>
+    <div class="card">
+      <h2><span class="tag">REF</span> C 原版（Cormorant 衬线） <a href="./c-horology.html" target="_blank">新标签打开</a></h2>
+      <iframe src="./c-horology.html" title="C 原版"></iframe>
+      <p>未经字体替换的原始 C，作对照。<span class="score">识别度最高</span>，但衬线数字不属“正常字体”。</p>
+    </div>
+  </div>
+  <h2 style="font-size:16px;margin-top:34px;border-left:3px solid var(--acc);padding-left:10px">终选方案 · 浅色（F 沙丘）</h2>
+  <div class="grid">
+    <div class="card">
+      <h2><span class="tag">LIGHT</span> 浅色 · 沙丘 <a href="./final-light.html" target="_blank">新标签打开</a></h2>
+      <iframe src="./final-light.html" title="浅色 · 沙丘"></iframe>
+      <p>取自 F 沙丘米白（<code>#F2ECE1</code> + 橄榄 <code>#3E4A33</code> + 陶土 <code>#C4703F</code>），保留 Fraunces 衬线数字。<span class="score">落地到浅色主题</span>。</p>
+    </div>
+  </div>
+  <p class="sub" style="margin-top:22px">
+    说明：样本用纯静态 HTML/CSS 编写，不依赖现有应用代码，不影响任何业务逻辑；确认方向后我会按该套令牌改写 <code>web/src/App.css</code> 与各页面内联样式。
+  </p>
+</div>
+</body>
+</html>
