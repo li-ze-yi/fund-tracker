@@ -730,6 +730,19 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
     const resolvedNav = await resolveConfirmedNav(fundCode, holding, historyData, realTimeData, { isQDII });
     const effectiveNav = resolvedNav.nav > 0 ? resolvedNav.nav : dbConfirmedNav;
 
+    // ★ 净值陈旧（停更 / 接口无数据）：当前净值日期早于"应披露基准" → 展示层不再展示陈旧涨跌
+    //   基准：同日披露型（A股/港股等）= 今天的上一交易日；美股方向 QDII = 再往前一个交易日（允许两日滞后）
+    //   判据用"实际解析出的净值日期"（含 DB/缓存），这样"窗口内完全无净值"的基金也能识别为陈旧
+    let staleBefore = anchorOfToday;
+    if (anchorOfToday && fundService.isUsFundByName(holding.fund_name)) {
+      staleBefore = (await getLatestTradingDayAnchor(anchorOfToday)) || anchorOfToday;
+    }
+    const currentNavDate = resolvedNav.date || latestHistoryDate || null;
+    const isNavStale = !!(staleBefore && currentNavDate && currentNavDate < staleBefore);
+    if (isNavStale) {
+      logger.info(`净值陈旧: fund=${fundCode}, 当前净值日=${currentNavDate}, 应披露基准=${staleBefore} → 日收益置 0、标待更新`);
+    }
+
     // ★ 全天休市（周末/节假日）+ 确认净值同步兜底失败（缓存/DB/API 均不可用）
     // → 仅对该基金做定向修复拉取：写回 DB confirmed_nav 并填充 3d 历史缓存。
     // 不阻塞响应（fire-and-forget），不抛错。
@@ -781,7 +794,8 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
       fundMarketStatus,
       yesterdayNav,
       todayTxSharesMap[fundCode] || { buy: 0, sell: 0 },
-      isPendingPurchase
+      isPendingPurchase,
+      isNavStale
     );
 
     // ★ Task 9：白名单挑选前端所需字段，剔除 DB 全字段（user_id/created_at/updated_at/
@@ -840,7 +854,7 @@ function resolveUpdateStatus({ hour, isMarketOpen, isConfirmed, hasEstimate, day
     : { update_status: 'no_estimate', data_source: 'actual', is_fresh: false };
 }
 
-function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, confirmedNav = 0, marketStatus = { isMarketOpen: true }, yesterdayNav = 0, todayTxShares = { buy: 0, sell: 0 }, isPendingPurchase = false) {
+function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, confirmedNav = 0, marketStatus = { isMarketOpen: true }, yesterdayNav = 0, todayTxShares = { buy: 0, sell: 0 }, isPendingPurchase = false, isNavStale = false) {
   const shares = parseFloat(holding.shares) || 0;
 
   // 已清仓且非卖出当天（sold_date < today）→ 返回 sold_out 状态，accumulated_profit 显示实现盈亏
@@ -1020,6 +1034,27 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
       };
     }
     // 已清仓卖出当天 → 跳过早返回，继续走后续已确认收益计算逻辑（line 493+）
+  }
+
+  // ★ 净值陈旧（停更 / 接口无数据）：不展示陈旧涨跌 → 日收益 0、涨幅留空，状态标为待更新
+  //   （避免把几十天前的净值涨跌当成今天的收益展示；市值/累计收益仍按最近确认净值展示）
+  if (isNavStale) {
+    return {
+      market_value: Math.round(marketValue * 100) / 100,
+      estimated_change: null,
+      daily_profit: 0,
+      accumulated_profit: Math.round(cumulativeReturn * 100) / 100,
+      net_value: displayNav,
+      cost_price: Math.round(costPrice * 10000) / 10000,
+      shares: shares,
+      update_time: updateTime || null,
+      last_updated: updateTime || null,
+      is_fresh: false,
+      update_status: 'no_estimate',
+      data_source: 'actual',
+      fund_code: holding.fund_code,
+      is_confirmed: false
+    };
   }
 
   // ★ 盘前统一清零（市值用确认净值，日涨幅和日收益也应为 0，保持一致）

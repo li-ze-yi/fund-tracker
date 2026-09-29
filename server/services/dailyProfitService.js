@@ -358,8 +358,15 @@ class DailyProfitService {
             }
           }
         } else if (isQDII) {
-          // ① 净值陈旧（早于上一个交易日）→ 停更 / 尚无净值数据，不计入
-          if (anchorOfToday && latestNavDate < anchorOfToday) {
+          // ① 净值陈旧（超过该类基金"应披露基准"）→ 停更 / 接口无数据，不计入
+          //   同日披露型 QDII（港股等）：基准 = 今天的上一交易日
+          //   美股方向 QDII：披露比 A 股晚一个交易日 → 基准再往前一个交易日，避免把合法滞后误判为停更
+          let staleBefore = anchorOfToday;
+          if (anchorOfToday && fundService.isUsFundByName(holding.fund_name)) {
+            staleBefore = (await getPrevTradingDay(anchorOfToday)) || anchorOfToday;
+          }
+          if (staleBefore && latestNavDate < staleBefore) {
+            logger.debug(`${fundCode}: 最新净值日 ${latestNavDate} 早于应披露基准 ${staleBefore}，疑似停更/无数据，不计入`);
             unconfirmedFunds.push(holding);
             continue;
           }
