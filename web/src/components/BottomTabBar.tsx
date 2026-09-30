@@ -39,6 +39,8 @@ export default function BottomTabBar() {
         justifyContent: 'space-around',
         zIndex: 100,
         paddingBottom: 'env(safe-area-inset-bottom)',
+        // 裁掉激活 tab 上浮时边框/光晕的溢出，避免超出导航栏边界
+        overflow: 'hidden',
       }}
     >
       {/* 顶部金色渐变发丝高光线 */}

@@ -1,11 +1,41 @@
 /* 使用国内 CDN 镜像替代 Google Fonts（原 fonts.googleapis.com 国内无法访问） */
-@import url('https://fonts.loli.net/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Cormorant+Garamond:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.loli.net/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+/* ========== 主题切换过渡 ==========
+   首选 View Transitions（整体交叉淡入，连 background-image 渐变、毛玻璃这类
+   无法用 CSS transition 的属性也能一起平滑过去）；
+   不支持时由 themeStore 给 <html> 挂 .theme-switching，走下面的逐属性兜底过渡。 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 420ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.theme-switching,
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition:
+    background-color 400ms cubic-bezier(0.4, 0, 0.2, 1),
+    color 400ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 400ms cubic-bezier(0.4, 0, 0.2, 1),
+    fill 400ms cubic-bezier(0.4, 0, 0.2, 1),
+    stroke 400ms cubic-bezier(0.4, 0, 0.2, 1),
+    stop-color 400ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 400ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.01ms;
+  }
+}
 
 :root {
-  /* 浅色「沙丘米白 · C 方案」：正文=思源黑体；标题/大数字=Cormorant Garamond 衬线；等宽=JetBrains Mono */
+  /* 浅色「沙丘米白 · C 方案」：正文=思源黑体；等宽=JetBrains Mono */
   --font-display: 'Noto Sans SC', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', 'SFMono-Regular', 'Consolas', monospace;
-  --font-serif: 'Cormorant Garamond', Georgia, 'Songti SC', serif;
 
   --bg-base: #F2ECE1;
   --bg-elevated: #FBF7F0;
@@ -31,6 +61,9 @@
   --text-dim: #B3B5A9;
 
   --accent-gold: #C4703F;
+
+  /* C 方案：斜光扫过光带颜色（浅色用高亮白才有可见光泽，深色用极淡白） */
+  --sheen-color: rgba(255, 255, 255, 0.5);
   --accent-gold-light: #D98A5C;
   --accent-gold-dim: rgba(196, 112, 63, 0.12);
   --primary: #3E4A33;
@@ -101,10 +134,9 @@
 
 /* ========== 深色主题 ========== */
 [data-theme="dark"] {
-  /* 深色「墨金 · C 方案」：正文=思源黑体；标题/大数字=Cormorant Garamond 衬线；等宽=JetBrains Mono */
+  /* 深色「墨金 · C 方案」：正文=思源黑体；等宽=JetBrains Mono */
   --font-display: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'SFMono-Regular', 'Consolas', monospace;
-  --font-serif: 'Cormorant Garamond', Georgia, 'Songti SC', serif;
 
   --bg-base: #0A0E14;
   --bg-elevated: #111823;
@@ -130,6 +162,9 @@
   --text-dim: #6F6858;
 
   --accent-gold: #D9B863;
+
+  /* C 方案：斜光扫过光带颜色 */
+  --sheen-color: rgba(255, 255, 255, 0.05);
   --accent-gold-light: #F2DFA3;
   --accent-gold-dim: rgba(217, 184, 99, 0.12);
   --primary: #D9B863;
@@ -218,11 +253,6 @@
 [data-theme="dark"] .ant-input-affix-wrapper-focused {
   border-color: var(--accent-gold) !important;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-gold) 15%, transparent) !important;
-}
-
-[data-theme="dark"] .ant-card {
-  background: var(--bg-card) !important;
-  border-color: var(--border-subtle) !important;
 }
 
 [data-theme="dark"] .ant-table-thead > tr > th {
@@ -346,7 +376,7 @@
 html, body, #root {
   height: 100%;
   font-family: var(--font-display);
-  font-weight: 300;
+  font-weight: 400;
   font-size: 15px;
   color: var(--text-primary);
   background-color: var(--bg-base);
@@ -514,6 +544,172 @@ a { color: var(--accent-gold); text-decoration: none; }
   -webkit-backdrop-filter: blur(18px) saturate(170%);
 }
 
+/* C 方案：列表表头背景（浅色=米灰实色，深色=页面底色+极淡白） */
+.portfolio-table-header {
+  background: #EDE5D8 !important;
+  overflow: hidden;
+  /* 表头圆角统一：浅色原为 12px（--radius-md），对齐深色的锐角 */
+  border-top-left-radius: 4px !important;
+  border-top-right-radius: 4px !important;
+}
+[data-theme="dark"] .portfolio-table-header {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.018)),
+    var(--bg-base) !important;
+}
+/* C 方案：表头斜光扫过（与汇总卡同源） */
+.portfolio-table-header::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -30%;
+  width: 40%;
+  height: 220%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--sheen-color), transparent);
+  transform: rotate(18deg);
+  animation: sheen 6.5s ease-in-out infinite;
+  z-index: 0;
+}
+
+/* C 方案：顶部指数条容器美化（顶部+底部金发丝线 + 金色顶光 + 微光晕） */
+.market-index-strip {
+  background-color: var(--bg-header) !important;
+  background-image:
+    linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--accent-gold) 60%, transparent) 10%, color-mix(in srgb, var(--accent-gold) 60%, transparent) 90%, transparent 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-gold) 7%, transparent), transparent 75%) !important;
+  background-size: 100% 1.5px, 100% 100% !important;
+  background-position: top, 0 0 !important;
+  background-repeat: no-repeat, no-repeat !important;
+  box-shadow:
+    0 1px 0 var(--border-subtle),
+    0 10px 26px -14px color-mix(in srgb, var(--accent-gold) 28%, transparent) !important;
+}
+/* C 方案：指数条斜光扫过（与表头/汇总卡同源，周期错开避免同屏齐闪） */
+.market-index-strip::before {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -30%;
+  width: 40%;
+  height: 220%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--sheen-color), transparent);
+  transform: rotate(18deg);
+  animation: sheen 8s ease-in-out infinite;
+  z-index: 0;
+}
+.market-index-strip::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1.5px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent-gold) 60%, transparent) 10%,
+    color-mix(in srgb, var(--accent-gold) 60%, transparent) 90%,
+    transparent 100%);
+}
+
+/* C 方案：指数条右侧「展开/选择」胶囊按钮组（hover / :active / 激活态统一走 CSS，避免触摸残留 hover） */
+.market-index-actions {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 2px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
+  border: 1px solid var(--border-subtle);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--accent-gold) 18%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  z-index: 2;
+}
+
+.market-index-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.market-index-btn:hover,
+.market-index-btn:active,
+.market-index-btn.is-active {
+  color: var(--accent-gold);
+  background: var(--accent-gold-dim);
+}
+
+.market-index-btn .anticon {
+  font-size: 15px;
+}
+
+.market-index-btn .anticon-down {
+  font-size: 14px;
+  transition: transform 0.22s ease;
+}
+
+.market-index-btn-divider {
+  width: 1px;
+  height: 14px;
+  flex: 0 0 1px;
+  background: var(--border-subtle);
+}
+
+/* 缩小指数条与 Header 之间的空隙（抵消 page-stage 顶部留白，仅桌面） */
+@media screen and (min-width: 769px) {
+  .market-index-strip {
+    margin-top: calc(8px - var(--content-padding));
+  }
+}
+
+/* C 方案：基金详情 / 统计页汇总卡（斜光 + 金色光晕，与持仓页汇总卡统一） */
+.fund-detail-summary-card,
+.stats-summary-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-lg) !important;
+  background-image: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent-gold) 5%, transparent),
+    var(--bg-elevated)) !important;
+  border-color: color-mix(in srgb, var(--accent-gold) 15%, transparent) !important;
+  box-shadow: var(--shadow-lg), 0 8px 26px -14px color-mix(in srgb, var(--accent-gold) 30%, transparent) !important;
+}
+.fund-detail-summary-card::after,
+.stats-summary-card::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -30%;
+  width: 40%;
+  height: 220%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--sheen-color), transparent);
+  transform: rotate(18deg);
+  animation: sheen 7.5s ease-in-out infinite;
+  z-index: 0;
+}
+
+/* C 方案：汇总卡总额金色辉光（渐变文字用 drop-shadow，text-shadow 会透过透明文字变脏） */
+.gold-text-gradient {
+  filter: drop-shadow(0 0 20px color-mix(in srgb, var(--accent-gold) 35%, transparent));
+}
+
 .number-tabular {
   font-family: var(--font-mono);
   font-feature-settings: 'tnum' on, 'lnum' on;
@@ -594,9 +790,9 @@ input.ant-input {
   color: var(--text-muted) !important;
 }
 
-/* 优化Card组件 */
+/* 优化Card组件（只设底色，避免用 background 简写把各卡的 background-image 渐变/发丝线重置掉） */
 .ant-card {
-  background: var(--bg-card) !important;
+  background-color: var(--bg-card) !important;
   border-color: var(--border-subtle) !important;
 }
 
@@ -661,6 +857,33 @@ input.ant-input {
   background: var(--bg-elevated) !important;
 }
 
+/* C 方案：弹窗斜向高光缓慢扫过（与汇总卡同源，复用 @keyframes sheen） */
+.ant-modal-content::after {
+  content: '';
+  position: absolute;
+  top: -70%;
+  left: -35%;
+  width: 45%;
+  height: 240%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--sheen-color), transparent);
+  transform: rotate(18deg);
+  animation: sheen 7s ease-in-out infinite;
+  z-index: 1;
+}
+
+/* C 方案：金额/份额输入框数字统一为等宽字体，与页面其它数字一致 */
+.ant-input-number .ant-input-number-input {
+  font-family: var(--font-mono);
+}
+
+/* C 方案：图标按钮统一（对齐汇总卡设置按钮：hover 金色 + 卡片底），危险按钮除外 */
+.ant-btn-text:not(.ant-btn-dangerous):hover,
+.ant-btn-text:not(.ant-btn-dangerous):focus-visible {
+  color: var(--accent-gold) !important;
+  background: var(--bg-card) !important;
+}
+
 .ant-modal-header {
   background: transparent !important;
   border-bottom-color: var(--border-subtle) !important;
@@ -714,8 +937,8 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   margin: 8px 10px;
   border-radius: var(--radius-lg);
   background:
-    radial-gradient(ellipse 70% 90% at 100% 0%, var(--hero-accent-glow), transparent 65%),
-    radial-gradient(ellipse 50% 70% at 0% 100%, var(--hero-accent-glow), transparent 60%),
+    var(--hero-accent-glow),
+    radial-gradient(ellipse 50% 70% at 0% 100%, color-mix(in srgb, var(--accent-gold) 8%, transparent), transparent 60%),
     linear-gradient(135deg, var(--hero-gradient-start), var(--hero-gradient-end));
   border: 1px solid var(--hero-border-light);
   box-shadow: 0 4px 20px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -18px 30px -20px var(--accent-gold-dim);
@@ -753,7 +976,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   width: 40%;
   height: 220%;
   pointer-events: none;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+  background: linear-gradient(90deg, transparent, var(--sheen-color), transparent);
   transform: rotate(18deg);
   animation: sheen 6.5s ease-in-out infinite;
   z-index: 0;
@@ -985,6 +1208,38 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 .ant-skeleton .ant-skeleton-content .ant-skeleton-paragraph > li {
   border-radius: var(--radius-sm) !important;
 }
+/* 骨架屏其它形态（输入框/头像/按钮）同样走金色微光，避免残留 antd 灰块 */
+.ant-skeleton .ant-skeleton-input,
+.ant-skeleton .ant-skeleton-avatar,
+.ant-skeleton .ant-skeleton-button,
+.ant-skeleton .ant-skeleton-image {
+  background: linear-gradient(90deg, var(--bg-row-odd) 25%, var(--accent-gold-dim) 37%, var(--bg-row-odd) 63%) !important;
+  background-size: 200% 100% !important;
+  animation: skeleton-gold-shimmer 1.6s ease-in-out infinite !important;
+  border-radius: var(--radius-sm) !important;
+}
+.ant-skeleton .ant-skeleton-avatar {
+  border-radius: var(--radius-full) !important;
+}
+
+/* ========== 路由切换：内容区入场（淡入 + 轻微上浮，只动 transform/opacity，移动端也便宜） ==========
+   fill 用 backwards（不是 both）：动画结束后不留 translateY(0)，
+   否则非 none 的 transform 会成为 fixed 后代的包含块，撑坏指数条的选择弹层等 fixed 元素 */
+.route-transition {
+  animation: route-in 280ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+@keyframes route-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 加载指示统一为金色（antd Spin 默认蓝/灰，与墨金主题不搭） */
+.ant-spin .ant-spin-dot-item {
+  background-color: var(--accent-gold) !important;
+}
+.ant-spin .ant-spin-text {
+  color: var(--text-secondary) !important;
+}
 
 /* ========== 移动端响应式优化 (≤768px) ========== */
 @media screen and (max-width: 768px) {
@@ -1000,7 +1255,6 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   [data-theme="dark"] {
     --font-display: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', 'SFMono-Regular', 'Consolas', monospace;
-    --font-serif: 'Cormorant Garamond', Georgia, 'Songti SC', serif;
     --bg-header: rgba(10, 14, 20, 0.94);
     --bg-tabbar: rgba(10, 14, 20, 0.95);
     --bg-glass: rgba(13, 18, 26, 0.82);
@@ -1061,14 +1315,6 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     min-height: auto !important;  /* 移动端移除最小高度限制 */
   }
 
-  .market-index-strip > div[style*="position: absolute"] > div {
-    min-width: 36px !important;
-    min-height: 36px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-  }
-
   /* 减少动画偏好支持 */
   @media (prefers-reduced-motion: reduce) {
     * {
@@ -1080,10 +1326,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 
   /* ========== 全局组件通用优化 ========== */
 
-  /* Card 组件通用优化 */
-  .ant-card {
-    border-radius: var(--radius-md) !important;
-  }
+  /* Card 圆角已与桌面统一，不再单独覆盖 */
 
   .ant-card > .ant-card-body {
     padding: 16px 12px !important;
@@ -1095,8 +1338,8 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     margin: 8px auto !important;
   }
 
+  /* Modal 圆角已与桌面统一（--radius-xl），此处仅保留移动端尺寸约束 */
   .ant-modal-content {
-    border-radius: var(--radius-lg) !important;
     max-height: 90vh !important;
     overflow-y: auto !important;
   }
@@ -1113,7 +1356,6 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   .ant-picker {
     height: 42px !important;
     font-size: clamp(14px, 3.5vw, 15px) !important;
-    border-radius: var(--radius-md) !important;
     overflow: hidden !important;
     display: flex !important;
     align-items: center !important;
@@ -1555,9 +1797,10 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     flex: 1.5 !important;
   }
 
-  /* 表头字体 */
+  /* 表头字体与字距（字距回退到移动端原状：无额外字距） */
   .portfolio-table-header > div {
     font-size: 11px !important;
+    letter-spacing: normal !important;
   }
 
   /* 优化移动端间距 */
@@ -1593,6 +1836,9 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   /* ========== MarketIndexStrip 移动端优化 ========== */
   .market-index-strip {
     padding: 6px 0 !important;
+    /* 收紧与 Header 之间的上空隙：MainLayout 预留 60px、page-stage 顶部 padding 4px，
+       最多只能回拉 4px —— 再多会把顶边推入 .page-content（overflow:auto）的裁剪区，顶部金发丝线会被裁掉 */
+    margin-top: -4px;
   }
 
   .market-index-scroll > div {
@@ -1621,6 +1867,30 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     min-width: calc(50% - 3px) !important;
     max-width: calc(50% - 3px) !important;
     padding: 6px 10px !important;
+  }
+
+  /* 右侧胶囊按钮组：手机端比桌面更紧凑（原先被 36px 粗暴规则撑大，连分隔线也变成色块） */
+  .market-index-actions {
+    right: 8px;
+    gap: 1px;
+    padding: 1px;
+  }
+
+  .market-index-btn {
+    width: 18px;
+    height: 18px;
+  }
+
+  .market-index-btn-divider {
+    height: 10px;
+  }
+
+  .market-index-btn .anticon {
+    font-size: 12px;
+  }
+
+  .market-index-btn .anticon-down {
+    font-size: 11px;
   }
 }
 
@@ -1714,9 +1984,41 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   animation: hourglass-breathe 1.2s ease-in-out infinite;
 }
 
+/* C 方案：沙漏图标 —— 金色固定为深色主题那套（浅色模式不再变陶土色） */
+.hourglass {
+  --hg-sand-a: #F2DFA3;   /* 深色主题的 --accent-gold-light */
+  --hg-sand-b: #D9B863;   /* 深色主题的 --accent-gold */
+  /* 外辉用显式 rgba：不能用 color-mix(金色 N%, transparent) —— 混 transparent 会把颜色压向黑，
+     8 成 alpha 的"暗金"在浅色底上就是一圈脏影（发黑） */
+  --hg-glow-soft: rgba(217, 184, 99, 0.30);
+  --hg-glow-peak: rgba(242, 223, 163, 0.85);
+}
+
+/* 浅色底本身亮，"淡金"会看不见；改用更饱和的琥珀金并加大 alpha，既能看见又不会发脏 */
+[data-theme="light"] .hourglass {
+  --hg-glow-soft: rgba(198, 134, 48, 0.22);
+  --hg-glow-peak: rgba(198, 134, 48, 0.62);
+}
+
+/* 辉光只加在 svg 自身：父级 .hourglass 不再加 filter。
+   父子同时带 filter、子级又跑 filter 动画，会留下合成层残留暗影（浅色下尤其明显） */
+.hourglass svg {
+  filter: drop-shadow(0 0 4px var(--hg-glow-soft));
+}
+
+/* 瓶颈流沙：明暗呼吸，暗示沙在流动 */
+.hourglass-neck {
+  animation: hourglass-neck-flow 1.6s ease-in-out infinite;
+}
+
+@keyframes hourglass-neck-flow {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
 @keyframes hourglass-breathe {
-  0%, 100% { opacity: 0.8; }
-  50% { opacity: 1; filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent-gold-light) 80%, transparent)); }
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 1; filter: drop-shadow(0 0 6px var(--hg-glow-peak)); }
 }
 
 /* 主题图标切换：旋转淡入 */
@@ -1743,6 +2045,11 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 
   .header-title {
     font-size: 16px !important;
+  }
+
+  /* 顶部「养基发财」：手机端去掉额外字距（桌面保留内联的 0.24em） */
+  .header-title-text {
+    letter-spacing: normal !important;
   }
 
   .header-search {
@@ -2103,13 +2410,13 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 
   .group-manage-modal .ant-modal-content {
     max-height: 96vh !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-xl) !important;
     overflow: hidden !important;
   }
 
   .group-manage-modal .ant-modal-header {
     padding: 10px 12px !important;
-    border-radius: 12px 12px 0 0 !important;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0 !important;
     min-height: 44px !important;
   }
 
@@ -2152,7 +2459,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 
   .group-manage-modal .ant-tabs-tab-btn span {
     padding: 6px 10px !important;
-    border-radius: 5px !important;
+    border-radius: var(--radius-sm) !important;
     gap: 4px !important;
   }
 
@@ -2178,13 +2485,13 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     margin-bottom: 12px !important;
     flex-direction: column !important;
     gap: 8px !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
   }
 
   .group-create-section .ant-input {
     font-size: clamp(13px, 3vw, 14px) !important;
     height: 38px !important;
-    border-radius: 6px !important;
+    border-radius: var(--radius-sm) !important;
   }
 
   .group-create-section .ant-input-lg {
@@ -2197,7 +2504,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     height: 38px !important;
     font-size: clamp(13px, 3vw, 14px) !important;
     font-weight: 600 !important;
-    border-radius: 6px !important;
+    border-radius: var(--radius-sm) !important;
     min-width: unset !important;
   }
 
@@ -2208,7 +2515,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   /* 分组列表项 - 紧凑显示 */
   .group-list-item {
     margin-bottom: 6px !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
     overflow: hidden !important;
   }
 
@@ -2264,7 +2571,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     padding: 3px 8px !important;
     height: 30px !important;
     line-height: 1 !important;
-    border-radius: 5px !important;
+    border-radius: var(--radius-sm) !important;
     white-space: nowrap !important;
     min-width: 50px !important;
   }
@@ -2294,7 +2601,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     flex-direction: column !important;
     gap: 8px !important;
     align-items: stretch !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
   }
 
   .fund-selector-label {
@@ -2316,7 +2623,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   /* 基金卡片 - 紧凑布局 */
   .fund-card-item {
     padding: 8px 10px !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
     margin-bottom: 5px !important;
     overflow: hidden !important;
   }
@@ -2379,7 +2686,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     padding: 3px 6px !important;
     height: 28px !important;
     min-height: 28px !important;
-    border-radius: 5px !important;
+    border-radius: var(--radius-sm) !important;
   }
 
   .fund-card-item .ant-select {
@@ -2414,7 +2721,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     font-size: clamp(10px, 2.5vw, 12px) !important;
     height: 30px !important;
     padding: 0 10px !important;
-    border-radius: 5px !important;
+    border-radius: var(--radius-sm) !important;
   }
 
   /* Empty 状态 */
@@ -2691,6 +2998,82 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     font-size: clamp(13px, 3.2vw, 14px) !important;
     border-radius: var(--radius-md) !important;
   }
+}
+
+/* ==== C 方案：登录 / 注册卡「悬空感」—— 受光卡面 + 清晰落影 + 金色亮边缘 ====
+   要点：卡面明度必须高于背景，否则在深色下看起来是"挖空"而不是"浮起"
+   卡面保持「墨金」体系：--bg-elevated 打底 + 顶端金色受光 + 微亮提亮 */
+.login-card,
+.register-card {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-gold) 7%, transparent) 0%, transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.35) 100%),
+    var(--bg-elevated) !important;
+  /* 卡面已不透明，毛玻璃只会让边缘与背景糊在一起，故关闭 */
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: color-mix(in srgb, var(--accent-gold) 30%, transparent) !important;
+  --auth-float-shadow:
+    /* 贴地落影（紧、深，制造离地间隙） */
+    0 2px 4px rgba(120, 88, 50, 0.12),
+    0 14px 26px -8px rgba(120, 88, 50, 0.30),
+    /* 远层大范围 */
+    0 46px 80px -24px rgba(120, 88, 50, 0.40),
+    /* 顶部受光面 */
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    /* 金色亮边缘 */
+    0 0 0 1px color-mix(in srgb, var(--accent-gold) 30%, transparent);
+  box-shadow: var(--auth-float-shadow) !important;
+  animation: authCardFloat 8s ease-in-out infinite;
+}
+
+/* 深色：同上，但提亮量按深底重算（12%→3%），并保留一层金色受光 */
+[data-theme="dark"] .login-card,
+[data-theme="dark"] .register-card {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-gold) 10%, transparent) 0%, transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 100%),
+    var(--bg-elevated) !important;
+  --auth-float-shadow:
+    /* 紧贴底边的暗带（离地间隙） */
+    0 3px 5px -2px rgba(0, 0, 0, 0.75),
+    /* 与卡片分离的一团暗影（越高越分离） */
+    0 26px 22px -14px rgba(0, 0, 0, 0.90),
+    /* 更远更散的暗池 */
+    0 60px 54px -30px rgba(0, 0, 0, 0.95),
+    /* 顶部受光面 */
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    /* 金色亮边缘 */
+    0 0 0 1px color-mix(in srgb, var(--accent-gold) 32%, transparent),
+    0 0 42px -6px color-mix(in srgb, var(--accent-gold) 22%, transparent);
+}
+
+/* hover 时保持悬空投影（压过全局 .ant-card:hover 的通用阴影），描边转金 */
+.login-card:hover,
+.register-card:hover {
+  box-shadow: var(--auth-float-shadow) !important;
+  border-color: color-mix(in srgb, var(--accent-gold) 35%, transparent) !important;
+}
+
+@keyframes authCardFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+/* ==== C 方案：登录 / 注册卡补上斜光扫过（与其它 hero 容器同源，周期 8.5s 错开） ==== */
+.login-card::after,
+.register-card::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -30%;
+  width: 40%;
+  height: 220%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--sheen-color), transparent);
+  transform: rotate(18deg);
+  animation: sheen 8.5s ease-in-out infinite;
+  z-index: 0;
 }
 
 /* ==== LoginPage (from inline) ==== */
@@ -3114,6 +3497,210 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   }
 }
 
+/* ==== C 方案：我的 / 设置 页面容器美化（金色发丝线 + 斜光 + 金色光晕；不动布局） ==== */
+
+/* 共用底座（静默容器）：圆角令牌 + 静默阴影（顶部发丝线见下方 ::before） */
+.profile-user-card,
+.profile-menu-card,
+.profile-download-card,
+.settings-card,
+.market-chart-card,
+.market-other-index-card,
+.fund-detail-chart-card,
+.fund-detail-transactions-card,
+.stats-chart-card,
+.stats-table-card,
+.stats-date-table-card {
+  position: relative;
+  border-radius: var(--radius-lg) !important;
+  border-color: var(--border-subtle) !important;
+  box-shadow: var(--shadow-md);
+}
+
+/* 顶部金色发丝线：用伪元素实现（与持仓页汇总容器同规格）
+   注意：不能用 background-image —— 深色主题的 [data-theme="dark"] .ant-card 用 background 简写
+   且特异性更高，会把 background-image 重置为 none，导致发丝线整条不渲染 */
+.profile-user-card::before,
+.profile-menu-card::before,
+.profile-download-card::before,
+.settings-card::before,
+.market-chart-card::before,
+.market-other-index-card::before,
+.fund-detail-chart-card::before,
+.fund-detail-transactions-card::before,
+.stats-chart-card::before,
+.stats-table-card::before,
+.stats-date-table-card::before,
+.fund-detail-summary-card::before,
+.stats-summary-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1.5px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--accent-gold), transparent);
+  opacity: 0.55;
+  z-index: 2;
+}
+
+/* 用户信息卡：升级为 hero 语言（径向金光 + 金色描边 + 浮起阴影；顶部发丝线由 ::before 提供） */
+.profile-user-card {
+  background-image: var(--hero-accent-glow) !important;
+  border-color: var(--hero-border-light) !important;
+  box-shadow: var(--shadow-lg), 0 8px 26px -14px color-mix(in srgb, var(--accent-gold) 30%, transparent) !important;
+  overflow: hidden;
+}
+
+/* 用户信息卡：斜光缓慢扫过（与汇总卡同源，周期 7s 错开同屏闪烁） */
+.profile-user-card::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -30%;
+  width: 40%;
+  height: 220%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--sheen-color), transparent);
+  transform: rotate(18deg);
+  animation: sheen 7s ease-in-out infinite;
+  z-index: 0;
+}
+
+/* 头像：加一圈金色细描边，与卡片金光呼应 */
+.profile-avatar {
+  box-shadow: var(--shadow-glow-gold), inset 0 0 0 1px color-mix(in srgb, var(--accent-gold-light) 55%, transparent) !important;
+}
+
+/* 菜单卡：分隔线改金色发丝色，末项不留线 */
+.profile-menu-card .ant-list-item {
+  border-bottom-color: color-mix(in srgb, var(--accent-gold) 18%, transparent) !important;
+}
+.profile-menu-card .ant-list-item:last-child {
+  border-bottom-color: transparent !important;
+}
+
+/* 菜单项：hover 时图标/箭头转金 + 箭头右移 2px（仅视觉位移，不占布局） */
+.profile-menu-icon,
+.profile-menu-arrow {
+  transition: color var(--transition-fast), transform var(--transition-fast);
+}
+.profile-menu-item:hover .profile-menu-icon,
+.profile-menu-item:hover .profile-menu-arrow {
+  color: var(--accent-gold) !important;
+}
+.profile-menu-item:hover .profile-menu-arrow {
+  transform: translateX(2px);
+}
+
+/* 退出登录：统一圆角 + 危险色描边/淡底（沿用涨跌语义色，不用 antd 原红） */
+.profile-logout-btn:not(:disabled) {
+  border-radius: var(--radius-md) !important;
+  border-color: color-mix(in srgb, var(--gain) 40%, transparent) !important;
+  background: color-mix(in srgb, var(--gain) 6%, transparent) !important;
+  color: var(--gain) !important;
+  transition: border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
+}
+.profile-logout-btn:not(:disabled):hover {
+  border-color: var(--gain) !important;
+  background: color-mix(in srgb, var(--gain) 12%, transparent) !important;
+  box-shadow: 0 8px 20px -12px var(--gain);
+}
+
+/* 静默容器：hover 描边转淡金 + 金色投影（所有子页面卡片一次覆盖） */
+.profile-user-card,
+.profile-menu-card,
+.profile-download-card,
+.settings-card,
+.market-chart-card,
+.market-other-index-card,
+.fund-detail-chart-card,
+.fund-detail-transactions-card,
+.stats-chart-card,
+.stats-table-card,
+.stats-date-table-card {
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.profile-user-card:hover,
+.profile-menu-card:hover,
+.profile-download-card:hover,
+.settings-card:hover,
+.market-chart-card:hover,
+.market-other-index-card:hover,
+.fund-detail-chart-card:hover,
+.fund-detail-transactions-card:hover,
+.stats-chart-card:hover,
+.stats-table-card:hover,
+.stats-date-table-card:hover {
+  border-color: color-mix(in srgb, var(--accent-gold) 30%, transparent) !important;
+  box-shadow: var(--shadow-md), 0 10px 26px -18px color-mix(in srgb, var(--accent-gold) 35%, transparent);
+}
+
+/* 下载卡是 CTA：并入静默容器后仍保留金色描边（hover 时提亮） */
+.profile-download-card {
+  border-color: color-mix(in srgb, var(--accent-gold) 60%, transparent) !important;
+}
+.profile-download-card:hover {
+  border-color: color-mix(in srgb, var(--accent-gold) 90%, transparent) !important;
+  box-shadow: var(--shadow-glow-gold) !important;
+}
+
+/* 静默容器卡片头：底部金色发丝渐变线（覆盖原 border，不占布局） */
+.settings-card > .ant-card-head,
+.market-other-index-card > .ant-card-head,
+.fund-detail-transactions-card > .ant-card-head,
+.stats-table-card > .ant-card-head {
+  position: relative;
+  border-bottom-color: transparent !important;
+}
+.settings-card > .ant-card-head::after,
+.market-other-index-card > .ant-card-head::after,
+.fund-detail-transactions-card > .ant-card-head::after,
+.stats-table-card > .ant-card-head::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1.5px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent-gold) 60%, transparent) 10%,
+    color-mix(in srgb, var(--accent-gold) 60%, transparent) 90%,
+    transparent 100%);
+}
+
+/* 指数详情页：核心数据卡（涨跌方向着色，hero 语言 + 斜光） */
+.market-index-hero-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+.market-index-hero-card.is-up {
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--gain) 5%, transparent), var(--bg-elevated)) !important;
+  border-color: var(--gain-border) !important;
+}
+.market-index-hero-card.is-down {
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--loss) 5%, transparent), var(--bg-elevated)) !important;
+  border-color: var(--loss-border) !important;
+}
+.market-index-hero-card::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -30%;
+  width: 40%;
+  height: 220%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--sheen-color), transparent);
+  transform: rotate(18deg);
+  animation: sheen 8s ease-in-out infinite;
+  z-index: 0;
+}
+
 /* ==== InvestmentPlanPage (from inline) ==== */
 .plan-card {
   background: var(--bg-card);
@@ -3133,6 +3720,29 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 14px;
+}
+
+/* C 方案：卡片头容器装饰（底部金色发丝线，落在原有间距里，不占布局） */
+.plan-card-header,
+.date-table-header,
+.fund-detail-chart-header {
+  position: relative;
+}
+.plan-card-header::after,
+.date-table-header::after,
+.fund-detail-chart-header::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -7px;
+  height: 1.5px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent-gold) 60%, transparent) 15%,
+    color-mix(in srgb, var(--accent-gold) 60%, transparent) 85%,
+    transparent 100%);
 }
 .plan-card-fund-name {
   font-size: 15px;
@@ -3337,7 +3947,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   .stats-overview-item {
     min-height: 58px !important;
     padding: 8px 6px 6px !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
   }
 
   .stats-overview-item .stats-item-label {
@@ -3381,7 +3991,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     padding: 0 4px !important;
     min-height: 28px !important;
     line-height: 28px !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
     min-width: 32px !important;
   }
 
@@ -3394,7 +4004,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   }
 
   .stats-controls-row .ant-segmented-thumb {
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
   }
 
   .stats-chart-card {
@@ -3522,11 +4132,11 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 }
 .stats-controls-row .ant-segmented {
   background: var(--bg-elevated);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 2px;
 }
 .stats-controls-row .ant-segmented-item {
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   display: inline-flex !important;
   align-items: center !important;
@@ -3539,7 +4149,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   font-weight: 500;
 }
 .stats-controls-row .ant-segmented-thumb {
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--accent-gold);
   box-shadow: 0 2px 6px color-mix(in srgb, var(--accent-gold) 25%, transparent);
 }
@@ -3557,7 +4167,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 .date-table-nav-btn {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-default);
   background: var(--bg-card);
   color: var(--text-secondary);
@@ -3582,7 +4192,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   font-size: 11px;
   color: var(--accent-gold);
   padding: 4px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--accent-gold-dim);
   border: 0;
   cursor: pointer;
@@ -3610,7 +4220,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 }
 .date-table-cell {
   aspect-ratio: 1 / 1;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3644,7 +4254,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   min-width: 0;
 }
 .year-grid-cell {
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 12px 4px;
   display: flex;
   flex-direction: column;
@@ -3687,7 +4297,7 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 .date-table-legend-block {
   width: 14px;
   height: 14px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 /* ==================================================================

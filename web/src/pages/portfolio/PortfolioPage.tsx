@@ -142,7 +142,7 @@ export default function PortfolioPage() {
           marginBottom: 8
         }}>
           {[1, 2, 3].map((i) => (
-            <div key={i} style={{ background: 'var(--bg-card)', borderRadius: 12, padding: 16 }}>
+            <div key={i} style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-md)', padding: 16 }}>
               <Skeleton.Input active size="small" style={{ width: '60%', marginBottom: 12 }} />
               <Skeleton.Input active size="small" style={{ width: '80%' }} />
             </div>
@@ -174,7 +174,7 @@ export default function PortfolioPage() {
             <div style={{
               width: 6,
               height: 36,
-              borderRadius: 3,
+              borderRadius: 'var(--radius-sm)',
               marginLeft: 12,
               background: 'linear-gradient(90deg, var(--bg-elevated) 25%, var(--border-subtle) 50%, var(--bg-elevated) 75%)',
               backgroundSize: '200% 100%',
@@ -224,7 +224,7 @@ export default function PortfolioPage() {
               right: '-30px',
               width: '240px',
               height: '240px',
-              background: 'radial-gradient(circle, var(--hero-accent-glow), transparent 70%)',
+              background: 'radial-gradient(circle, color-mix(in srgb, var(--accent-gold) 12%, transparent), transparent 70%)',
               pointerEvents: 'none',
             }} />
 
@@ -265,14 +265,14 @@ export default function PortfolioPage() {
               gap: 14,
             }}>
               <div style={{ marginBottom: 2 }}>
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 400, letterSpacing: '0.24em' }}>总资产</span>
+                <span style={{ fontSize: 14, color: 'var(--text-tertiary)', fontWeight: 400, letterSpacing: '0.24em' }}>总资产</span>
                 <span
                   className="number-tabular gold-text-gradient"
                   onClick={toggleHideAmount}
                   style={{
                     fontSize: 'clamp(24px, 5vw, 34px)',
                     fontWeight: 600,
-                    fontFamily: 'var(--font-serif)',
+                    fontFamily: 'var(--font-mono)',
                     letterSpacing: '-0.01em',
                     marginLeft: 10,
                     cursor: 'pointer',
@@ -296,10 +296,10 @@ export default function PortfolioPage() {
                     fontSize: 18,
                     fontWeight: 600,
                     color: totalDaily >= 0 ? 'var(--gain)' : 'var(--loss)',
-                    fontFamily: 'var(--font-serif)',
+                    fontFamily: 'var(--font-mono)',
                     marginLeft: 8,
                   }}>
-                    {hideAmount ? '****' : `${animatedDaily >= 0 ? '+' : ''}¥${Math.abs(animatedDaily).toFixed(2)}`}
+                    {hideAmount ? '****' : `${animatedDaily >= 0 ? '+' : '-'}¥${Math.abs(animatedDaily).toFixed(2)}`}
                   </span>
                 </div>
                 <div>
@@ -311,10 +311,10 @@ export default function PortfolioPage() {
                     fontSize: 18,
                     fontWeight: 600,
                     color: totalAccumulated >= 0 ? 'var(--gain)' : 'var(--loss)',
-                    fontFamily: 'var(--font-serif)',
+                    fontFamily: 'var(--font-mono)',
                     marginLeft: 8,
                   }}>
-                    {hideAmount ? '****' : `${animatedAccumulated >= 0 ? '+' : ''}¥${Math.abs(animatedAccumulated).toFixed(2)}`}
+                    {hideAmount ? '****' : `${animatedAccumulated >= 0 ? '+' : '-'}¥${Math.abs(animatedAccumulated).toFixed(2)}`}
                   </span>
                 </div>
               </div>
@@ -330,22 +330,19 @@ export default function PortfolioPage() {
               borderBottomLeftRadius: 0,
               borderBottomRightRadius: 0,
               borderBottom: 'none',
-              background: 'linear-gradient(135deg, var(--hero-gradient-start), var(--hero-gradient-end))',
               border: '1px solid var(--hero-border-light)',
               boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
               position: 'sticky',
               top: 0,
               zIndex: 5,
-              backdropFilter: 'blur(16px) saturate(160%)',
-              WebkitBackdropFilter: 'blur(16px) saturate(160%)',
             }}
           >
             <div
               style={{
                 display: 'flex',
-                fontSize: 11,
+                fontSize: 13,
                 color: 'var(--text-tertiary)',
-                fontWeight: 400,
+                fontWeight: 500,
                 letterSpacing: '0.22em',
               }}
             >

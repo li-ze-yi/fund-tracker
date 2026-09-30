@@ -354,7 +354,7 @@ export default function FundDetailPage() {
           <Tag
             style={{
               fontWeight: 600,
-              borderRadius: 6,
+              borderRadius: 'var(--radius-sm)',
               padding: isMobile ? '1px 6px' : '2px 10px',
               fontSize: isMobile ? 9 : 12,
               background: isPending
@@ -749,7 +749,7 @@ export default function FundDetailPage() {
                   background: 'var(--accent-gold-dim)',
                   color: 'var(--gold-deep)',
                   border: 'none',
-                  borderRadius: 4,
+                  borderRadius: 'var(--radius-sm)',
                 }}
               >
                 {fund.type}
@@ -856,9 +856,6 @@ export default function FundDetailPage() {
         className="fund-detail-summary-card"
         style={{
           marginBottom: 12,  // ✅ 减小与上方模块的间距
-          background: isLight ? 'linear-gradient(135deg, rgba(196, 112, 63, 0.05), rgba(251, 247, 240, 0.9))' : 'linear-gradient(135deg, rgba(217, 184, 99, 0.06), rgba(17, 24, 35, 0.8))',
-          borderColor: isLight ? 'rgba(196, 112, 63, 0.14)' : 'rgba(217, 184, 99, 0.16)',
-          boxShadow: 'var(--shadow-lg)',
         }}
         styles={{ body: { padding: '20px 24px' } }}
       >
@@ -967,7 +964,7 @@ export default function FundDetailPage() {
             marginTop: 12,
             padding: '8px 12px',
             background: 'var(--bg-secondary)',
-            borderRadius: 6,
+            borderRadius: 'var(--radius-sm)',
             display: 'flex',
             flexWrap: 'nowrap',        // ✅ 不换行
             justifyContent: 'space-between',

@@ -227,7 +227,7 @@ export default function Header() {
                       background: 'var(--accent-gold-dim)',
                       color: 'var(--gold-deep)',
                       border: 'none',
-                      borderRadius: 4,
+                      borderRadius: 'var(--radius-sm)',
                     }}
                   >{f.type}</Tag>
                 )}
@@ -298,6 +298,7 @@ export default function Header() {
           {/* 品牌徽章：金色渐变圆角标 + 趋势线 */}
           <BrandBadge size={isMobile ? 26 : 30} />
           <span
+            className="header-title-text"
             style={{
               fontWeight: 500,
               fontSize: 17,
@@ -399,31 +400,51 @@ export default function Header() {
             <span className={`hourglass${countdown <= 5 && !refreshing ? ' urgent' : ''}`} style={{ display: 'inline-flex', position: 'relative', transform: refreshing ? 'rotate(1080deg)' : 'rotate(0deg)', transition: 'transform 0.9s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
               <svg width={isMobile ? 24 : 30} height={isMobile ? 28 : 35} viewBox="0 0 24 28">
                 <defs>
+                  {/* 沙色：固定用深色主题的金色（--hg-sand-a/b 定义在 .hourglass 上），两个主题观感一致 */}
                   <linearGradient id="hdrSand" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0" style={{ stopColor: 'var(--accent-gold-light)' }} />
-                    <stop offset="1" style={{ stopColor: 'var(--accent-gold)' }} />
+                    <stop offset="0" style={{ stopColor: 'var(--hg-sand-a)' }} />
+                    <stop offset="1" style={{ stopColor: 'var(--hg-sand-b)' }} />
                   </linearGradient>
+                  {/* 玻璃壁反光：上亮下透 */}
+                  <linearGradient id="hdrGlass" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" style={{ stopColor: '#fff', stopOpacity: 0.55 }} />
+                    <stop offset="1" style={{ stopColor: '#fff', stopOpacity: 0 }} />
+                  </linearGradient>
+                  {/* 玻璃内腔：沙子裁剪区，保证沙贴着弧形瓶壁而不是直线三角 */}
+                  <clipPath id="hdrCavity">
+                    <path d="M4.5 3.6 C 4.1 8.2, 8.4 11.7, 11.35 13.8 C 8.4 15.9, 4.1 19.6, 4.5 24.5 L 19.5 24.5 C 19.9 19.6, 15.6 15.9, 12.65 13.8 C 15.6 11.7, 19.9 8.2, 19.5 3.6 Z" />
+                  </clipPath>
                 </defs>
-                {/* 瓶身实心底（凸显沙漏形状） */}
-                <path d="M2 2 L22 2 L12 13 Z M12 15 L22 26 L2 26 Z" fill="var(--bg-card)" />
-                {/* 上瓶沙子：锥形，沙量随倒计时减少 */}
+
+                {/* 瓶身：弧形壁（真实沙漏的腰线是曲线，不是直三角） */}
+                <path d="M3.6 2.6 C 3.1 8, 7.9 11.7, 11.2 14 C 7.9 16.3, 3.1 20, 3.6 25.4 L 20.4 25.4 C 20.9 20, 16.1 16.3, 12.8 14 C 16.1 11.7, 20.9 8, 20.4 2.6 Z" fill="var(--bg-elevated)" />
+
+                {/* 沙：上瓶沙堆（坐在瓶颈上，沙面随倒计时下沉）/ 下瓶沙丘 / 中间细沙流 */}
                 {(() => {
-                  const fu = 1 - refreshProgress;
-                  const yTop = 13 - fu * 11;
-                  const wTop = 20 * fu;
-                  return <polygon points={`${12 - wTop / 2},${yTop} ${12 + wTop / 2},${yTop} 12,13`} fill="url(#hdrSand)" />;
+                  const p = refreshProgress;
+                  /* 上瓶沙面高度：3.6=满瓶，13.8=见底（瓶颈）；中间略凹模拟漏斗 */
+                  const surface = 3.6 + 10.2 * p;
+                  const pileTop = 24.5 - 10.3 * p;
+                  const streamH = Math.max(0, pileTop - 13.5);
+                  return (
+                    <g clipPath="url(#hdrCavity)">
+                      <polygon points={`2,${surface} 12,${surface + 0.55} 22,${surface} 12,13.8`} fill="url(#hdrSand)" />
+                      <polygon points={`3,24.5 21,24.5 13.2,${pileTop} 10.8,${pileTop}`} fill="url(#hdrSand)" />
+                      <rect className="hourglass-neck" x="11.5" y="13.5" width="1" height={streamH} rx="0.5" style={{ fill: 'var(--hg-sand-a)' }} />
+                    </g>
+                  );
                 })()}
-                {/* 下瓶沙子：锥形，沙量随倒计时增加 */}
-                {(() => {
-                  const fl = refreshProgress;
-                  const yBot = 26 - fl * 11;
-                  const wBot = 20 * (1 - fl);
-                  return <polygon points={`${12 - wBot / 2},${yBot} ${12 + wBot / 2},${yBot} 22,26 2,26`} fill="url(#hdrSand)" />;
-                })()}
-                {/* 瓶颈流沙亮点 */}
-                <rect x="11.2" y="12.6" width="1.6" height="2.2" style={{ fill: 'var(--accent-gold-light)' }} opacity="0.95" />
-                {/* 瓶身描边（加粗，强化轮廓） */}
-                <path d="M2 2 L22 2 L12 13 Z M12 15 L22 26 L2 26 Z" fill="none" stroke="var(--hero-border-light)" strokeWidth="1.5" strokeLinejoin="round" />
+
+                {/* 玻璃壁高光（上下腔各一道） */}
+                <path d="M5.3 4.8 C 4.9 8.4, 8.5 11.6, 11.4 13.6" fill="none" stroke="url(#hdrGlass)" strokeWidth="1.1" strokeLinecap="round" />
+                <path d="M5.5 23.1 C 5.1 19.8, 8.2 16.8, 11.1 14.9" fill="none" stroke="url(#hdrGlass)" strokeWidth="0.9" strokeLinecap="round" opacity="0.55" />
+
+                {/* 瓶身金色描边 */}
+                <path d="M3.6 2.6 C 3.1 8, 7.9 11.7, 11.2 14 C 7.9 16.3, 3.1 20, 3.6 25.4 L 20.4 25.4 C 20.9 20, 16.1 16.3, 12.8 14 C 16.1 11.7, 20.9 8, 20.4 2.6 Z" fill="none" stroke="color-mix(in srgb, var(--hg-sand-b) 45%, transparent)" strokeWidth="1.1" strokeLinejoin="round" />
+
+                {/* 上下金属端盖（做薄，把视觉重心让给瓶身） */}
+                <rect x="2.6" y="1" width="18.8" height="1.7" rx="0.85" fill="url(#hdrSand)" stroke="color-mix(in srgb, var(--hg-sand-b) 60%, transparent)" strokeWidth="0.6" />
+                <rect x="2.6" y="25.3" width="18.8" height="1.7" rx="0.85" fill="url(#hdrSand)" stroke="color-mix(in srgb, var(--hg-sand-b) 60%, transparent)" strokeWidth="0.6" />
               </svg>
             </span>
             {/* 刷新完成粒子爆发（只在刷新结束瞬间播放一次） */}

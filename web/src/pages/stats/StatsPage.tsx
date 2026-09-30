@@ -512,7 +512,7 @@ function DateTableView({ data, monthlyData, yearlyData, currentMonth, currentYea
                       alignItems: 'center',
                       padding: '8px 12px',
                       background: 'var(--bg-card)',
-                      borderRadius: 8,
+                      borderRadius: 'var(--radius-md)',
                       border: '1px solid var(--border-subtle)',
                     }}
                   >
@@ -1215,11 +1215,6 @@ export default function StatsPage() {
         className="stats-summary-card"
         style={{
           marginBottom: 20,
-          background: isLight
-            ? 'linear-gradient(135deg, rgba(196, 112, 63, 0.05), rgba(251, 247, 240, 0.9))'
-            : 'linear-gradient(135deg, rgba(217, 184, 99, 0.05), rgba(17, 24, 35, 0.8))',
-          borderColor: isLight ? 'rgba(196, 112, 63, 0.14)' : 'rgba(217, 184, 99, 0.16)',
-          boxShadow: 'var(--shadow-lg)',
         }}
         styles={{ body: { padding: '20px' } }}
       >
@@ -1235,7 +1230,7 @@ export default function StatsPage() {
             <div key={idx} className="stats-overview-item" style={{
               background: 'var(--bg-card)',
               border: '1px solid var(--border-subtle)',
-              borderRadius: 10,
+              borderRadius: 'var(--radius-md)',
               padding: '12px',
               minHeight: 84,
               display: 'flex',
@@ -1276,7 +1271,7 @@ export default function StatsPage() {
       </Card>
 
       {/* 第一行：控件并排（组合背景容器，左/中/右分布） */}
-      <div className="stats-controls-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: isMobile ? 6 : 24, flexWrap: 'nowrap', marginBottom: 16, padding: isMobile ? '5px 7px' : '10px 18px', background: isLight ? 'var(--bg-row-odd)' : 'rgba(214, 182, 110, 0.08)', borderRadius: 16, maxWidth: '680px', margin: '0 auto 16px' }}>
+      <div className="stats-controls-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: isMobile ? 6 : 24, flexWrap: 'nowrap', marginBottom: 16, padding: isMobile ? '5px 7px' : '10px 18px', background: isLight ? 'var(--bg-row-odd)' : 'rgba(214, 182, 110, 0.08)', borderRadius: 'var(--radius-lg)', maxWidth: '680px', margin: '0 auto 16px' }}>
         {/* 柱状图/表格切换（两种模式都显示） */}
         <Segmented
           value={viewMode}
