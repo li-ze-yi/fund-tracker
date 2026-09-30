@@ -553,12 +553,8 @@ export default function MarketDetailPage() {
 
       {/* 核心数据卡片 */}
       <Card
-        style={{
-          marginBottom: 20,
-          background: `linear-gradient(135deg, ${isUp ? 'rgba(224, 87, 78, 0.05)' : 'rgba(63, 164, 106, 0.05)'}, ${isLight ? 'rgba(251, 247, 240, 0.9)' : 'rgba(17, 24, 35, 0.8)'})`,
-          borderColor: isUp ? 'rgba(224, 87, 78, 0.15)' : 'rgba(63, 164, 106, 0.15)',
-          boxShadow: 'var(--shadow-lg)',
-        }}
+        className={`market-index-hero-card ${isUp ? 'is-up' : 'is-down'}`}
+        style={{ marginBottom: 20 }}
         styles={{ body: { padding: '24px' } }}
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
@@ -658,13 +654,13 @@ export default function MarketDetailPage() {
 
       {/* 走势图 */}
       <Card
+        className="market-chart-card"
         style={{
           marginBottom: 20,
           // 手机端让走势图卡片破出页面左右 padding，整屏通栏，消除图表到屏幕边缘的多重留白
           marginLeft: isMobile ? -16 : undefined,
           marginRight: isMobile ? -16 : undefined,
           background: 'var(--bg-elevated)',
-          borderColor: 'var(--border-subtle)',
         }}
         styles={{
           body: { padding: isMobile ? '16px 0' : '20px 16px' },
@@ -697,7 +693,7 @@ export default function MarketDetailPage() {
                 color: 'var(--loss)',
                 fontWeight: 500,
                 padding: '2px 8px',
-                borderRadius: '10px',
+                borderRadius: 'var(--radius-md)',
                 background: 'var(--loss-bg)',
                 border: '1px solid var(--loss-border)',
               }}>
@@ -708,7 +704,7 @@ export default function MarketDetailPage() {
                 color: 'var(--text-tertiary)',
                 fontWeight: 400,
                 padding: '2px 6px',
-                borderRadius: '8px',
+                borderRadius: 'var(--radius-md)',
                 background: 'var(--bg-row-odd)',
               }}>
                 {getSourceLabel(intradayData.source)}
@@ -744,13 +740,12 @@ export default function MarketDetailPage() {
             其他指数
           </span>
         }
+        className="market-other-index-card"
         style={{
           background: 'var(--bg-elevated)',
-          borderColor: 'var(--border-subtle)',
         }}
         styles={{
           header: {
-            borderBottom: '1px solid var(--border-subtle)',
             padding: '16px 20px',
           },
           body: { padding: '12px 16px' },

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { flushSync } from 'react-dom';
 
 type ThemeMode = 'dark' | 'light';
 
@@ -24,21 +25,45 @@ function getInitialMode(): ThemeMode {
   return mode;
 }
 
-export const useThemeStore = create<ThemeState>((set) => ({
+type DocumentWithVT = Document & { startViewTransition?: (cb: () => void) => unknown };
+
+/**
+ * 应用主题并保证切换过程平滑：
+ * 1) 支持 View Transitions 的浏览器：整体交叉淡入（渐变背景、毛玻璃等无法用 CSS 过渡的属性也能平滑切换）。
+ *    必须用 flushSync 把 React 的更新（antd 主题令牌来自 store.mode）一起挤进过渡回调里同步提交，
+ *    否则 antd 相关样式会在过渡结束之后才突变。
+ * 2) 不支持时兜底：给 <html> 挂 .theme-switching，靠 CSS 逐属性过渡（见 App.css），过渡结束后移除。
+ */
+function commitTheme(mode: ThemeMode, set: (partial: Pick<ThemeState, 'mode'>) => void) {
+  const root = document.documentElement;
+  const doc = document as DocumentWithVT;
+  const apply = () => {
+    root.setAttribute('data-theme', mode);
+    set({ mode });
+  };
+
+  if (typeof doc.startViewTransition === 'function') {
+    doc.startViewTransition(() => {
+      flushSync(apply);
+    });
+  } else {
+    root.classList.add('theme-switching');
+    apply();
+    window.setTimeout(() => root.classList.remove('theme-switching'), 420);
+  }
+}
+
+export const useThemeStore = create<ThemeState>((set, get) => ({
   mode: getInitialMode(),
 
-  setMode: (mode: ThemeMode) => {
+  setMode: (mode) => {
     localStorage.setItem('theme_mode', mode);
-    document.documentElement.setAttribute('data-theme', mode);
-    set({ mode });
+    commitTheme(mode, set);
   },
 
   toggleMode: () => {
-    set((state) => {
-      const newMode = state.mode === 'dark' ? 'light' : 'dark';
-      localStorage.setItem('theme_mode', newMode);
-      document.documentElement.setAttribute('data-theme', newMode);
-      return { mode: newMode };
-    });
+    const newMode: ThemeMode = get().mode === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('theme_mode', newMode);
+    commitTheme(newMode, set);
   },
 }));

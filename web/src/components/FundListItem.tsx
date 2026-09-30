@@ -51,7 +51,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-pre-market)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-pre-market-bg)',
             letterSpacing: '0.02em',
           }}
@@ -82,7 +82,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-standby)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-standby-bg)',
             letterSpacing: '0.02em',
           }}
@@ -113,7 +113,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-estimating)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-estimating-bg)',
             letterSpacing: '0.02em',
           }}
@@ -145,7 +145,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-pending)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-pending-bg)',
             letterSpacing: '0.02em',
           }}
@@ -207,7 +207,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-standby)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-standby-bg)',
             letterSpacing: '0.02em',
           }}
@@ -238,7 +238,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-standby)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-standby-bg)',
             letterSpacing: '0.02em',
           }}
@@ -269,7 +269,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-pending-purchase)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-pending-purchase-bg)',
             letterSpacing: '0.02em',
           }}
@@ -302,7 +302,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-confirmed)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-confirmed-bg)',
             letterSpacing: '0.02em',
           }}
@@ -341,7 +341,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           alignItems: 'center',
           padding: '14px 16px',
           margin: '0 10px 2px',
-          borderRadius: 'var(--radius-md)',
+          borderRadius: 4,
           cursor: 'pointer',
           background: isEvenRow ? 'var(--bg-row-even)' : 'var(--bg-row-odd)',
           border: '1px solid var(--border-subtle)',
@@ -417,7 +417,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
                 background: 'var(--accent-gold-dim)',
                 color: 'var(--gold-deep)',
                 border: 'none',
-                borderRadius: 3,
+                borderRadius: 'var(--radius-sm)',
                 fontWeight: 500,
               }}>
                 {fund.fund_type}
@@ -430,7 +430,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
                 fontFamily: 'var(--font-mono)',
                 background: 'var(--flat-bg)',
                 padding: '1px 5px',
-                borderRadius: 3,
+                borderRadius: 'var(--radius-sm)',
                 opacity: 0.6,
               }}>
                 净值 --
@@ -442,7 +442,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
                 fontFamily: 'var(--font-mono)',
                 background: 'var(--flat-bg)',
                 padding: '1px 5px',
-                borderRadius: 3,
+                borderRadius: 'var(--radius-sm)',
               }}>
                 净值 {hideAmount ? '****' : fund.net_value.toFixed(4)}
               </span>
@@ -493,7 +493,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           <div style={{
             width: 6,
             height: 36,
-            borderRadius: 3,
+            borderRadius: 'var(--radius-sm)',
             background: isUp
               ? 'var(--gain-bar)'
               : 'var(--loss-bar)',
@@ -519,7 +519,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
         alignItems: 'center',
         padding: '13px 16px',
         margin: '0 10px 2px',
-        borderRadius: 'var(--radius-md)',
+        borderRadius: 4,
         cursor: 'pointer',
         background: isEvenRow ? 'var(--bg-row-even)' : 'var(--bg-row-odd)',
         backdropFilter: 'blur(8px)',

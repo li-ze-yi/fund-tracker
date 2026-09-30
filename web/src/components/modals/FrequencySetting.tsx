@@ -94,7 +94,7 @@ export default function FrequencySetting({ value, onChange }: Props) {
               fontSize: 15,
               fontWeight: 500,
               padding: '10px 14px',
-              borderRadius: 8,
+              borderRadius: 'var(--radius-md)',
               transition: 'all 0.2s ease',
               background: value === opt.value ? 'color-mix(in srgb, var(--accent-gold) 8%, transparent)' : 'transparent',
               border: `1px solid ${value === opt.value ? 'var(--accent-gold)' : 'var(--border-default)'}`,
