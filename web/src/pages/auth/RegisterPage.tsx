@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Card, Form, Input, Button, App } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import BrandBadge from '@/components/BrandBadge';
 import { authService } from '@/services/authService';
 import { useAuthStore } from '@/store/authStore';
@@ -45,7 +45,6 @@ export default function RegisterPage() {
         backdropFilter: 'blur(20px) saturate(160%)',
         WebkitBackdropFilter: 'blur(20px) saturate(160%)',
         borderColor: 'var(--border-default)',
-        boxShadow: 'var(--shadow-lg), 0 0 0 1px var(--accent-gold-dim)',
         borderRadius: 'var(--radius-xl)',
         overflow: 'hidden',
       }}
@@ -90,8 +89,8 @@ export default function RegisterPage() {
             prefix={<LockOutlined style={{ color: 'var(--text-muted)' }} />}
             placeholder="密码（至少6位）"
             iconRender={(visible) => (visible
-              ? <span style={{ color: 'var(--text-secondary)' }}>👁</span>
-              : <span style={{ color: 'var(--text-secondary)' }}>🙈</span>
+              ? <EyeOutlined style={{ color: 'var(--text-secondary)' }} />
+              : <EyeInvisibleOutlined style={{ color: 'var(--text-secondary)' }} />
             )}
           />
         </Form.Item>
@@ -100,8 +99,8 @@ export default function RegisterPage() {
             prefix={<LockOutlined style={{ color: 'var(--text-muted)' }} />}
             placeholder="确认密码"
             iconRender={(visible) => (visible
-              ? <span style={{ color: 'var(--text-secondary)' }}>👁</span>
-              : <span style={{ color: 'var(--text-secondary)' }}>🙈</span>
+              ? <EyeOutlined style={{ color: 'var(--text-secondary)' }} />
+              : <EyeInvisibleOutlined style={{ color: 'var(--text-secondary)' }} />
             )}
           />
         </Form.Item>

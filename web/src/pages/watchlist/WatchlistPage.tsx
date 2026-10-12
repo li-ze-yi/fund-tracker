@@ -17,7 +17,7 @@ interface FavoriteItem {
   accumulated_profit?: number;
   last_updated?: string | null;
   is_fresh?: boolean;
-  update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate';
+  update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate' | 'stale';
   data_source?: 'actual' | 'estimated';
   day_of_week?: string;
 }
@@ -114,13 +114,13 @@ function SwipeToDelete({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'linear-gradient(180deg, #ef4444, #dc2626)',
+          background: 'linear-gradient(180deg, #E0574E, #C0432E)',
           borderRadius: '0 var(--radius-sm) var(--radius-sm) 0',
           cursor: 'pointer',
           // 跟随滑动位移：初始完全藏在容器外，滑动时同步露出
           transform: `translateX(${DELETE_WIDTH + translateX}px)`,
           transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          boxShadow: translateX < -20 ? '-4px 0 12px rgba(239, 68, 68, 0.3)' : 'none',
+          boxShadow: translateX < -20 ? '-4px 0 12px rgba(224, 87, 78, 0.3)' : 'none',
           pointerEvents: translateX < -10 ? 'auto' : 'none',
           opacity: translateX < -10 ? 1 : 0.6,
         }}

@@ -12,3 +12,11 @@ admin/
 test/
 server/data/
 .workbuddy/
+bench/
+_tmp_*.txt
+
+# 测试相关文件与测试目录（全部忽略）
+server/tests/
+**/__tests__/
+*.test.js
+*.spec.js

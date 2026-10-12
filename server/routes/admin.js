@@ -19,5 +19,9 @@ router.get('/cache/check', ctrl.cacheCheck);
 router.post('/cache/clear', ctrl.cacheClear);
 router.get('/feedbacks', ctrl.listFeedbacks);
 router.delete('/feedbacks/:id', ctrl.deleteFeedback);
+router.get('/stats/transaction-trend', ctrl.transactionTrend);
+router.get('/stats/user-growth', ctrl.userGrowth);
+router.get('/stats/daily-active', ctrl.dailyActive);
+router.get('/system/metrics', ctrl.systemMetrics);
 
 module.exports = router;

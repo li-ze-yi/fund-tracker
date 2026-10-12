@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UpOutlined, DownOutlined, CheckOutlined } from '@ant-design/icons';
+import { DownOutlined, CheckOutlined, SettingOutlined } from '@ant-design/icons';
 import { fetchIndexData, fetchMarketStatus, ALL_INDEX_META } from '@/services/indexService';
 
 interface IndexItem {
@@ -216,15 +216,15 @@ export default function MarketIndexStrip() {
                   cursor: 'pointer',
                   flexShrink: 0,
                   transition: 'all var(--transition-base)',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                  boxShadow: '0 2px 10px -6px color-mix(in srgb, var(--accent-gold) 24%, transparent)',
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.transform = 'translateY(-2px) scale(1.03)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.06)';
+                  e.currentTarget.style.boxShadow = '0 6px 18px -6px color-mix(in srgb, var(--accent-gold) 40%, transparent)';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = 'scale(1)';
-                  e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.03)';
+                  e.currentTarget.style.boxShadow = '0 2px 10px -6px color-mix(in srgb, var(--accent-gold) 24%, transparent)';
                 }}
               >
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>{item.name}</div>
@@ -239,43 +239,21 @@ export default function MarketIndexStrip() {
           </div>
         ) : null}
 
-        <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: 2 }}>
+        <div className="market-index-actions">
           <div
+            className={`market-index-btn${expanded ? ' is-active' : ''}`}
             onClick={() => { setExpanded(!expanded); setSelectorOpen(false); }}
-            style={{
-              cursor: 'pointer',
-              padding: '6px 8px',
-              color: 'var(--text-muted)',
-              borderRadius: 'var(--radius-sm)',
-              transition: 'all var(--transition-fast)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+            title={expanded ? '收起指数列表' : '展开指数列表'}
           >
-            {expanded ? <UpOutlined style={{ fontSize: 11 }} /> : <DownOutlined style={{ fontSize: 11 }} />}
+            <DownOutlined style={{ transform: expanded ? 'rotate(180deg)' : 'none' }} />
           </div>
+          <div className="market-index-btn-divider" />
           <div
+            className={`market-index-btn${selectorOpen ? ' is-active' : ''}`}
             onClick={() => { setSelectorOpen(!selectorOpen); setExpanded(false); }}
-            style={{
-              cursor: 'pointer',
-              padding: '6px 8px',
-              color: selectorOpen ? 'var(--accent-gold)' : 'var(--text-muted)',
-              borderRadius: 'var(--radius-sm)',
-              transition: 'all var(--transition-fast)',
-              border: selectorOpen ? '1px solid var(--accent-gold)' : '1px solid transparent',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 13,
-              fontWeight: 500,
-            }}
-            onMouseEnter={(e) => { if (!selectorOpen) e.currentTarget.style.color = 'var(--text-secondary)'; }}
-            onMouseLeave={(e) => { if (!selectorOpen) e.currentTarget.style.color = 'var(--text-muted)'; }}
+            title="选择显示的指数"
           >
-            ⚙
+            <SettingOutlined />
           </div>
         </div>
 

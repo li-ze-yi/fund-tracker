@@ -76,7 +76,7 @@ export default function ProfilePage() {
           background: 'var(--accent-gold-dim)',
           borderColor: 'var(--accent-gold)',
           cursor: 'pointer',
-          transition: 'transform var(--transition-fast), box-shadow var(--transition-fast)',
+          transition: 'transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast)',
         }}
         onClick={async () => {
           const serverBaseUrl = import.meta.env.VITE_API_URL
@@ -108,7 +108,7 @@ export default function ProfilePage() {
             style={{
               width: 48,
               height: 48,
-              borderRadius: 12,
+              borderRadius: 'var(--radius-md)',
               background: 'var(--accent-gold)',
               display: 'flex',
               alignItems: 'center',

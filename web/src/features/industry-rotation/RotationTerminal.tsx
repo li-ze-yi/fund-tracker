@@ -26,13 +26,13 @@ function heatColor(p: number, isLight: boolean) {
   if (isLight) {
     const a = 0.1 + t * 0.45;
     return {
-      bg: p >= 0 ? `rgba(220,38,38,${a})` : `rgba(22,163,74,${a})`,
-      fg: p >= 0 ? "#9b1c1c" : "#15803d",
+      bg: p >= 0 ? `rgba(192,67,46,${a})` : `rgba(62,122,90,${a})`,
+      fg: p >= 0 ? "#8A3423" : "#2B5540",
     };
   }
   const a = 0.18 + t * 0.82;
   return {
-    bg: p >= 0 ? `rgba(214,48,49,${a})` : `rgba(16,163,90,${a})`,
+    bg: p >= 0 ? `rgba(224,87,78,${a})` : `rgba(63,164,106,${a})`,
     fg: "#ffffff",
   };
 }
@@ -41,9 +41,9 @@ function styleBg(p: number, isLight: boolean) {
   const t = Math.min(Math.abs(p) / 2.2, 1);
   if (isLight) {
     const a = 0.06 + t * 0.3;
-    return p >= 0 ? `rgba(220,38,38,${a})` : `rgba(22,163,74,${a})`;
+    return p >= 0 ? `rgba(192,67,46,${a})` : `rgba(62,122,90,${a})`;
   }
-  return p >= 0 ? `rgba(214,48,49,${0.06 + t * 0.2})` : `rgba(16,163,90,${0.06 + t * 0.2})`;
+  return p >= 0 ? `rgba(224,87,78,${0.06 + t * 0.2})` : `rgba(63,164,106,${0.06 + t * 0.2})`;
 }
 
 /* ---------------- 动态：今日资金主线 ---------------- */
@@ -338,8 +338,8 @@ export default function RotationTerminal({
   const nbLast = nb.series && nb.series.length ? nb.series[nb.series.length - 1] : null;
 
   const nbColors: NbColors = isLight
-    ? { grid: "rgba(148,163,184,.28)", axis: "#64748B", amber: "#B8860B", cyan: "#0E9BB0", dot: "#FFFFFF" }
-    : { grid: "#1c2635", axis: "#5c6b80", amber: "#fbbf24", cyan: "#22d3ee", dot: "#0d1219" };
+    ? { grid: "rgba(63,74,52,.20)", axis: "#5C6353", amber: "#B4612F", cyan: "#0E9BB0", dot: "#FBF7F0" }
+    : { grid: "rgba(214,182,110,.12)", axis: "#A69D8B", amber: "#D9B863", cyan: "#22d3ee", dot: "#0A0E14" };
 
   // 图例色条
   const legendBars = Array.from({ length: 22 }, (_, i) => {

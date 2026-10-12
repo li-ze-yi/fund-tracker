@@ -31,13 +31,75 @@
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const { AsyncLocalStorage } = require('async_hooks');
 const { createLogger } = require('../utils/logger');
+const coordinator = require('./coordinator');
 const logger = createLogger('GlobalCache');
+
+// 跨实例聚合统计的 Redis key：各实例用 INCR 累计，管理后台读取全副本汇总
+const STATS_KEY = (field) => `gc:stats:${field}`;
+const STATS_FIELDS = ['hits', 'misses', 'evictions', 'totalRequests', 'forcedRefreshes'];
+const MISSES_KEY = 'gc:stats:recentMisses'; // 跨实例"最近未命中"明细（LPUSH + LTRIM 定长列表）
+
+/**
+ * 信号量：限制进程内同时执行的"外部数据拉取"任务数（并发护栏）。
+ * - 未达到上限时立即执行；达到上限时排队等待，任一任务结束即唤醒一个等待者。
+ * - 每个 Node 实例各持有一个，多实例（如 4 个）时总在途 = 实例数 × limit，
+ *   配合 getOrFetch 的跨实例单飞，既能防雪崩又不至于打爆外部数据源。
+ * - ★ 重入保护：同一异步调用链内嵌套调用（如 getOrFetch 的护栏内再触发
+ *   fundService.getRealTimeValue / getETFRealtimeQuote 内部的 guardFetch）
+ *   直接放行不再占新槽位。否则全部槽位被外层持有时，内层等待外层完成、
+ *   外层等待内层完成 → 互等死锁（20 并发冷缓存即必现）。
+ *   通过 AsyncLocalStorage 沿 await 调用链传播"已在护栏内"标记。
+ */
+const guardAls = new AsyncLocalStorage();
+
+class Semaphore {
+  constructor(max) {
+    this.max = Math.max(1, max);
+    this.active = 0;
+    this.waiters = [];
+  }
+  async run(fn) {
+    // 重入：外层已持有护栏（同一异步链）→ 直接执行，不占新槽位
+    if (guardAls.getStore()) return fn();
+    // 循环重检：被唤醒后若槽位已被新调用抢占，重新排队（避免短暂超限）
+    while (this.active >= this.max) {
+      await new Promise((resolve) => this.waiters.push(resolve));
+    }
+    this.active++;
+    try {
+      return await guardAls.run(true, fn);
+    } finally {
+      this.active--;
+      const next = this.waiters.shift();
+      if (next) next();
+    }
+  }
+}
 
 class GlobalCache {
   constructor() {
     this.cache = new Map();
-    
+
+    // Redis 后端模式（配置了 REDIS_URL 即启用）。
+    // redisEnabled 固定由环境变量决定；运行时是否真正可用由 _redisAvailable() 判断
+    // （Redis 连接就绪才生效，未配置或连接故障则降级回退到内存 Map）。
+    this.redisEnabled = Boolean(process.env.REDIS_URL);
+    this.redis = coordinator.getClient(); // 与 Coordinator 复用一个共享 ioredis client
+
+    // Redis 由不可用翻转为可用（ready）时：
+    // 1) 先把断连期间累积的本地计数增量合并回 Redis（INCRBY），
+    //    避免故障窗口的请求量在全球计数中被低估；
+    // 2) 再清空本实例内存缓存条目（保留命中率/调用次数等统计计数）。
+    // ready 只在"从不可用→可用"那一刻触发。
+    if (this.redis) {
+      this.redis.on('ready', async () => {
+        await this._mergeLocalStatsToRedis();
+        this.clearEntries();
+      });
+    }
+
     // 缓存统计
     this.stats = {
       hits: 0,           // 命中次数
@@ -47,15 +109,26 @@ class GlobalCache {
       forcedRefreshes: 0 // 强制刷新次数（getOrFetch forceRefresh 路径）
     };
 
+    // 已同步快照：表示 this.stats 中有多少已被 INCR 到 Redis。
+    // 正常运行（Redis 可用）时与 stats 同步递增；Redis 不可用期间保持不变，从而
+    // 使 ready 时的 delta（stats - synced）恰好等于"断连期间新累计"的那部分，避免重复累加。
+    this._syncedStats = { hits: 0, misses: 0, evictions: 0, totalRequests: 0, forcedRefreshes: 0 };
+
     // 最近未命中明细（记录未命中的缓存 key + 类型 + 时间，用于排查"是哪些缓存未命中"）
     this.recentMisses = [];  // [{ key, type, at }]
     this.maxMissLog = 100;   // 最多保留最近 100 条
     
-    // 最大缓存条目数（防止内存溢出）
-    this.maxSize = 500;
+    // 最大缓存条目数（防止内存溢出）。对齐项目约束：1000（满时按 evictOldest 两阶段淘汰）
+    this.maxSize = 1000;
 
     // 在途请求去重（缓存击穿防护）：key -> Promise，命中时复用，完成后删除
     this.inFlight = new Map();
+
+    // ★ 全局外部拉取并发护栏（信号量）：限制本进程同时进行的外部数据请求数。
+    // 通过 EXTERNAL_FETCH_CONCURRENCY 配置，默认 20；多实例时总在途 = 实例数 × 该值。
+    // guardFetch 供不走 getOrFetch 的手动外部拉取路径复用，保证整体不超出该上限。
+    this.externLimit = parseInt(process.env.EXTERNAL_FETCH_CONCURRENCY || '20', 10);
+    this._externSem = new Semaphore(this.externLimit);
 
     // 定时清理器
     this.cleanupInterval = null;
@@ -132,6 +205,155 @@ class GlobalCache {
   }
 
   /**
+   * Redis 是否配置且连接就绪（作为缓存唯一后端的前置条件）。
+   * 仅当配置了 REDIS_URL 且 coordinator 确认连接已就绪时返回 true；
+   * 未配置、创建未连接、连接故障/关闭时均返回 false。
+   */
+  _redisAvailable() {
+    return this.redisEnabled && coordinator.isEnabled();
+  }
+
+  /**
+   * Redis 模式是否启用（配置了 REDIS_URL 即视为启用，用于决定是否跳过文件持久化）
+   */
+  _isRedis() {
+    return this.redisEnabled && Boolean(this.redis);
+  }
+
+  /**
+   * 自增一项统计：总是更新本实例计数（供性能/命中率即时判断与无 Redis 兜底）；
+   * Redis 可用时额外用 INCR 累计到全局计数器，供跨实例聚合统计。
+   * 异步写 Redis，best-effort 不抛错。
+   * @param {'hits'|'misses'|'evictions'|'totalRequests'|'forcedRefreshes'} field
+   */
+  _bumpStats(field) {
+    this.stats[field] = (this.stats[field] || 0) + 1;
+    if (this._redisAvailable()) {
+      coordinator.getClient().incr(STATS_KEY(field)).catch(() => {});
+      // 正常运行期把已同步计数与本地计数对齐，使 ready 时仅推送"断连期间"增量
+      this._syncedStats[field] = (this._syncedStats[field] || 0) + 1;
+    }
+  }
+
+  /**
+   * 把断连期间本地累积的计数增量合并回 Redis（INCRBY）。
+   *
+   * 仅在 Redis 由不可用翻转为可用（ready）时调用。由于正常运行期每次事件都同时
+   * INCR 了 Redis 并把 _syncedStats 与本地对齐，这里只推送 stats - synced 的差额，
+   * 即"Redis 不可用期间新累计"的部分，避免把正常运行期的计数重复累加。
+   *
+   * 失败处理：best-effort。若 INCRBY 失败，回滚 _syncedStats 到推送前的值，
+   * 使下一次 ready（再次翻转）时重新推送这部分增量，不丢失。
+   * @returns {Promise<void>}
+   */
+  async _mergeLocalStatsToRedis() {
+    if (!this._redisAvailable() || !this.redis) return;
+    const c = this.redis;
+    const pipe = c.pipeline();
+    const prev = [];
+    let any = false;
+    for (let i = 0; i < STATS_FIELDS.length; i++) {
+      const field = STATS_FIELDS[i];
+      const current = this.stats[field] || 0;
+      const synced = this._syncedStats[field] || 0;
+      const delta = current - synced;
+      prev[i] = synced;
+      if (delta > 0) {
+        pipe.incrby(STATS_KEY(field), delta);
+        this._syncedStats[field] = current;
+        any = true;
+      }
+    }
+    if (!any) return;
+    try {
+      await pipe.exec();
+    } catch (err) {
+      logger.error(`本地统计合并到 Redis 失败: ${err.message}`);
+      // 回滚 synced，保证本次增量在下次 ready 时仍会被重新推送
+      STATS_FIELDS.forEach((field, i) => { this._syncedStats[field] = prev[i]; });
+    }
+  }
+
+  /**
+   * 睡眠辅助（跨实例 singleflight 轮询用）
+   */
+  _sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * 从 Redis 读取缓存条目（JSON: { data, timestamp, type }）。
+   * 仅读取，不做 TTL 续期（命中不刷新过期时间，命中时效由写入时的固定 TTL+timestamp 决定）。
+   * @returns {Promise<{data:*, timestamp:number, type:string}|null>} 不存在或已过期或出错 → null
+   */
+  async _redisGetEntry(key) {
+    if (!this._isRedis()) return null;
+    try {
+      const raw = await this.redis.get(key);
+      if (raw == null) return null;
+      const entry = JSON.parse(raw);
+      if (!entry || typeof entry !== 'object' || !('data' in entry)) return null;
+      return entry;
+    } catch (err) {
+      logger.error(`Redis 读取缓存失败，回退内存: ${key}, error=${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * 写缓存条目到 Redis（SET key <json> PX ttl）。best-effort，出错不抛出。
+   */
+  async _redisSetEntry(key, data, type) {
+    if (!this._isRedis()) return;
+    try {
+      const entry = { data, timestamp: Date.now(), type };
+      const ttl = this.getTTL(type);
+      await this.redis.set(key, JSON.stringify(entry), 'PX', ttl);
+    } catch (err) {
+      logger.error(`Redis 写入缓存失败: ${key}, error=${err.message}`);
+    }
+  }
+
+  /**
+   * 纯内存写入（含内存保护淘汰）
+   */
+  _setMemory(key, data, type) {
+    if (this.cache.size >= this.maxSize) {
+      this.evictOldest(50);  // 清理最旧的50个条目
+    }
+    this.cache.set(key, { data, timestamp: Date.now(), type });
+  }
+
+  /**
+   * 跨实例 singleflight：未抢到锁时轮询 Redis 等待其他实例写入的结果。
+   * 仅读取 Redis（Redis 可用模式下唯一的后端），不写内存 Map（避免内存镜像）。
+   * @returns {Promise<*|null>} 有界时间内出现条目则返回其 data，否则返回 null
+   */
+  async _pollForEntry(key, type, timeoutMs = 2000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const entry = await this._redisGetEntry(key);
+      if (entry && Date.now() - entry.timestamp < this.getTTL(entry.type || type)) {
+        return entry.data;
+      }
+      await this._sleep(50);
+    }
+    return null;
+  }
+
+  /**
+   * 手动外部拉取路径的并发护栏：在不改写调用方缓存逻辑的前提下，
+   * 让该外部请求受全局信号量限制（等待空闲槽位后再执行）。
+   * 供不走 getOrFetch 的手工 `checkCache → fetch → set` 路径复用，
+   * 与 getOrFetch 内部护栏共享同一信号量，保证整体外部并发不超上限。
+   * @param {Function} fetcher async 外部拉取函数
+   * @returns {Promise<*>} fetcher 的返回值
+   */
+  guardFetch(fetcher) {
+    return this._externSem.run(fetcher);
+  }
+
+  /**
    * 获取或设置缓存（核心方法）
    */
   async getOrFetch(key, fetchFn, options = {}) {
@@ -142,43 +364,58 @@ class GlobalCache {
     } = options;
 
     // 统计
-    this.stats.totalRequests++;
+    this._bumpStats('totalRequests');
 
-    // 1️⃣ 强制刷新模式
+    // 1️⃣ 强制刷新模式（写向当前激活后端）
     if (forceRefresh) {
-      this.stats.forcedRefreshes++;
+      this._bumpStats('forcedRefreshes');
       logger.info(`强制刷新: ${key}`);
-      const data = await fetchFn();
+      const data = await this.guardFetch(() => fetchFn());
       this.set(key, data, type);
       return data;
     }
 
     // 2️⃣ 检查缓存命中
-    const cached = this.cache.get(key);
-    
-    if (cached) {
-      const ttl = this.getTTL(type);
-      const age = Date.now() - cached.timestamp;
-      
-      if (age < ttl) {
-        // ✅ 命中缓存
-        this.stats.hits++;
-        
-        // 日志（仅部分输出，避免刷屏）
-        if (this.stats.totalRequests % 50 === 0) {
-          logger.debug(`命中: ${key} (${(age / 1000).toFixed(1)}s前, TTL=${(ttl / 1000)}s, 命中率=${this.getHitRate()}%)`);
+    //  - Redis 可用：仅读 Redis（唯一后端），不触碰内存 Map
+    //  - Redis 不可用：仅读内存 Map（回退单进程行为），不触碰 Redis
+    if (this._redisAvailable()) {
+      const redisEntry = await this._redisGetEntry(key);
+      if (redisEntry) {
+        const ttl = this.getTTL(redisEntry.type || type);
+        if (Date.now() - redisEntry.timestamp < ttl) {
+          // ✅ 命中共享缓存
+          this._bumpStats('hits');
+          return redisEntry.data;
         }
-        
-        return cached.data;
-      } else {
-        // ⏰ 缓存过期
-        this.cache.delete(key);
-        this.stats.evictions++;
+        // ⏰ Redis 中已过期（Redis 自动过期兜底），计入淘汰
+        this._bumpStats('evictions');
+      }
+    } else {
+      const memCached = this.cache.get(key);
+      if (memCached) {
+        const ttl = this.getTTL(memCached.type);
+        const age = Date.now() - memCached.timestamp;
+
+        if (age < ttl) {
+          // ✅ 命中缓存
+          this._bumpStats('hits');
+
+          // 日志（仅部分输出，避免刷屏）
+          if (this.stats.totalRequests % 50 === 0) {
+            logger.debug(`命中: ${key} (${(age / 1000).toFixed(1)}s前, TTL=${(ttl / 1000)}s, 命中率=${this.getHitRate()}%)`);
+          }
+
+          return memCached.data;
+        } else {
+          // ⏰ 缓存过期
+          this.cache.delete(key);
+          this._bumpStats('evictions');
+        }
       }
     }
 
     // 3️⃣ 缓存未命中 → 判断是否已有在途请求（缓存击穿防护）
-    this.stats.misses++;
+    this._bumpStats('misses');
     this.recordMiss(key, type);
 
     // 命中在途请求：直接复用，避免相同 key 并发重复请求外部 API
@@ -193,10 +430,30 @@ class GlobalCache {
 
     const promise = (async () => {
       try {
-        const data = await fetchFn();
+        // 第二层：跨实例 singleflight（仅在真实未命中后兜底生效）
+        // 未配置 Redis 时 coordinator 直接放行 → 行为与旧版单进程一致
+        const lockTtl = Math.min(this.getTTL(type), 30000) || 30000;
+        const tok = await coordinator.acquire(`sf:${key}`, lockTtl);
 
-        if (data !== null && data !== undefined) {
-          this.set(key, data, type);
+        let data;
+        if (tok) {
+          // ✅ 抢到锁（或 Redis 禁用降级放行）→ 唯一实例负责拉取（受全局外部并发护栏限制）
+          data = await this.guardFetch(() => fetchFn());
+          if (data !== null && data !== undefined) {
+            this.set(key, data, type);
+          }
+          // 释放锁（禁用态为真正的空操作）
+          await coordinator.release(`sf:${key}`, tok);
+        } else {
+          // ⏳ 其他实例正在拉取 → 有界轮询等待其写入结果
+          data = await this._pollForEntry(key, type, 2000);
+          if (data === null || data === undefined) {
+            // 超时兜底：有界的重复请求，保证请求成功
+            data = await this.guardFetch(() => fetchFn());
+            if (data !== null && data !== undefined) {
+              this.set(key, data, type);
+            }
+          }
         }
 
         return data;
@@ -224,6 +481,13 @@ class GlobalCache {
     if (this.recentMisses.length > this.maxMissLog) {
       this.recentMisses.shift();
     }
+    // 跨实例：同步到 Redis 定长列表，供管理后台查看全副本最近未命中明细
+    if (this._redisAvailable()) {
+      const c = coordinator.getClient();
+      const e = JSON.stringify({ key, type, at: new Date().toISOString() });
+      c.lpush(MISSES_KEY, e).catch(() => {});
+      c.ltrim(MISSES_KEY, 0, this.maxMissLog - 1).catch(() => {});
+    }
   }
 
   /**
@@ -241,25 +505,50 @@ class GlobalCache {
    *
    * @param {string} key - 缓存键
    * @param {string} type - 缓存类型（用于计算 TTL）
-   * @returns {{ hit: boolean, data: any|null }} - hit=true 时 data 为缓存数据
+   * @returns {Promise<{ hit: boolean, data: any|null }>} hit=true 时 data 为缓存数据
    */
-  checkCache(key, type = 'realtime') {
-    this.stats.totalRequests++;
+  async checkCache(key, type = 'realtime') {
+    this._bumpStats('totalRequests');
+
+    // Redis 可用：仅读 Redis（唯一后端）；Redis 出错 → 视为无缓存（不抛错），让调用方回退拉取
+    if (this._redisAvailable()) {
+      try {
+        const entry = await this._redisGetEntry(key);
+        if (entry) {
+          const ttl = this.getTTL(entry.type || type);
+          if (Date.now() - entry.timestamp < ttl) {
+            // ✅ 命中且未过期
+            this._bumpStats('hits');
+            return { hit: true, data: entry.data };
+          }
+          // ⏰ 命中但已过期（Redis 自动过期兜底），计入淘汰
+          this._bumpStats('evictions');
+        }
+      } catch (err) {
+        logger.error(`checkCache Redis 读取失败，降级为未命中: ${key}, error=${err.message}`);
+      }
+      // ❌ 未命中（或已过期/出错）
+      this._bumpStats('misses');
+      this.recordMiss(key, type);
+      return { hit: false, data: null };
+    }
+
+    // 非 Redis 模式：内存行为（与旧版完全一致）
     const cached = this.cache.get(key);
     if (cached) {
       const ttl = this.getTTL(type);
       const age = Date.now() - cached.timestamp;
       if (age < ttl) {
         // ✅ 命中且未过期
-        this.stats.hits++;
+        this._bumpStats('hits');
         return { hit: true, data: cached.data };
       }
       // ⏰ 命中但已过期，删除僵尸条目
       this.cache.delete(key);
-      this.stats.evictions++;
+      this._bumpStats('evictions');
     }
     // ❌ 未命中（或已过期删除后）
-    this.stats.misses++;
+    this._bumpStats('misses');
     this.recordMiss(key, type);
     return { hit: false, data: null };
   }
@@ -273,9 +562,26 @@ class GlobalCache {
    *
    * @param {string} key - 缓存键
    * @param {string} type - 缓存类型（用于计算 TTL）
-   * @returns {{ hit: boolean, data: any|null }} - hit=true 时 data 为缓存数据（与 checkCache 一致）
+   * @returns {Promise<{ hit: boolean, data: any|null }>} hit=true 时 data 为缓存数据（与 checkCache 一致）
    */
-  peekCache(key, type = 'realtime') {
+  async peekCache(key, type = 'realtime') {
+    // Redis 可用：仅读 Redis，不修改统计；Redis 出错 → 视为无缓存（不抛错）
+    if (this._redisAvailable()) {
+      try {
+        const entry = await this._redisGetEntry(key);
+        if (entry) {
+          const ttl = this.getTTL(entry.type || type);
+          if (Date.now() - entry.timestamp < ttl) {
+            return { hit: true, data: entry.data };
+          }
+        }
+      } catch (err) {
+        logger.error(`peekCache Redis 读取失败，降级为未命中: ${key}, error=${err.message}`);
+      }
+      return { hit: false, data: null };
+    }
+
+    // 非 Redis 模式：内存行为（与旧版完全一致，不修改统计）
     const cached = this.cache.get(key);
     if (cached) {
       const ttl = this.getTTL(type);
@@ -288,19 +594,230 @@ class GlobalCache {
   }
 
   /**
-   * 设置缓存
+   * 构造单条缓存条目元数据（内存/Redis 枚举共用，保证字段口径一致）
+   * @param {string} key 缓存键
+   * @param {{data:*, timestamp:number, type:string}} value 缓存条目
+   * @param {number} now 当前时间戳
+   * @param {number|undefined} remainingMs 剩余存活毫秒（Redis PTTL 可取；内存按 timestamp+TTL 估算）
+   * @returns {{key:string,type:string,ageSeconds:number,ttlSeconds:number,remainingSeconds:number,expired:boolean}}
    */
-  set(key, data, type = 'realtime') {
-    // 内存保护：超过最大容量时清理旧条目
-    if (this.cache.size >= this.maxSize) {
-      this.evictOldest(50);  // 清理最旧的50个条目
+  _buildEntryMeta(key, value, now, remainingMs) {
+    const ttl = this.getTTL(value.type);
+    const age = now - value.timestamp;
+    let remaining = Number.isFinite(remainingMs) && remainingMs >= 0
+      ? remainingMs
+      : Math.max(0, ttl - age);
+    return {
+      key,
+      type: value.type,
+      ageSeconds: Math.round(age / 1000),
+      ttlSeconds: Math.round(ttl / 1000),
+      remainingSeconds: Math.round(remaining / 1000),
+      expired: remaining <= 0,
+    };
+  }
+
+  /**
+   * 按当前激活后端（Redis 或内存）枚举全部有效缓存条目的元数据。
+   * - Redis 模式：`SCAN`（MATCH *）枚举 key，仅保留取值为合法 `{data,timestamp,type}` 对象（含分号）的键，
+   *   从而排除内部键（`gc:stats:*` 统计、`sf:*` 单飞锁）与 BullMQ 等非 GlobalCache 数据。
+   * - 内存模式：遍历内存 Map（与旧 cacheStats entries 口径一致）。
+   * @param {object} [opts]
+   * @param {number} [opts.limit] 返回条目上限（默认 200），防止大扫描/大列表拖垮请求
+   * @param {string} [opts.keyword] 对 key 做子串过滤（不区分大小写）
+   * @param {number} [opts.scanCount] SCAN 单批游标提示（默认 200；仅 Redis 模式生效）
+   * @returns {Promise<Array<{key,type,ageSeconds,ttlSeconds,remainingSeconds,expired}>>} 按 remainingSeconds 升序
+   */
+  async listEntries({ limit = 200, keyword = '', scanCount = 200 } = {}) {
+    const now = Date.now();
+    const kw = (keyword || '').trim().toLowerCase();
+
+    const collect = (arr) => {
+      if (!kw) return arr;
+      return arr.filter((m) => m.key.toLowerCase().includes(kw));
+    };
+
+    // 内存模式：复用 Map 遍历，与既有口径一致
+    if (!this._redisAvailable()) {
+      const metas = [];
+      for (const [key, value] of this.cache.entries()) {
+        metas.push(this._buildEntryMeta(key, value, now));
+      }
+      return collect(metas)
+        .sort((a, b) => a.remainingSeconds - b.remainingSeconds)
+        .slice(0, limit);
     }
 
-    this.cache.set(key, {
-      data,
-      timestamp: Date.now(),
-      type
-    });
+    // Redis 模式：SCAN 枚举 + 值形状识别
+    const c = coordinator.getClient();
+    const metas = [];
+    let cursor = '0';
+    try {
+      do {
+        const [next, keys] = await c.scan(cursor, 'MATCH', '*', 'COUNT', scanCount);
+        cursor = next;
+        const pipe = c.pipeline();
+        for (const k of keys) {
+          pipe.get(k);
+          pipe.pttl(k);
+        }
+        const results = await pipe.exec().catch(() => []);
+        for (let i = 0; i < keys.length; i++) {
+          const row = results[i * 2];       // GET 结果
+          const pttlRow = results[i * 2 + 1]; // PTTL 结果
+          let value = null;
+          const raw = row && !row[0] ? row[1] : null;
+          if (typeof raw === 'string') {
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed && typeof parsed === 'object' && 'data' in parsed && 'timestamp' in parsed && 'type' in parsed) {
+                value = parsed;
+              }
+            } catch { /* 非合法条目，跳过 */ }
+          }
+          if (!value) continue; // 排除 gc:stats:* / sf:* / BullMQ 等内部键
+          // PTTL（best-effort）：<0 表示无 TTL，回退为按 timestamp+TTL 估算
+          let remainingMs;
+          if (pttlRow && !pttlRow[0]) {
+            const pttl = pttlRow[1];
+            if (typeof pttl === 'number' && pttl >= 0) remainingMs = pttl;
+          }
+          metas.push(this._buildEntryMeta(keys[i], value, now, remainingMs));
+        }
+      } while (cursor !== '0' && metas.length < limit * 4); // 收集足够多后再裁剪，避免极端情况死循环
+    } catch (err) {
+      logger.error(`Redis 缓存枚举失败: ${err.message}`);
+      // 不再向上抛，返回已收集结果（若失败则空）
+    }
+
+    return collect(metas)
+      .sort((a, b) => a.remainingSeconds - b.remainingSeconds)
+      .slice(0, limit);
+  }
+
+  /**
+   * 统计当前激活后端的缓存条目数（校验过的完整计数，非分页）。
+   * - Redis 模式：全量 SCAN 并仅累加取值为合法 `{data,timestamp,type}` 的键（排除 stats/锁/BullMQ 等内部键）。
+   * - 内存模式：直接返回 this.cache.size。
+   * 用于管理后台"缓存条目的数量"在 Redis 多实例下也能给出真实条目数（stats.size 原本只看本进程内存）。
+   * @returns {Promise<number>}
+   */
+  async countEntries() {
+    if (!this._redisAvailable()) return this.cache.size;
+    const c = coordinator.getClient();
+    let count = 0;
+    let cursor = '0';
+    try {
+      do {
+        const [next, keys] = await c.scan(cursor, 'MATCH', '*', 'COUNT', 200);
+        cursor = next;
+        const pipe = c.pipeline();
+        for (const k of keys) pipe.get(k);
+        const results = await pipe.exec().catch(() => []);
+        for (let i = 0; i < keys.length; i++) {
+          const row = results && results[i];
+          const raw = row && !row[0] ? row[1] : null;
+          if (typeof raw !== 'string') continue;
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && 'data' in parsed && 'timestamp' in parsed && 'type' in parsed) {
+              count++;
+            }
+          } catch { /* 非合法条目，忽略 */ }
+        }
+      } while (cursor !== '0');
+    } catch (err) {
+      logger.error(`Redis 缓存计数失败: ${err.message}`);
+    }
+    return count;
+  }
+
+  /**
+   * 读取 Redis 自统计的过期/内存淘汰键数（`INFO stats` 的 expired_keys / evicted_keys）。
+   * Redis 用 TTL 自动删除过期 key，应用侧无法精确累计，因此过期清理数量以 Redis 自身计数为准。
+   * 非 Redis 模式返回 null（调用方保持用应用侧 evictions 计数）。
+   * @returns {Promise<{expiredKeys:number, evictedKeys:number}|null>}
+   */
+  async getRedisExpiryStats() {
+    if (!this._redisAvailable() || !this.redis) return null;
+    try {
+      const info = await this.redis.info('stats');
+      const num = (k) => {
+        const m = info.match(new RegExp(`${k}:(\\d+)`));
+        return m ? parseInt(m[1], 10) : 0;
+      };
+      return { expiredKeys: num('expired_keys'), evictedKeys: num('evicted_keys') };
+    } catch (err) {
+      logger.error(`读取 Redis INFO stats 失败: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * 仅探测单个 key 是否存在且未过期（作用于当前激活后端），返回元数据；否则返回 null。
+   * 与管理后台 cacheCheck 配套；不修改统计计数器（等价 peekCache 的"带元数据"版本）。
+   * @param {string} key 缓存键
+   * @returns {Promise<{hit:true,key,type,ageSeconds,ttlSeconds,remainingSeconds,expired}|{hit:false,key}>}
+   */
+  async peekEntry(key) {
+    const now = Date.now();
+    if (this._redisAvailable()) {
+      try {
+        const raw = await this.redis.get(key);
+        if (raw == null) return { hit: false, key };
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || !('data' in parsed) || !('type' in parsed)) {
+          return { hit: false, key };
+        }
+        let remainingMs;
+        try {
+          const pttl = await this.redis.pttl(key).catch(() => -1);
+          if (typeof pttl === 'number' && pttl >= 0) remainingMs = pttl;
+        } catch { /* 忽略 PTTL 读取失败 */ }
+        return { hit: true, key, ...this._buildEntryMeta(key, parsed, now, remainingMs) };
+      } catch (err) {
+        logger.error(`peekEntry 读取 Redis 失败，视为未命中: ${key}, error=${err.message}`);
+        return { hit: false, key };
+      }
+    }
+
+    // 内存模式
+    const cached = this.cache.get(key);
+    if (!cached) return { hit: false, key };
+    return { hit: true, key, ...this._buildEntryMeta(key, cached, now) };
+  }
+
+  /**
+   * 删除单个缓存键（作用于当前激活后端）。
+   * - Redis 可用：`DEL key`（best-effort 不抛错）+ 兼清内存 Map 该键，保证本地镜像同步
+   * - Redis 不可用：仅删内存 Map
+   * @param {string} key 缓存键
+   * @returns {Promise<void>}
+   */
+  async delete(key) {
+    this.cache.delete(key); // 任何模式都清内存（Redis 模式下内存仅作镜像/兜底）
+    if (this._redisAvailable()) {
+      try {
+        await this.redis.del(key);
+      } catch (err) {
+        logger.error(`Redis 删除缓存失败: ${key}, error=${err.message}`);
+      }
+    }
+  }
+
+  /**
+   * 设置缓存
+   * - Redis 可用 → 仅写 Redis（唯一后端，不写内存 Map）
+   * - Redis 不可用/未配置 → 仅写内存 Map（回退单进程行为）
+   */
+  set(key, data, type = 'realtime') {
+    if (this._redisAvailable()) {
+      // Redis 唯一后端：异步写共享 Redis（best-effort，不出错）
+      this._redisSetEntry(key, data, type).catch(() => {});
+    } else {
+      // 内存 Map 唯一后端（含内存保护淘汰）
+      this._setMemory(key, data, type);
+    }
   }
 
   /**
@@ -451,7 +968,7 @@ class GlobalCache {
     for (const [key] of expired) {
       if (removed >= count) break;
       this.cache.delete(key);
-      this.stats.evictions++;
+      this._bumpStats('evictions');
       removed++;
     }
 
@@ -462,7 +979,7 @@ class GlobalCache {
         .sort((a, b) => a[1].timestamp - b[1].timestamp);
       for (let i = 0; i < Math.min(remaining, entries.length); i++) {
         this.cache.delete(entries[i][0]);
-        this.stats.evictions++;
+        this._bumpStats('evictions');
       }
     }
   }
@@ -477,17 +994,55 @@ class GlobalCache {
 
   /**
    * 获取缓存统计信息
+   * Redis 可用时返回【跨实例聚合】的全局计数（各副本 INCR 累计）与全局最近未命中明细；
+   * 否则返回本实例计数（未配置/不可用时兜底）。
+   * @returns {Promise<object>}
    */
-  getStats() {
-    return {
-      ...this.stats,  // 包含 hits/misses/evictions/totalRequests/forcedRefreshes
+  async getStats() {
+    // 非 Redis 兜底：本实例统计（同步逻辑，包一层返回）
+    const local = () => ({
+      ...this.stats,
       hitRate: `${this.getHitRate()}%`,
       size: this.cache.size,
       maxSize: this.maxSize,
       tradingStatus: this.getTradingStatus(),
       realtimeTTL: `${(this.getRealtimeTTL() / 1000)}s`,
-      recentMisses: this.recentMisses.slice(-this.maxMissLog) // 最近未命中明细（倒序：最新在前）
-    };
+      recentMisses: this.recentMisses.slice(-this.maxMissLog),
+    });
+
+    if (!this._redisAvailable()) return local();
+
+    try {
+      const c = coordinator.getClient();
+      const vals = await Promise.all(STATS_FIELDS.map((f) => c.get(STATS_KEY(f)).catch(() => null)));
+      const s = {};
+      STATS_FIELDS.forEach((f, i) => { s[f] = parseInt(vals[i], 10) || 0; });
+      const total = s.totalRequests;
+      s.hitRate = total <= 0 ? '0.00%' : `${((s.hits / total) * 100).toFixed(2)}%`;
+
+      // 读取全局最近未命中（LPUSH → index0 最新）
+      let recentMisses = [];
+      try {
+        const rows = await c.lrange(MISSES_KEY, 0, this.maxMissLog - 1).catch(() => []);
+        if (Array.isArray(rows)) {
+          recentMisses = rows
+            .map((r) => { try { return JSON.parse(r); } catch { return null; } })
+            .filter(Boolean);
+        }
+      } catch { /* 忽略最近未命中读取失败 */ }
+
+      return {
+        ...s,
+        size: this.cache.size,
+        maxSize: this.maxSize,
+        tradingStatus: this.getTradingStatus(),
+        realtimeTTL: `${(this.getRealtimeTTL() / 1000)}s`,
+        recentMisses,
+      };
+    } catch (err) {
+      logger.error(`读取全局缓存统计失败，回退本实例: ${err.message}`);
+      return local();
+    }
   }
 
   /**
@@ -500,7 +1055,15 @@ class GlobalCache {
     
     // 重置统计
     this.stats = { hits: 0, misses: 0, evictions: 0, totalRequests: 0, forcedRefreshes: 0 };
+    // 同步重置已同步快照，避免与 Redis 清空后的 0 不一致导致下次 ready 误推历史差值
+    this._syncedStats = { hits: 0, misses: 0, evictions: 0, totalRequests: 0, forcedRefreshes: 0 };
     this.recentMisses = [];
+
+    // 同步清空 Redis 全局计数/未命中列表（跨实例一致）
+    if (this._redisAvailable()) {
+      const c = coordinator.getClient();
+      c.del(...STATS_FIELDS.map(STATS_KEY), MISSES_KEY).catch(() => {});
+    }
   }
 
   /**
@@ -514,8 +1077,14 @@ class GlobalCache {
 
   /**
    * 启动定时清理任务
+   * Redis 模式下 Redis 自动处理过期，无需内存清理（本地 Map 仅作镜像），此处空操作。
    */
   startCleanup(intervalMs = 5 * 60 * 1000) {
+    if (this._isRedis()) {
+      logger.debug('Redis 模式: 跳过定时清理 (Redis 自动处理过期)');
+      return;
+    }
+
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);  // 避免重复启动
     }
@@ -580,6 +1149,11 @@ class GlobalCache {
    * - 单条不可序列化则跳过该条（容错）
    */
   async saveToFile() {
+    // Redis 模式下禁止文件落盘：缓存以 Redis 为准
+    if (this._isRedis()) {
+      logger.debug('Redis 模式: 跳过文件持久化 (数据以 Redis 为准)');
+      return;
+    }
     if (this.saving) return;
     this.saving = true;
     try {
@@ -617,6 +1191,11 @@ class GlobalCache {
    * 同步落盘（供进程退出钩子使用，确保能写完）
    */
   saveToFileSync() {
+    // Redis 模式下禁止文件落盘
+    if (this._isRedis()) {
+      logger.debug('Redis 模式: 跳过同步文件落盘 (数据以 Redis 为准)');
+      return;
+    }
     try {
       const now = Date.now();
       const entries = [];
@@ -648,6 +1227,11 @@ class GlobalCache {
    * - 文件缺失/损坏则冷启动（不崩溃）
    */
   async loadFromFile() {
+    // Redis 模式下不读取磁盘文件（缓存以 Redis 为准，冷启动直接走共享缓存）
+    if (this._isRedis()) {
+      logger.debug('Redis 模式: 跳过磁盘缓存加载 (数据以 Redis 为准)');
+      return false;
+    }
     try {
       if (!fs.existsSync(this.cacheFilePath)) {
         logger.info('未找到缓存文件，冷启动');
@@ -703,6 +1287,12 @@ class GlobalCache {
    * @param {number} intervalMs 周期落盘间隔，默认 60s
    */
   startPersistence(intervalMs = 60 * 1000) {
+    // Redis 模式下禁止文件持久化定时器与退出钩子，避免写 data/globalCache.json
+    if (this._isRedis()) {
+      logger.debug('Redis 模式: 跳过文件持久化启动 (数据以 Redis 为准)');
+      return;
+    }
+
     if (this.saveInterval) clearInterval(this.saveInterval);
 
     this.saveInterval = setInterval(() => {

@@ -8,10 +8,18 @@ const User = {
 
   async create(username, hashedPassword) {
     const [result] = await pool.query(
-      'INSERT INTO users (username, password) VALUES (?, ?)',
+      'INSERT INTO users (username, password, last_active_at) VALUES (?, ?, NOW())',
       [username, hashedPassword]
     );
     return result.insertId;
+  },
+
+  // 更新用户最后活跃时间（登录或带令牌访问时调用），保持 updated_at 不变
+  async touchActive(id) {
+    await pool.query(
+      'UPDATE users SET last_active_at = NOW(), updated_at = updated_at WHERE id = ?',
+      [id]
+    );
   },
 
   async findById(id) {

@@ -20,7 +20,7 @@ interface FundListItemProps {
     last_updated?: string | null;
     update_time?: string | null;
     is_fresh?: boolean;
-    update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate' | 'sold_out' | 'pending_purchase';
+    update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate' | 'stale' | 'sold_out' | 'pending_purchase';
     data_source?: 'actual' | 'estimated';
     day_of_week?: string;  // 非交易日时显示星期几
   };
@@ -51,7 +51,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-pre-market)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-pre-market-bg)',
             letterSpacing: '0.02em',
           }}
@@ -82,7 +82,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-standby)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-standby-bg)',
             letterSpacing: '0.02em',
           }}
@@ -113,7 +113,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-estimating)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-estimating-bg)',
             letterSpacing: '0.02em',
           }}
@@ -145,7 +145,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-pending)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-pending-bg)',
             letterSpacing: '0.02em',
           }}
@@ -163,6 +163,37 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
         </span>
       );
 
+    case 'stale':
+      // 净值陈旧（停更/接口无数据，灰色）- 展示最近净值，涨跌不展示
+      return (
+        <span
+          data-label="待更新"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontSize: '10px',
+            fontWeight: 500,
+            color: 'var(--status-standby)',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            background: 'var(--status-standby-bg)',
+            letterSpacing: '0.02em',
+          }}
+        >
+          <span
+            style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: 'var(--status-standby)',
+              display: 'inline-block',
+            }}
+          />
+          待更新
+        </span>
+      );
+
     case 'no_estimate':
       // 估算失败（灰色）- 显示前一日数据
       return (
@@ -176,7 +207,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-standby)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-standby-bg)',
             letterSpacing: '0.02em',
           }}
@@ -207,7 +238,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-standby)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-standby-bg)',
             letterSpacing: '0.02em',
           }}
@@ -238,7 +269,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-pending-purchase)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-pending-purchase-bg)',
             letterSpacing: '0.02em',
           }}
@@ -271,7 +302,7 @@ const UpdateIndicator = memo(function UpdateIndicator({ status, dayOfWeek }: Upd
             fontWeight: 500,
             color: 'var(--status-confirmed)',
             padding: '2px 6px',
-            borderRadius: '4px',
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--status-confirmed-bg)',
             letterSpacing: '0.02em',
           }}
@@ -296,6 +327,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
   const isUp = (fund.estimated_change ?? 0) >= 0;
   const hideAmount = useHideAmountStore((s) => s.hidden);
   const isMarketClosed = fund.update_status === 'market_closed' || fund.update_status === 'pre_market';
+  const isStale = fund.update_status === 'stale';   // 净值陈旧（停更）：不展示陈旧涨跌
   const isSoldOut = fund.update_status === 'sold_out';
   const isPendingPurchase = fund.update_status === 'pending_purchase';
   const isEvenRow = index % 2 === 0;
@@ -309,7 +341,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           alignItems: 'center',
           padding: '14px 16px',
           margin: '0 10px 2px',
-          borderRadius: 'var(--radius-md)',
+          borderRadius: 4,
           cursor: 'pointer',
           background: isEvenRow ? 'var(--bg-row-even)' : 'var(--bg-row-odd)',
           border: '1px solid var(--border-subtle)',
@@ -323,7 +355,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           e.currentTarget.style.borderColor = 'var(--accent-gold-dim)';
           e.currentTarget.style.background = 'var(--bg-row-hover)';
           e.currentTarget.style.transform = 'translateX(2px)';
-          e.currentTarget.style.boxShadow = '0 2px 10px rgba(212, 168, 75, 0.12), 0 0 0 1px var(--accent-gold-dim)';
+          e.currentTarget.style.boxShadow = '0 2px 10px color-mix(in srgb, var(--accent-gold) 12%, transparent), 0 0 0 1px var(--accent-gold-dim)';
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.borderColor = 'var(--border-subtle)';
@@ -385,7 +417,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
                 background: 'var(--accent-gold-dim)',
                 color: 'var(--gold-deep)',
                 border: 'none',
-                borderRadius: 3,
+                borderRadius: 'var(--radius-sm)',
                 fontWeight: 500,
               }}>
                 {fund.fund_type}
@@ -398,7 +430,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
                 fontFamily: 'var(--font-mono)',
                 background: 'var(--flat-bg)',
                 padding: '1px 5px',
-                borderRadius: 3,
+                borderRadius: 'var(--radius-sm)',
                 opacity: 0.6,
               }}>
                 净值 --
@@ -410,7 +442,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
                 fontFamily: 'var(--font-mono)',
                 background: 'var(--flat-bg)',
                 padding: '1px 5px',
-                borderRadius: 3,
+                borderRadius: 'var(--radius-sm)',
               }}>
                 净值 {hideAmount ? '****' : fund.net_value.toFixed(4)}
               </span>
@@ -461,7 +493,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
           <div style={{
             width: 6,
             height: 36,
-            borderRadius: 3,
+            borderRadius: 'var(--radius-sm)',
             background: isUp
               ? 'var(--gain-bar)'
               : 'var(--loss-bar)',
@@ -487,7 +519,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
         alignItems: 'center',
         padding: '13px 16px',
         margin: '0 10px 2px',
-        borderRadius: 'var(--radius-md)',
+        borderRadius: 4,
         cursor: 'pointer',
         background: isEvenRow ? 'var(--bg-row-even)' : 'var(--bg-row-odd)',
         backdropFilter: 'blur(8px)',
@@ -503,7 +535,7 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
         e.currentTarget.style.borderColor = 'var(--accent-gold-dim)';
         e.currentTarget.style.background = 'var(--bg-row-hover)';
         e.currentTarget.style.transform = 'translateX(2px)';
-        e.currentTarget.style.boxShadow = '0 2px 10px rgba(212, 168, 75, 0.12), 0 0 0 1px var(--accent-gold-dim)';
+        e.currentTarget.style.boxShadow = '0 2px 10px color-mix(in srgb, var(--accent-gold) 12%, transparent), 0 0 0 1px var(--accent-gold-dim)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.borderColor = 'var(--border-subtle)';
@@ -557,10 +589,10 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
       </div>
 
       <div className="number-tabular" style={{ flex: 0.9, textAlign: 'right' }} data-col="estimated_change">
-        <span className="change-percent" style={{ fontSize: 15, fontWeight: 700, color: (isMarketClosed || isSoldOut || isPendingPurchase) ? 'var(--text-muted)' : (isUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
-          {(isMarketClosed || isSoldOut || isPendingPurchase) ? '--' : `${isUp ? '+' : ''}${(fund.estimated_change ?? 0).toFixed(2)}%`}
+        <span className="change-percent" style={{ fontSize: 15, fontWeight: 700, color: (isMarketClosed || isSoldOut || isPendingPurchase || isStale) ? 'var(--text-muted)' : (isUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
+          {(isMarketClosed || isSoldOut || isPendingPurchase || isStale) ? '--' : `${isUp ? '+' : ''}${(fund.estimated_change ?? 0).toFixed(2)}%`}
         </span>
-        {fund.update_status === 'no_estimate' && (fund.update_time || fund.last_updated) && (
+        {(fund.update_status === 'no_estimate' || isStale) && (fund.update_time || fund.last_updated) && (
           <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
             ({(() => {
               const dateStr = fund.update_time || fund.last_updated || '';

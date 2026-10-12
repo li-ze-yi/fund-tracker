@@ -14,7 +14,7 @@ export default function BrandBadge({ size = 30 }: { size?: number }) {
         height: size,
         borderRadius: Math.round(size * 0.3),
         background: 'linear-gradient(135deg, var(--accent-gold), var(--accent-gold-light))',
-        boxShadow: '0 2px 8px rgba(212, 168, 75, 0.35), inset 0 1px 0 rgba(255,255,255,0.4)',
+        boxShadow: '0 2px 8px color-mix(in srgb, var(--accent-gold) 35%, transparent), inset 0 1px 0 rgba(255,255,255,0.4)',
         flexShrink: 0,
       }}
     >

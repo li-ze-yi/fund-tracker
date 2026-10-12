@@ -3,7 +3,10 @@ const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('Database');
 
-const CONNECTION_LIMIT = 100;
+// 池上限支持环境变量覆盖：多实例部署（PM2 多进程 / K8s 多副本）时总连接数 =
+// 实例数 × connectionLimit，默认 MySQL max_connections=151，每实例应按副本数分配
+// （如 4 副本取 25），避免连接风暴打爆 MySQL。
+const CONNECTION_LIMIT = parseInt(process.env.MYSQL_CONNECTION_LIMIT, 10) || 100;
 
 const pool = mysql.createPool({
   host: process.env.MYSQL_HOST,
@@ -39,33 +42,10 @@ pool.on('error', (err) => {
   }
 });
 
-// 添加带重试机制的查询函数（仅对连接类错误重试）
-const RETRYABLE_ERRORS = ['ECONNRESET', 'PROTOCOL_CONNECTION_LOST', 'ETIMEDOUT', 'EPIPE', 'ECONNREFUSED', 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR'];
-const originalQuery = pool.query.bind(pool);
-pool.query = async function (...args) {
-  let retries = 3;
-  let lastError;
-
-  while (retries > 0) {
-    try {
-      return await originalQuery(...args);
-    } catch (error) {
-      lastError = error;
-      const isRetryable = RETRYABLE_ERRORS.some(code => error.code === code || error.message?.includes(code));
-      if (!isRetryable) {
-        // 非连接类错误（语法错误、约束冲突等）直接抛出，不重试
-        throw error;
-      }
-      retries--;
-      logger.warn(`MySQL 查询失败，准备重试 (${3 - retries}/3): ${error.message}`);
-      if (retries > 0) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
-  }
-
-  throw lastError;
-};
+// 说明：不再包装 pool.query 做"连接类错误自动重试"。
+// ECONNRESET/EPIPE 可能发生在语句已成功执行之后（仅响应丢失），对 INSERT/UPDATE
+// 这类非幂等语句盲目重试会造成双倍落账（资金账务风险）。连接类错误应让调用方
+// 的业务级错误处理/事务回滚来兜底；mysql2 池本身会在下次 getConnection 时重建连接。
 
 // 挂载连接上限到池对象，供健康检查等场景只读引用（避免事件回调中访问 pool.pool._config）
 pool.CONNECTION_LIMIT = CONNECTION_LIMIT;

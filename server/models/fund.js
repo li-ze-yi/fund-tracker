@@ -1,8 +1,15 @@
 const pool = require('../config/database');
 
+// LIKE 通配符转义：用户输入中的 %/_/\ 会被 MySQL 解释为通配符，需转义为字面量
+// （依赖 MySQL 默认的反斜杠转义，escapeLike 输出即 \\% / \\_ / \\\\ 形式，
+//  注意不要写 ESCAPE '\' 子句——在该模式下字面量里的反斜杠会吞掉收尾引号导致语法错误）
+function escapeLike(str) {
+  return String(str).replace(/[%_\\]/g, '\\$&');
+}
+
 const Fund = {
   async search(keyword) {
-    const like = `%${keyword}%`;
+    const like = `%${escapeLike(keyword)}%`;
     const [rows] = await pool.query(
       'SELECT * FROM funds WHERE code LIKE ? OR name LIKE ? LIMIT 20',
       [like, like]
@@ -36,7 +43,8 @@ const Fund = {
     const params = [];
     if (keyword) {
       conditions.push('(f.code LIKE ? OR f.name LIKE ?)');
-      params.push(`%${keyword}%`, `%${keyword}%`);
+      const like = `%${escapeLike(keyword)}%`;
+      params.push(like, like);
     }
     if (type) {
       conditions.push('f.type = ?');

@@ -213,7 +213,7 @@ export default function FeedbackModal({ open, onClose }: FeedbackModalProps) {
               background: submitting || !content.trim()
                 ? 'var(--border-default)'
                 : 'linear-gradient(135deg, var(--accent-gold), var(--accent-gold-light))',
-              color: submitting || !content.trim() ? 'var(--text-muted)' : '#111827',
+              color: submitting || !content.trim() ? 'var(--text-muted)' : 'var(--bg-base)',
               transition: 'all var(--transition-fast)',
               boxShadow: submitting || !content.trim() ? 'none' : 'var(--shadow-sm)',
               opacity: submitting || !content.trim() ? 0.6 : 1,

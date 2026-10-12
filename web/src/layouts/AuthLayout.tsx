@@ -1,7 +1,8 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import BrandBadge from '@/components/BrandBadge';
 
 export default function AuthLayout() {
+  const location = useLocation();
   return (
     <div
       style={{
@@ -58,7 +59,10 @@ export default function AuthLayout() {
       </div>
 
       <div style={{ position: 'relative', zIndex: 1, width: '100%', display: 'flex', justifyContent: 'center' }}>
-        <Outlet />
+        {/* key=pathname：登录/注册互切时重新播放入场动画 */}
+        <div key={location.pathname} className="route-transition" style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+          <Outlet />
+        </div>
       </div>
     </div>
   );

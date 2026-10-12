@@ -250,10 +250,10 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                 alignItems: 'center',
                 gap: 10,
                 padding: '10px 20px',
-                borderRadius: 8,
+                borderRadius: 'var(--radius-md)',
                 transition: 'all 0.3s ease',
                 color: activeTab === 'groups' ? 'var(--text-primary)' : 'var(--text-muted)',
-                background: activeTab === 'groups' ? 'linear-gradient(135deg, rgba(212, 168, 75, 0.12), rgba(212, 168, 75, 0.06))' : 'transparent',
+                background: activeTab === 'groups' ? 'linear-gradient(135deg, color-mix(in srgb, var(--accent-gold) 12%, transparent), color-mix(in srgb, var(--accent-gold) 6%, transparent))' : 'transparent',
               }}>
                 <FolderOpenOutlined style={{ fontSize: 18 }} />
                 分组管理
@@ -266,9 +266,9 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                   gap: 12,
                   marginBottom: 20,
                   padding: '16px',
-                  background: 'linear-gradient(135deg, rgba(212, 168, 75, 0.06), rgba(212, 168, 75, 0.02))',
-                  borderRadius: 12,
-                  border: '1px solid rgba(212, 168, 75, 0.15)'
+                  background: 'linear-gradient(135deg, color-mix(in srgb, var(--accent-gold) 6%, transparent), color-mix(in srgb, var(--accent-gold) 2%, transparent))',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid color-mix(in srgb, var(--accent-gold) 15%, transparent)'
                 }}>
                   <Input
                     placeholder="输入新分组名称..."
@@ -280,7 +280,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                       flex: 1,
                       fontSize: 14,
                       fontWeight: 500,
-                      borderRadius: 8,
+                      borderRadius: 'var(--radius-md)',
                     }}
                   />
                   <Button
@@ -291,7 +291,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                     size="large"
                     style={{
                       fontWeight: 600,
-                      borderRadius: 8,
+                      borderRadius: 'var(--radius-md)',
                       minWidth: 90,
                       height: 40,
                     }}
@@ -312,8 +312,8 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                       key={item.id}
                       className="group-list-item"
                       onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLElement).style.borderColor = 'rgba(212, 168, 75, 0.25)';
-                        (e.currentTarget as HTMLElement).style.background = 'rgba(212, 168, 75, 0.04)';
+                        (e.currentTarget as HTMLElement).style.borderColor = 'color-mix(in srgb, var(--accent-gold) 25%, transparent)';
+                        (e.currentTarget as HTMLElement).style.background = 'color-mix(in srgb, var(--accent-gold) 4%, transparent)';
                         (e.currentTarget as HTMLElement).style.transform = 'translateX(4px)';
                       }}
                       onMouseLeave={(e) => {
@@ -323,7 +323,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                       }}
                       style={{
                         background: index % 2 === 0 ? 'transparent' : 'rgba(128, 128, 128, 0.04)',
-                        borderRadius: 10,
+                        borderRadius: 'var(--radius-md)',
                         marginBottom: 8,
                         transition: 'all 0.25s ease',
                         border: '1px solid transparent',
@@ -332,7 +332,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                       <List.Item
                         style={{
                           padding: '14px 16px',
-                          borderRadius: 10,
+                          borderRadius: 'var(--radius-md)',
                           border: 'none'
                         }}
                         actions={[
@@ -361,9 +361,9 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                               onClick={() => { setEditingId(item.id); setEditName(item.name); }}
                               style={{
                                 fontWeight: 500,
-                                borderRadius: 6,
+                                borderRadius: 'var(--radius-sm)',
                                 color: 'var(--accent-gold)',
-                                borderColor: 'rgba(212, 168, 75, 0.3)'
+                                borderColor: 'color-mix(in srgb, var(--accent-gold) 30%, transparent)'
                               }}
                             >
                               编辑
@@ -399,7 +399,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                               width: 240,
                               fontSize: 15,
                               fontWeight: 600,
-                              borderRadius: 8,
+                              borderRadius: 'var(--radius-md)',
                             }}
                           />
                         ) : (
@@ -449,7 +449,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                 alignItems: 'center',
                 gap: 10,
                 padding: '10px 20px',
-                borderRadius: 8,
+                borderRadius: 'var(--radius-md)',
                 transition: 'all 0.3s ease',
                 color: activeTab === 'funds' ? 'var(--text-primary)' : 'var(--text-muted)',
                 background: activeTab === 'funds' ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(59, 130, 246, 0.06))' : 'transparent',
@@ -463,13 +463,13 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                 <div className="fund-selector-section" style={{
                   marginBottom: 16,
                   padding: '14px 18px',
-                  background: 'linear-gradient(135deg, rgba(212, 168, 75, 0.1), rgba(212, 168, 75, 0.05))',
-                  borderRadius: 12,
+                  background: 'linear-gradient(135deg, color-mix(in srgb, var(--accent-gold) 10%, transparent), color-mix(in srgb, var(--accent-gold) 5%, transparent))',
+                  borderRadius: 'var(--radius-md)',
                   borderLeft: '4px solid var(--accent-gold)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  boxShadow: '0 2px 8px rgba(212, 168, 75, 0.12)'
+                  boxShadow: '0 2px 8px color-mix(in srgb, var(--accent-gold) 12%, transparent)'
                 }}>
                   <span className="fund-selector-label" style={{
                     fontWeight: 700,
@@ -516,8 +516,8 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                           key={fund.id}
                           className="fund-card-item"
                           onMouseEnter={(e) => {
-                            (e.currentTarget as HTMLElement).style.borderColor = 'rgba(212, 168, 75, 0.5)';
-                            (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 20px rgba(212, 168, 75, 0.18), 0 0 0 1px var(--border-default)';
+                            (e.currentTarget as HTMLElement).style.borderColor = 'color-mix(in srgb, var(--accent-gold) 50%, transparent)';
+                            (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 20px color-mix(in srgb, var(--accent-gold) 18%, transparent), 0 0 0 1px var(--border-default)';
                             (e.currentTarget as HTMLElement).style.transform = 'translateY(-3px)';
                           }}
                           onMouseLeave={(e) => {
@@ -527,7 +527,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                           }}
                           style={{
                             background: 'var(--bg-elevated)',
-                            borderRadius: 12,
+                            borderRadius: 'var(--radius-md)',
                             border: '1.5px solid var(--border-default)',
                             padding: '7px 16px',
                             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -560,10 +560,10 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                                   fontSize: 12,
                                   fontWeight: 700,
                                   color: 'var(--text-secondary)',
-                                  fontFamily: '"SF Mono", "Consolas", monospace',
+                                  fontFamily: 'var(--font-mono)',
                                   background: 'var(--flat-bg)',
                                   padding: '3px 10px',
-                                  borderRadius: 6,
+                                  borderRadius: 'var(--radius-sm)',
                                   letterSpacing: '0.5px',
                                   border: '1px solid var(--border-subtle)'
                                 }}>
@@ -583,7 +583,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                                   <span style={{
                                     fontWeight: 800,
                                     color: 'var(--text-primary)',
-                                    fontFamily: '"SF Mono", "Consolas", monospace',
+                                    fontFamily: 'var(--font-mono)',
                                     fontSize: 15
                                   }}>
                                     ¥{fund.market_value?.toLocaleString() ?? '0.00'}
@@ -595,7 +595,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                                     <span style={{
                                       fontWeight: 700,
                                       color: 'var(--text-secondary)',
-                                      fontFamily: '"SF Mono", "Consolas", monospace'
+                                      fontFamily: 'var(--font-mono)'
                                     }}>
                                       {fund.shares.toFixed(2)}
                                     </span>
@@ -668,7 +668,7 @@ export default function GroupManageModal({ open, onClose, onDataChange }: Props)
                                   icon={<DeleteOutlined />}
                                   style={{
                                     fontWeight: 600,
-                                    borderRadius: 8,
+                                    borderRadius: 'var(--radius-md)',
                                     borderWidth: 1.5,
                                     height: 32
                                   }}

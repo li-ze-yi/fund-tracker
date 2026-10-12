@@ -1,10 +1,11 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import Header from '@/components/Header';
 import BottomTabBar from '@/components/BottomTabBar';
 import AnnouncementBanner from '@/components/AnnouncementBanner';
 import AnnouncementModal from '@/components/modals/AnnouncementModal';
 
 export default function MainLayout() {
+  const location = useLocation();
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <Header />
@@ -12,7 +13,10 @@ export default function MainLayout() {
         <AnnouncementBanner />
         <main className="page-content">
           <div className="page-stage">
-            <Outlet />
+            {/* key=pathname：切页时内容区重新播放入场动画（Header/底部导航不动） */}
+            <div key={location.pathname} className="route-transition">
+              <Outlet />
+            </div>
           </div>
         </main>
       </div>

@@ -9,6 +9,7 @@ const globalCache = require('../services/globalCache');
 const ocrService = require('../services/ocrService');
 const { createLogger } = require('../utils/logger');
 const { getLocalToday, normalizeDateStr } = require('../utils/date');
+const { toPositiveNumber, toOptionalNumber } = require('../utils/validate');
 
 const logger = createLogger('ImageImportController');
 
@@ -61,6 +62,21 @@ function findBestMatch(ocrName, candidates) {
   return scored[0].fund;
 }
 
+/**
+ * 生成名称反查的"核心词"候选，用于容错匹配。
+ * 截图显示名与数据库登记名可能存在差异（如"中航机遇领航混合C" vs 库中"…混合发起C"），
+ * 剥离末尾份额后缀与"混合/指数/发起/ETF/联接"等词后得到核心词，子串命中库中带"发起"等登记名。
+ */
+function buildCoreSearchNames(fundName) {
+  const core = String(fundName || '')
+    .replace(/[A-C](类)?$/i, '')          // 去末尾份额后缀（C/A）
+    .replace(/(联接|ETF)(联接)?/gi, '')
+    .replace(/混合|指数|股票|债券|货币|增强|发起/g, '')
+    .replace(/\s+/g, '')
+    .trim();
+  return core && core.length >= 2 ? [core] : [];
+}
+
 // 配置 multer 用于图片上传
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -77,12 +93,17 @@ const storage = multer.diskStorage({
   }
 });
 
+// 允许的图片扩展名白名单（mimetype 可被客户端伪造，扩展名决定实际落盘文件类型）
+const ALLOWED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.bmp'];
+
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/bmp'];
-    if (allowedTypes.includes(file.mimetype)) {
+    // 双重校验：mimetype 与扩展名都必须在白名单内
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (allowedTypes.includes(file.mimetype) && ALLOWED_EXTENSIONS.includes(ext)) {
       cb(null, true);
     } else {
       cb(new Error('仅支持 PNG/JPEG/WebP/BMP 格式的图片'));
@@ -146,7 +167,8 @@ exports.recognize = [upload.single('image'), async (req, res, next) => {
           if (!fund) {
             item.valid = false;
             item.error = '基金代码不存在于数据库';
-          } else if (!item.fundName && fund.name) {
+          } else if (fund.name) {
+            // 命中后始终显示数据库中的完整登记名（覆盖 OCR 显示名，如"…混合发起C"）
             item.fundName = fund.name;
           }
         } else if (item.fundName) {
@@ -160,19 +182,20 @@ exports.recognize = [upload.single('image'), async (req, res, next) => {
             item.fundName = bestMatch.name;
             logger.info(`名称反查: "${holding.fundName}" -> ${bestMatch.code} ${bestMatch.name}`);
           } else {
-            // 尝试缩短名称再搜索（去掉可能的OCR噪声）
-            const shortName = item.fundName.replace(/[选智领]/g, '').substring(0, 4);
-            if (shortName.length >= 2) {
-              const retryResults = await Fund.search(shortName);
+            // 精确搜索无果：容错匹配——剥离"份额后缀/混合/指数/发起/ETF/联接"等生成核心词再搜，
+            // 兼容数据库登记名（如"…混合发起C"）与截图显示名（"…混合C"）的差异
+            let bestMatch = null;
+            for (const cand of buildCoreSearchNames(item.fundName)) {
+              const retryResults = await Fund.search(cand);
               if (retryResults && retryResults.length > 0) {
-                const bestMatch = findBestMatch(item.fundName, retryResults);
-                item.fundCode = bestMatch.code;
-                item.fundName = bestMatch.name;
-                logger.info(`名称反查(缩短): "${holding.fundName}" -> "${shortName}" -> ${bestMatch.code} ${bestMatch.name}`);
-              } else {
-                item.valid = false;
-                item.error = '未找到匹配的基金，请手动输入基金代码';
+                bestMatch = findBestMatch(item.fundName, retryResults);
+                logger.info(`名称反查(容错): "${holding.fundName}" -> "${cand}" -> ${bestMatch.code} ${bestMatch.name}`);
+                break;
               }
+            }
+            if (bestMatch) {
+              item.fundCode = bestMatch.code;
+              item.fundName = bestMatch.name;
             } else {
               item.valid = false;
               item.error = '未找到匹配的基金，请手动输入基金代码';
@@ -229,6 +252,15 @@ exports.confirmImport = async (req, res, next) => {
         if (!fundCode || !amount) {
           results.failed++;
           results.errors.push({ fundCode: fundCode || '未知', error: '基金代码和持仓金额为必填项' });
+          continue;
+        }
+
+        // 入参校验：金额必须为正数；累计收益可选但须为有限数（允许负数）
+        const amountNum = toPositiveNumber(amount);
+        const totalReturnNum = toOptionalNumber(totalReturn);
+        if (Number.isNaN(amountNum) || Number.isNaN(totalReturnNum)) {
+          results.failed++;
+          results.errors.push({ fundCode, error: '持仓金额必须为正数，累计收益必须为数字' });
           continue;
         }
 
@@ -309,9 +341,9 @@ exports.confirmImport = async (req, res, next) => {
         }
 
         // 计算份额和成本（与 holdingController.js 逻辑一致）
-        const currentValue = amount;
+        const currentValue = amountNum;
         const shares = currentValue / netValue;
-        const totalCost = amount - (totalReturn || 0);
+        const totalCost = amountNum - totalReturnNum;
         const costPrice = shares > 0 ? totalCost / shares : 0;
 
         logger.info(`创建持仓: fund=${fundCode}, shares=${shares.toFixed(2)}, costPrice=${costPrice.toFixed(4)}, netValue=${netValue}`);
@@ -335,7 +367,7 @@ exports.confirmImport = async (req, res, next) => {
           type: 'buy',
           shares,
           price: netValue,
-          amount,
+          amount: amountNum,
           fee: 0,
           transactionDate: confirmedNavDate || getLocalToday()
         });

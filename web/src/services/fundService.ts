@@ -10,8 +10,8 @@ export const fundService = {
   searchFunds: (keyword: string) =>
     api.get('/funds/search', { params: { keyword } }).then((r) => r.data),
 
-  getFundInfo: (code: string) =>
-    api.get(`/funds/${code}`).then((r) => r.data),
+  getFundInfo: (code: string, timestamp?: number) =>
+    api.get(`/funds/${code}`, { params: { ...(timestamp && { _t: timestamp }) } }).then((r) => r.data),
 
   getAllFunds: () =>
     api.get('/funds/all').then((r) => r.data),

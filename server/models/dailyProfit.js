@@ -18,6 +18,19 @@ const DailyProfit = {
     return rows[0] || null;
   },
 
+  /**
+   * 取指定日期之前最近的一条记录（严格早于 date）。
+   * 用于"上次计入净值日/净值"的参照：若把当天（部分）记录也算进来，
+   * 会把当天净值当成"上一日净值"，并让 QDII 净值日去重与当天记录同日比较而自锁跳过。
+   */
+  async findLatestBeforeDate(userId, date) {
+    const [rows] = await pool.query(
+      'SELECT * FROM daily_profits WHERE user_id = ? AND date < ? ORDER BY date DESC LIMIT 1',
+      [userId, date]
+    );
+    return rows[0] || null;
+  },
+
   async findYesterdayByUserId(userId) {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
