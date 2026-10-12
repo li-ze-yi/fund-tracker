@@ -116,6 +116,8 @@ exports.getByCode = async (req, res, next) => {
       estimated_value: realTime?.estimatedValue ?? null,
       estimation_method: realTime?.estimationMethod ?? null,
       estimation_coverage: realTime?.estimationCoverage ?? null,
+      // ★ ETF联接基金的母ETF代码（供前端在服务端取不到行情时直连兜底）
+      etf_code: realTime?.etfCode ?? null,
     };
 
     // ★ 计算更新状态（与holdingService统一使用checkMarketStatus）

@@ -1264,6 +1264,7 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
         estimatedValue: null,
         estimatedChange: parseFloat(etfQuote.estimatedChange.toFixed(2)),
         estimationMethod: 'holdings',
+        etfCode,
         estimationCoverage: 100,
         estimationHoldingsCount: holdings.length,
         dataReportDate: reportDate,
@@ -1293,6 +1294,7 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
       estimatedValue: parseFloat((confirmedNav * (1 + estimatedChange / 100)).toFixed(4)),
       estimatedChange: parseFloat(estimatedChange.toFixed(2)),
       estimationMethod: 'holdings',
+      etfCode,
       estimationCoverage: etfCode ? 100 : parseFloat(totalStockRatio.toFixed(1)),
       estimationHoldingsCount: holdings.length,
       dataReportDate: reportDate,
@@ -1316,6 +1318,7 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
           estimatedValue: parseFloat((yesterdayNav * (1 + estimatedChange / 100)).toFixed(4)),
           estimatedChange: parseFloat(estimatedChange.toFixed(2)),
           estimationMethod: 'holdings',
+          etfCode,
           estimationCoverage: etfCode ? 100 : parseFloat(totalStockRatio.toFixed(1)),
           estimationHoldingsCount: holdings.length,
           dataReportDate: reportDate,
@@ -1332,6 +1335,7 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
     estimatedValue: null,
     estimatedChange: parseFloat(estimatedChange.toFixed(2)),
     estimationMethod: 'holdings',
+    etfCode,
     estimationCoverage: etfCode ? 100 : parseFloat(totalStockRatio.toFixed(1)),
     estimationHoldingsCount: holdings.length,
     dataReportDate: reportDate,
@@ -1385,6 +1389,8 @@ async function getRealTimeValueWithMethod(fundCode, method = 'sina', options = {
     estimationMethod: estimated?.estimationMethod ?? method,
     estimationCoverage: estimated?.estimationCoverage ?? null,
     estimationHoldingsCount: estimated?.estimationHoldingsCount ?? null,
+    // ★ ETF联接基金的母ETF代码（供前端在服务端取不到行情时直连兜底）
+    etfCode: estimated?.etfCode ?? null,
   };
 
   return result;
@@ -1744,6 +1750,7 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina', opti
       estimationMethod: estimated?.estimationMethod ?? method,
       estimationCoverage: estimated?.estimationCoverage ?? null,
       estimationHoldingsCount: estimated?.estimationHoldingsCount ?? null,
+      etfCode: estimated?.etfCode ?? null,
     };
   }
 
@@ -1754,6 +1761,7 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina', opti
         netValue: null, gainPercent: null, updateTime: null,
         estimatedValue: null, estimatedChange: null,
         estimationMethod: method, estimationCoverage: null, estimationHoldingsCount: null,
+        etfCode: null,
       };
     }
   }

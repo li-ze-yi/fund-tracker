@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Empty, Alert, Button, Skeleton } from 'antd';
 import { SearchOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { holdingService } from '@/services/holdingService';
+import { fetchEtfQuotes } from '@/services/etfQuoteFallback';
 import { useHideAmountStore } from '@/store/hideAmountStore';
 import { useCountUp } from '@/hooks/useCountUp';
 import MarketIndexStrip from '@/components/MarketIndexStrip';
@@ -28,6 +29,8 @@ interface FundHolding {
   update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate' | 'stale' | 'sold_out' | 'pending_purchase';
   data_source?: 'actual' | 'estimated';
   day_of_week?: string;
+  etf_code?: string | null;   // ETF联接基金的母ETF代码（服务端下发，供前端兜底请求）
+  etf_fallback?: boolean;     // 是否由前端母ETF兜底填充
 }
 
 const LIST_HEADER_COLS = [
@@ -64,7 +67,33 @@ export default function PortfolioPage() {
         setError(null);
         // ✅ 传递 forceRefresh 参数到后端
         const data = await holdingService.getHoldings(forceRefresh);
-        setHoldings(data.holdings || data || []);
+        const list: FundHolding[] = data.holdings || data || [];
+        setHoldings(list);
+
+        // 服务端取不到估值的 ETF 联接基金：浏览器 JSONP 直连东财拉母ETF行情兜底（非阻塞）
+        const targets = list.filter((h) => h.update_status === 'no_estimate' && h.etf_code);
+        if (targets.length) {
+          fetchEtfQuotes(targets.map((h) => h.etf_code as string))
+            .then((quotes) => {
+              if (!Object.keys(quotes).length) return;
+              setHoldings((prev) =>
+                prev.map((h) => {
+                  const q = h.etf_code ? quotes[h.etf_code] : null;
+                  if (h.update_status === 'no_estimate' && q && q.changePercent != null) {
+                    return {
+                      ...h,
+                      estimated_change: q.changePercent,
+                      update_status: 'estimating',
+                      data_source: 'estimated',
+                      etf_fallback: true,
+                    };
+                  }
+                  return h;
+                })
+              );
+            })
+            .catch(() => {});
+        }
       } catch (e: any) {
         if (e?.code === 'ERR_NETWORK') {
           setError('网络异常，请检查网络连接');

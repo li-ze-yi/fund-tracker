@@ -23,6 +23,7 @@ interface FundListItemProps {
     update_status?: 'estimating' | 'pending_confirm' | 'confirmed' | 'market_closed' | 'pre_market' | 'no_estimate' | 'stale' | 'sold_out' | 'pending_purchase';
     data_source?: 'actual' | 'estimated';
     day_of_week?: string;  // 非交易日时显示星期几
+    etf_fallback?: boolean; // 是否由前端母ETF兜底填充（服务端无估值时）
   };
   mode?: 'holding' | 'watchlist';
   index?: number;
@@ -592,6 +593,11 @@ function FundListItemInner({ fund, mode = 'holding', index = 0 }: FundListItemPr
         <span className="change-percent" style={{ fontSize: 15, fontWeight: 700, color: (isMarketClosed || isSoldOut || isPendingPurchase || isStale) ? 'var(--text-muted)' : (isUp ? 'var(--gain)' : 'var(--loss)'), fontFamily: 'var(--font-mono)' }}>
           {(isMarketClosed || isSoldOut || isPendingPurchase || isStale) ? '--' : `${isUp ? '+' : ''}${(fund.estimated_change ?? 0).toFixed(2)}%`}
         </span>
+        {fund.etf_fallback && (
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
+            母ETF
+          </div>
+        )}
         {(fund.update_status === 'no_estimate' || isStale) && (fund.update_time || fund.last_updated) && (
           <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
             ({(() => {

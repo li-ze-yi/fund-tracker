@@ -7,6 +7,7 @@ import EChart from '@/components/EChart';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { fundService } from '@/services/fundService';
 import { transactionService } from '@/services/transactionService';
+import { fetchEtfQuote } from '@/services/etfQuoteFallback';
 import { favoriteService } from '@/services/favoriteService';
 import { settingService, type ValuationMethod } from '@/services/settingService';
 import { useThemeStore } from '@/store/themeStore';
@@ -24,6 +25,7 @@ export default function FundDetailPage() {
   const navigate = useNavigate();
   const { message, modal } = App.useApp();
   const [fund, setFund] = useState<any>(null);
+  const [etfFallbackChange, setEtfFallbackChange] = useState<number | null>(null); // 母ETF兜底涨跌幅
   const [transactions, setTransactions] = useState<any[]>([]);
   const [navHistory, setNavHistory] = useState<any[]>([]);
   const [isFavorite, setIsFavorite] = useState(false);
@@ -77,6 +79,19 @@ export default function FundDetailPage() {
       if (isCancelled && isCancelled()) return;
       setFund(fundData);
       setIsFavorite(!!fundData.is_favorite);
+
+      // 服务端取不到盘中估值（no_estimate）且该基金有母ETF时，浏览器 JSONP 直连东财兜底（非阻塞）
+      if (fundData?.update_status === 'no_estimate' && fundData?.etf_code) {
+        fetchEtfQuote(fundData.etf_code)
+          .then((q) => {
+            if (!(isCancelled && isCancelled()) && q?.changePercent != null) {
+              setEtfFallbackChange(q.changePercent);
+            }
+          })
+          .catch(() => {});
+      } else {
+        setEtfFallbackChange(null);
+      }
 
       try {
         const txData = await transactionService.getTransactions(code);
@@ -692,7 +707,10 @@ export default function FundDetailPage() {
     );
   }
 
-  const isUp = (fund.estimated_change ?? 0) >= 0;
+  // ★ 母ETF兜底：服务端 no_estimate 时用浏览器直连到的母ETF涨跌幅替代展示
+  const usingEtfFallback = etfFallbackChange != null;
+  const effEstimatedChange = usingEtfFallback ? etfFallbackChange : fund.estimated_change;
+  const isUp = (effEstimatedChange ?? 0) >= 0;
   const isMarketClosed = fund.update_status === 'market_closed' || fund.update_status === 'pre_market';
   const isNoEstimate = fund.update_status === 'no_estimate';
   const isStale = fund.update_status === 'stale';
@@ -877,7 +895,7 @@ export default function FundDetailPage() {
           </div>
           <div>
             <div className="fund-detail-data-label" style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {fund.update_status === 'confirmed' ? '涨幅' : (isStale ? '待更新' : (isNoEstimate ? '前一日涨幅' : '估算涨幅'))}
+              {usingEtfFallback ? '母ETF估算' : (fund.update_status === 'confirmed' ? '涨幅' : (isStale ? '待更新' : (isNoEstimate ? '前一日涨幅' : '估算涨幅')))}
             </div>
             <div className="fund-detail-data-value number-tabular" style={{
               fontSize: 28,
@@ -886,8 +904,8 @@ export default function FundDetailPage() {
               fontFamily: 'var(--font-mono)',
               letterSpacing: '-0.02em',
             }}>
-              {(isMarketClosed || isStale) ? '--' : `${isUp ? '+' : ''}${fund.estimated_change?.toFixed(2) || '0.00'}%`}
-              {(isNoEstimate || isStale) && fund.update_time && (
+              {(isMarketClosed || isStale) ? '--' : `${isUp ? '+' : ''}${effEstimatedChange?.toFixed(2) || '0.00'}%`}
+              {(isNoEstimate || isStale) && !usingEtfFallback && fund.update_time && (
                 <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', marginTop: 2, fontWeight: 400 }}>
                   ({(() => {
                     const d = new Date(fund.update_time);
