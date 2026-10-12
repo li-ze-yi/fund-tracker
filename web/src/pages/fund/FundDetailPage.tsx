@@ -1168,7 +1168,14 @@ export default function FundDetailPage() {
           columns={txColumns as any}
           rowKey="id"
           size="middle"
-          pagination={false}
+          pagination={{
+            defaultPageSize: 10,
+            pageSizeOptions: [10, 20, 50],
+            showSizeChanger: true,
+            showTotal: (total) => `共 ${total} 条`,
+            hideOnSinglePage: true,
+            style: { padding: '12px 20px', margin: 0 },
+          }}
           locale={{ emptyText: <div style={{ padding: 40, color: 'var(--text-muted)' }}>暂无交易记录</div> }}
         />
       </Card>
