@@ -1171,7 +1171,7 @@ export default function FundDetailPage() {
           pagination={{
             defaultPageSize: 10,
             pageSizeOptions: [10, 20, 50],
-            showSizeChanger: true,
+            showSizeChanger: { showSearch: false }, // antd 默认该下拉框可搜索(showSearch:true)，这里关掉输入
             showTotal: (total) => `共 ${total} 条`,
             hideOnSinglePage: true,
             style: { padding: '12px 20px', margin: 0 },
