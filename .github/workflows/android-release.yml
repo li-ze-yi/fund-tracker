@@ -1,0 +1,80 @@
+name: Android Debug APK
+
+# 打 v* 标签时自动构建 Android APK 并创建 GitHub Release
+on:
+  push:
+    tags:
+      - 'v*'
+
+# 创建 Release 需要写权限
+permissions:
+  contents: write
+
+env:
+  # 打包时注入生产后端地址（api.ts 以该值作为 axios baseURL）
+  VITE_API_URL: https://www.fundtracker.top/api
+  # 与 web/node_modules/@capacitor/cli/assets/android-template.tar.gz 中的变量保持一致
+  ANDROID_PLATFORM: android-36
+  ANDROID_BUILD_TOOLS: 36.0.0
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Capacitor 8 的 android 模块要求 JDK 21（JavaVersion.VERSION_21）
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Capacitor 8 CLI 要求 Node 22+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # runner 自带 Android SDK，但需补装 compileSdk 36 对应的 platform 与 build-tools
+      - name: Install Android SDK packages
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKMANAGER" ] || SDKMANAGER="$(command -v sdkmanager)"
+          yes | "$SDKMANAGER" --install \
+            "platform-tools" "platforms;$ANDROID_PLATFORM" "build-tools;$ANDROID_BUILD_TOOLS" > /dev/null
+
+      - name: Build web assets
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Add and sync Android platform
+        working-directory: web
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      # 使用 Gradle 自动生成的 debug keystore 签名，产物可直接安装
+      - name: Build debug APK
+        working-directory: web/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp web/android/app/build/outputs/apk/debug/app-debug.apk \
+             "out/fundtracker-${GITHUB_REF_NAME}-debug.apk"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/fundtracker-*.apk
+          generate_release_notes: true
+          fail_on_unmatched_files: true
