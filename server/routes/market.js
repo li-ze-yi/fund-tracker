@@ -31,12 +31,14 @@ function minutesSinceMidnight(date) {
   return date.getHours() * 60 + date.getMinutes();
 }
 
-// 港股交易时段判定（北京时间，仅做工作日判断，忽略港股自身节假日）
+// 港股交易时段判定（北京时间）
+// 交易日判定接入 holidayService 港股年度日历表（HKEX 休市日 + 周末），
+// 替代原先"仅判周末、忽略港股假期"的简化口径
 // 交易时段：09:30-12:00、13:00-16:00
 function getHkStatus(now, today) {
   const min = minutesSinceMidnight(now);
-  if (holidayService.isWeekend(today)) {
-    return { isMarketOpen: false, reason: 'weekend' };
+  if (!holidayService.isTradingDaySync(today, 'hk')) {
+    return { isMarketOpen: false, reason: holidayService.isWeekend(today) ? 'weekend' : 'holiday' };
   }
   if ((min >= 570 && min < 720) || (min >= 780 && min < 960)) {
     return { isMarketOpen: true, reason: 'trading' };

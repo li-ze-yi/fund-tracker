@@ -40,22 +40,11 @@ function subDays(dateStr, n) {
  * @param {string} todayStr - YYYY-MM-DD
  * @returns {Promise<string|null>} 最近交易日 YYYY-MM-DD
  */
+// 最近交易日锚点已收口到 holidayService 年度日历查表（保持 A 股日历口径不变）：
+// 运行时不再逐日调用 isTradingDay 回溯，而是一次二分查找；此委托保留导出以兼容
+// fundController / dailyProfitService 等既有调用方
 async function getLatestTradingDayAnchor(todayStr) {
-  // 入参必须为 'YYYY-MM-DD'：调用方在"窗口内无净值"等场景会传 null，
-  // 若不拦截会一路 subDays(null,1) 生成 'NaN-NaN-NaN' 并白跑一次节假日查询（日志噪音）
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(todayStr || ''))) return null;
-  let current = todayStr;
-  const MAX_LOOP = 30; // 最长节假日连休也不会超过 30 天
-  for (let i = 0; i < MAX_LOOP; i++) {
-    current = subDays(current, 1);
-    try {
-      if (await holidayService.isTradingDay(current)) return current;
-    } catch (e) {
-      logger.warn(`回溯最近交易日失败: date=${current}, err=${e.message}`);
-      return null;
-    }
-  }
-  return null;
+  return holidayService.getLatestTradingDayAnchor(todayStr);
 }
 
 /**

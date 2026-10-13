@@ -1,5 +1,6 @@
 const axios = require('axios');
 const globalCache = require('./globalCache');
+const holidayService = require('./holidayService');
 const { createLogger } = require('../utils/logger');
 const { getLocalToday, normalizeDateStr } = require('../utils/date');
 
@@ -564,50 +565,6 @@ function isUsFundByName(fundName = '') {
 }
 
 /**
- * 日期减法（date-only 字符串）：返回 YYYY-MM-DD，处理跨月/跨年
- */
-function subDaysStr(dateStr, days) {
-  if (!dateStr) return null;
-  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
-  if (!y || !m || !d) return null;
-  const dt = new Date(y, m - 1, d - days);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-}
-
-/**
- * 判断是否为美股休市日（周末 + 美股固定/浮动节假日）。
- * 覆盖：元旦/六月节/独立日/圣诞 + 马丁路德金(1月第3周一)/总统日(2月第3周一)/
- * 阵亡将士纪念日(5月最后周一)/劳动节(9月第1周一)/感恩节(11月第4周四)。
- * 耶稣受难日未纳入：按保守处理（估算为 0，避免重复计入）。
- */
-function isUsMarketHoliday(dateStr) {
-  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
-  const dt = new Date(y, m - 1, d);
-  const dow = dt.getDay();
-  if (dow === 0 || dow === 6) return true; // 周末
-  if ((m === 1 && d === 1) || (m === 6 && d === 19) || (m === 7 && d === 4) || (m === 12 && d === 25)) return true;
-  if (m === 1 && dow === 1 && d >= 15 && d <= 21) return true;  // 马丁路德金日（1月第3周一）
-  if (m === 2 && dow === 1 && d >= 15 && d <= 21) return true;  // 总统日（2月第3周一）
-  if (m === 5 && dow === 1 && d >= 25) return true;             // 阵亡将士纪念日（5月最后周一）
-  if (m === 9 && dow === 1 && d <= 7) return true;              // 劳动节（9月第1周一）
-  if (m === 11 && dow === 4 && d >= 22 && d <= 28) return true; // 感恩节（11月第4周四）
-  return false;
-}
-
-/**
- * 返回 dateStr 之前的最近一个美股交易日（跳过周末与美股节假日）
- * 用于确认净值滞后判定：D 应等于 T 的前一个美股交易日，而非自然日减一
- */
-function getPrevUsTradingDay(dateStr) {
-  let cur = dateStr;
-  for (let i = 0; i < 10; i++) {
-    cur = subDaysStr(cur, 1);
-    if (cur && !isUsMarketHoliday(cur)) return cur;
-  }
-  return null;
-}
-
-/**
  * 通用指数实时涨跌幅（腾讯 qt.gtimg.cn/q=indexCode，与A股字段布局一致：[3]现价、[30]时间、[32]涨跌幅）
  * @returns {{changePercent: number, date: string}|null} date=最新交易日（date-only，YYYY-MM-DD）
  */
@@ -1155,7 +1112,8 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
     usIndexData = benchmarks?.usIndexMap?.[usIndexCode] || benchmarks?.usIndex || (await getIndexChange(usIndexCode).catch(() => null));
     const T = usIndexData?.date || null;
     const D = options.confirmedNavDate || null;
-    usZeroed = !(D && T && String(D) === getPrevUsTradingDay(T)); // 仅 D==T的前一美股交易日时不禁用美股增量
+    // 仅 D==T的前一美股交易日时不禁用美股增量（US 日历查表：holidayService 年度表二分，见三市场日历改造）
+    usZeroed = !(D && T && String(D) === holidayService.getPrevTradingDaySync(T, 'us'));
     if (usIndexData) logger.info(`${fundCode} 板块指数=${usIndexCode} 美股交易日T=${T} 确认净值日D=${D} usZeroed=${usZeroed}`);
     // 落后 ≥ 2 场：单场涨跌幅补不了，改取指数日线累计涨跌（如 09-24 → 09-28 = 09-25 + 09-28 两场）
     if (usZeroed && D && T && String(D) < String(T)) {
