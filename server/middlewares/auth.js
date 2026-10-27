@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/user');
 const pool = require('../config/database');
+const coordinator = require('../services/coordinator');
 
 // JWT 密钥校验：未配置时给出清晰报错，避免用 undefined 静默验签
 if (!process.env.JWT_SECRET) {
@@ -27,7 +28,22 @@ function todayStr() {
 }
 
 /**
+ * 距今日午夜的剩余毫秒数（本地时区），作为 Redis 去重键的 TTL。
+ * 下限 1 分钟，避免午夜边界出现极短/负值 TTL。
+ */
+function msUntilMidnight() {
+  const now = new Date();
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+  return Math.max(60 * 1000, midnight - now);
+}
+
+/**
  * 记录用户每日活跃（DAU）：同一用户同一天只写一条 user_logins，并保存客户端 IP。
+ * 多副本两级去重：
+ *   1) 实例内内存 Map（热点路径零 Redis RTT）；
+ *   2) 跨实例 Redis SET NX（多副本下只有一个实例获得写入权，TTL 到当日午夜自动过期）。
+ * Redis 未配置/不可用时降级为仅内存去重（单实例行为与之前一致）。
+ * DB 层另有 uk_user_date 唯一键 + INSERT IGNORE 兜底，Redis 闪断窗口也不会重复落库。
  * 在 touchActive 节流通过后调用，避免高频请求重复写入。
  * 写库失败静默降级，不影响请求。
  * @param {number} userId
@@ -35,14 +51,30 @@ function todayStr() {
  */
 async function recordDailyActive(userId, ip) {
   const key = `${userId}_${todayStr()}`;
+
+  // 一级：实例内内存去重
   if (dailyRecorded.has(key)) return;
   if (dailyRecorded.size >= MAX_DAILY_CACHE_SIZE) dailyRecorded.clear();
   dailyRecorded.set(key, true);
+
+  // 二级：跨实例 Redis NX 去重（拿到写入权的副本才继续 INSERT）
+  const client = coordinator.getClient();
+  const redisOn = coordinator.isEnabled();
+  if (redisOn) {
+    try {
+      const res = await client.set(`dau:${key}`, '1', 'PX', msUntilMidnight(), 'NX');
+      if (res !== 'OK') return; // 其他副本今日已记录
+    } catch {
+      // Redis 异常：降级为放行（宁可有界重复，也不阻塞认证链路），由 DB 唯一键兜底
+    }
+  }
+
   try {
-    await pool.query('INSERT INTO user_logins (user_id, ip) VALUES (?, ?)', [userId, ip || null]);
+    await pool.query('INSERT IGNORE INTO user_logins (user_id, ip) VALUES (?, ?)', [userId, ip || null]);
   } catch {
-    // 失败不影响主流程，移除缓存以便下次重试
+    // 失败不影响主流程，移除两级标记以便下次重试
     dailyRecorded.delete(key);
+    if (redisOn) client.del(`dau:${key}`).catch(() => {});
   }
 }
 

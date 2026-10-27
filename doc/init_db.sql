@@ -213,8 +213,10 @@ CREATE TABLE `user_logins` (
   `id` int NOT NULL AUTO_INCREMENT,
   `user_id` int NOT NULL,
   `login_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '登录/活跃时间（同一用户每日去重只记一条）',
+  `login_date` date GENERATED ALWAYS AS (DATE(login_time)) STORED COMMENT '登录日期（生成列，配合唯一键做多副本去重兜底）',
   `ip` varchar(45) DEFAULT NULL COMMENT '客户端IP（trust proxy=1 时经 nginx 为真实公网IP）',
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_date` (`user_id`,`login_date`),
   KEY `idx_user_time` (`user_id`,`login_time`),
   KEY `idx_login_time` (`login_time`),
   CONSTRAINT `user_logins_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
