@@ -407,73 +407,72 @@ async function getTencentValue(fundCode) {
 // 方案二：持仓穿透法 - 自行计算基金估值
 // ═══════════════════════════════════════════
 
-// 持仓数据缓存（按基金代码，TTL 4小时）
-const holdingsCache = createTtlCache({ ttl: 4 * 60 * 60 * 1000 });
-
 function getStockPrefix(code) {
   if (/^[A-Z]/.test(code)) return 'us'; // 美股（字母代码，如 NVDA）
   if (code.length === 5) return 'hk'; // 港股
   return code.startsWith('6') ? 'sh' : 'sz'; // A股
 }
 
+/**
+ * 获取基金持仓明细（前十大重仓股 + 母ETF代码）。
+ * 缓存：fund_holdings_{code}（Redis，当日 0 点自动过期）——季报口径数据当日有效即可，
+ * 复用 getOrFetch 的进程内 + 跨实例单飞，多副本冷启动只拉一次天天基金。
+ * 失败语义：接口异常抛错不写缓存（本次返回空结果，下次请求重试）；
+ * 接口成功但持仓为空（如货币基金）视为合法数据，正常入缓存到 0 点。
+ * @param {string} fundCode
+ * @param {boolean} isQDII QDII联接基金时递归拉取母ETF成分
+ * @returns {Promise<{holdings: Array, totalStockRatio: number, reportDate: null, etfCode: string|null}>}
+ */
 async function getFundHoldings(fundCode, isQDII = false) {
-  const now = Date.now();
-  const cached = holdingsCache.get(fundCode);
-  if (cached && (now - cached.ts) < 4 * 60 * 60 * 1000) {
-    logger.debug(`${fundCode} 持仓命中缓存`);
-    return cached.data;
-  }
-
-  logger.info(`${fundCode} 获取持仓数据`);
-
-  // 数据源：fundmobapi JSON 接口（FundMNInverstPosition）
-  // 注：fundf10 HTML 接口（FundArchivesDatas.aspx?type=jjcc）已不再返回持仓数据，
-  // 所有基金的 <tbody> 均为空，持仓数据仅通过 fundmobapi 的 fundStocks 字段提供
   try {
-    const { data } = await axios.get(
-      `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNInverstPosition?FCODE=${fundCode}&deviceid=Wap&plat=Wap&product=EFund&version=2.0.0`,
-      { timeout: TIMEOUT, headers: MOBILE_HEADERS }
-    );
+    return await globalCache.getOrFetch(`fund_holdings_${fundCode}`, async () => {
+      // 数据源：fundmobapi JSON 接口（FundMNInverstPosition）
+      // 注：fundf10 HTML 接口（FundArchivesDatas.aspx?type=jjcc）已不再返回持仓数据，
+      // 所有基金的 <tbody> 均为空，持仓数据仅通过 fundmobapi 的 fundStocks 字段提供
+      const { data } = await axios.get(
+        `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNInverstPosition?FCODE=${fundCode}&deviceid=Wap&plat=Wap&product=EFund&version=2.0.0`,
+        { timeout: TIMEOUT, headers: MOBILE_HEADERS }
+      );
 
-    const fundStocks = data?.Datas?.fundStocks || [];
-    const etfCode = data?.Datas?.ETFCODE || null;
+      const fundStocks = data?.Datas?.fundStocks || [];
+      const etfCode = data?.Datas?.ETFCODE || null;
 
-    const holdings = [];
-    let totalStockRatio = 0;
+      const holdings = [];
+      let totalStockRatio = 0;
 
-    for (const s of fundStocks) {
-      const stockCode = s.GPDM;
-      const stockName = s.GPJC;
-      const ratio = parseFloat(s.JZBL);
+      for (const s of fundStocks) {
+        const stockCode = s.GPDM;
+        const stockName = s.GPJC;
+        const ratio = parseFloat(s.JZBL);
 
-      // 过滤空代码和无效占比；只接受 5-6 位数字（A股/港股）或 1-6 位大写字母（美股）
-      if (!stockCode || isNaN(ratio) || ratio <= 0) continue;
-      if (!/^(?:\d{5,6}|[A-Z]{1,6})$/.test(stockCode.trim())) continue;
+        // 过滤空代码和无效占比；只接受 5-6 位数字（A股/港股）或 1-6 位大写字母（美股）
+        if (!stockCode || isNaN(ratio) || ratio <= 0) continue;
+        if (!/^(?:\d{5,6}|[A-Z]{1,6})$/.test(stockCode.trim())) continue;
 
-      holdings.push({ code: stockCode, name: stockName, ratio });
-      totalStockRatio += ratio;
-    }
-
-    // QDII ETF联接基金：fundStocks 为空但披露了母ETF（ETFCODE）时，递归拉取母ETF成分参与加权
-    // 仅 QDII/海外类型触发（A 股 ETF 联接保持原"母ETF场内价"路径，不递归）
-    if (!holdings.length && etfCode && isQDII) {
-      logger.info(`${fundCode} 持仓为空但为QDII联接(母ETF=${etfCode})，递归拉取母ETF成分`);
-      const etfRes = await getFundHoldings(etfCode, false);
-      if (etfRes.holdings.length) {
-        holdings.push(...etfRes.holdings);
-        totalStockRatio = etfRes.totalStockRatio;
+        holdings.push({ code: stockCode, name: stockName, ratio });
+        totalStockRatio += ratio;
       }
-    }
 
-    const result = {
-      holdings,
-      totalStockRatio: parseFloat(totalStockRatio.toFixed(1)),
-      reportDate: null,
-      etfCode,
-    };
-    holdingsCache.set(fundCode, { data: result, ts: now });
-    logger.info(`${fundCode} 持仓数据: ${holdings.length}只, etfCode=${etfCode || 'null'}`);
-    return result;
+      // QDII ETF联接基金：fundStocks 为空但披露了母ETF（ETFCODE）时，递归拉取母ETF成分参与加权
+      // 仅 QDII/海外类型触发（A 股 ETF 联接保持原"母ETF场内价"路径，不递归）
+      // 注：递归调用嵌套在 getOrFetch 的 fetchFn 内，globalCache 护栏有重入保护
+      if (!holdings.length && etfCode && isQDII) {
+        logger.info(`${fundCode} 持仓为空但为QDII联接(母ETF=${etfCode})，递归拉取母ETF成分`);
+        const etfRes = await getFundHoldings(etfCode, false);
+        if (etfRes.holdings.length) {
+          holdings.push(...etfRes.holdings);
+          totalStockRatio = etfRes.totalStockRatio;
+        }
+      }
+
+      logger.info(`${fundCode} 持仓数据: ${holdings.length}只, etfCode=${etfCode || 'null'}`);
+      return {
+        holdings,
+        totalStockRatio: parseFloat(totalStockRatio.toFixed(1)),
+        reportDate: null,
+        etfCode,
+      };
+    }, { type: 'fund_holdings' });
   } catch (e) {
     logger.warn(`${fundCode} fundmobapi 持仓接口失败: ${e.message}`);
     return { holdings: [], totalStockRatio: 0, reportDate: null, etfCode: null };
@@ -1014,52 +1013,42 @@ async function getETFRealtimeQuote(fundCode) {
   }, { type: 'etf_quote' }); // ETF实时行情缓存（东方财富 push2 / 腾讯 / 新浪）
 }
 
-// 资产配置缓存（24小时）
-const assetAllocCache = createTtlCache({ ttl: 24 * 60 * 60 * 1000 });
-
 /**
- * 获取基金资产配置占比（股票/债券/现金/母ETF）
- * @param {string} fundCode 
+ * 获取基金资产配置占比（股票/债券/现金/母ETF）。
+ * 缓存：asset_alloc_{code}（Redis，24 小时）——季报数据一季才变一次，
+ * 复用 getOrFetch 的进程内 + 跨实例单飞，多副本冷启动只拉一次东财。
+ * 失败/无字段抛错不写缓存（避免坏值占住 24h），本次返回 null，下次请求重试。
+ * @param {string} fundCode
  * @returns {Promise<{stockRatio: number, bondRatio: number, cashRatio: number, reportDate: string|null}|null>}
  */
 async function getFundAssetAllocation(fundCode) {
-  const now = Date.now();
-  const cached = assetAllocCache.get(fundCode);
-  if (cached && (now - cached.ts) < 24 * 60 * 60 * 1000) {
-    logger.debug(`${fundCode} 资产配置命中缓存`);
-    return cached.data;
-  }
-
   try {
-    const { data } = await axios.get(
-      `https://fund.eastmoney.com/pingzhongdata/${fundCode}.js`,
-      { timeout: 8000, responseType: 'text' }
-    );
+    return await globalCache.getOrFetch(`asset_alloc_${fundCode}`, async () => {
+      const { data } = await axios.get(
+        `https://fund.eastmoney.com/pingzhongdata/${fundCode}.js`,
+        { timeout: 8000, responseType: 'text' }
+      );
 
-    const match = data.match(/var\s+Data_assetAllocation\s*=\s*([^;]+);/);
-    if (!match) {
-      logger.warn(`${fundCode} pingzhongdata 无 Data_assetAllocation`);
-      return null;
-    }
+      const match = data.match(/var\s+Data_assetAllocation\s*=\s*([^;]+);/);
+      if (!match) throw new Error('pingzhongdata 无 Data_assetAllocation');
 
-    const allocData = JSON.parse(match[1]);
-    const series = allocData.series || [];
-    const categories = allocData.categories || [];
-    const latestDate = categories.length > 0 ? categories[categories.length - 1] : null;
+      const allocData = JSON.parse(match[1]);
+      const series = allocData.series || [];
+      const categories = allocData.categories || [];
+      const latestDate = categories.length > 0 ? categories[categories.length - 1] : null;
 
-    let stockRatio = 0, bondRatio = 0, cashRatio = 0;
-    for (const s of series) {
-      const dataArr = s.data || [];
-      const latestVal = dataArr.length > 0 ? dataArr[dataArr.length - 1] : 0;
-      if (s.name === '股票占净比') stockRatio = parseFloat(latestVal) || 0;
-      if (s.name === '债券占净比') bondRatio = parseFloat(latestVal) || 0;
-      if (s.name === '现金占净比') cashRatio = parseFloat(latestVal) || 0;
-    }
+      let stockRatio = 0, bondRatio = 0, cashRatio = 0;
+      for (const s of series) {
+        const dataArr = s.data || [];
+        const latestVal = dataArr.length > 0 ? dataArr[dataArr.length - 1] : 0;
+        if (s.name === '股票占净比') stockRatio = parseFloat(latestVal) || 0;
+        if (s.name === '债券占净比') bondRatio = parseFloat(latestVal) || 0;
+        if (s.name === '现金占净比') cashRatio = parseFloat(latestVal) || 0;
+      }
 
-    const result = { stockRatio, bondRatio, cashRatio, reportDate: latestDate };
-    assetAllocCache.set(fundCode, { data: result, ts: now });
-    logger.info(`${fundCode} 资产配置: 股票=${stockRatio}% 债券=${bondRatio}% 现金=${cashRatio}% 报告期=${latestDate}`);
-    return result;
+      logger.info(`${fundCode} 资产配置: 股票=${stockRatio}% 债券=${bondRatio}% 现金=${cashRatio}% 报告期=${latestDate}`);
+      return { stockRatio, bondRatio, cashRatio, reportDate: latestDate };
+    }, { type: 'asset_alloc' });
   } catch (e) {
     logger.warn(`${fundCode} pingzhongdata 资产配置获取失败: ${e.message}`);
     return null;

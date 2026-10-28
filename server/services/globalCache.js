@@ -872,6 +872,17 @@ class GlobalCache {
   }
 
   /**
+   * 距今日午夜的剩余毫秒数（本地时区）——季报口径缓存（持仓明细/资产配置）专用：
+   * 当日有效、0 点自动过期，隔日首笔请求强制刷新。
+   * 下限 60s，避免午夜边界出现极短/负值 TTL。
+   */
+  getMidnightTTL() {
+    const now = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+    return Math.max(60 * 1000, midnight - now);
+  }
+
+  /**
    * 获取指定类型的TTL - 优化版 v2.4.3
    * 
    * 优化策略：
@@ -895,6 +906,10 @@ class GlobalCache {
 
       case 'fund_list':       // 基金列表（搜索用）
         return 6 * 60 * 60 * 1000;   // ✨ 6小时（原1小时）
+
+      case 'fund_holdings':   // 基金持仓明细（天天基金接口，季报口径）
+      case 'asset_alloc':     // 基金资产配置占比（东财 pingzhongdata，季报口径）
+        return this.getMidnightTTL();  // 当日 0 点自动过期（季报数据当日有效，隔日首笔强制刷新）
         
       case 'stock_quote':     // 股票实时行情缓存（腾讯 qt.gtimg.cn）
       case 'etf_quote':       // ETF实时行情缓存（东方财富 push2 / 腾讯 / 新浪）
