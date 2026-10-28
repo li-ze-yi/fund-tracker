@@ -350,33 +350,26 @@ async function getHistoryNetValues(fundCode, startDate, endDate) {
   return globalCache.guardFetch(() => getHistoryNetValuesRaw(fundCode, startDate, endDate));
 }
 
-async function getFundInfo(fundCode) {
-  try {
-    const { data } = await axios.get(`https://fund.eastmoney.com/pingzhongdata/${fundCode}.js`, {
-      timeout: TIMEOUT,
-      headers: defaultHeaders(`https://fund.eastmoney.com/${fundCode}.html`),
+/**
+ * 获取东财全量基金代码列表（管理端同步端点 / syncFunds 同步脚本用）。
+ * 缓存：fund_list_all（type=fund_list，6 小时）——代码列表一天最多变一次，
+ * 复用 getOrFetch 的进程内 + 跨实例单飞，多副本共享同一份列表。
+ * 解析失败/空列表抛错不写缓存（避免把空列表缓存 6 小时），由调用方 try/catch 兜底。
+ */
+async function getAllFunds() {
+  return globalCache.getOrFetch('fund_list_all', async () => {
+    const { data } = await axios.get('https://fund.eastmoney.com/js/fundcode_search.js', {
+      timeout: 15000,
+      headers: defaultHeaders('https://fund.eastmoney.com/'),
       responseType: 'text',
     });
-    const nameMatch = data.match(/fS_name\s*=\s*"(.+?)"/);
-    const codeMatch = data.match(/fS_code\s*=\s*"(.+?)"/);
-    return {
-      code: codeMatch ? codeMatch[1] : fundCode,
-      name: nameMatch ? nameMatch[1] : '',
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function getAllFunds() {
-  const { data } = await axios.get('https://fund.eastmoney.com/js/fundcode_search.js', {
-    timeout: 15000,
-    headers: defaultHeaders('https://fund.eastmoney.com/'),
-    responseType: 'text',
-  });
-  const match = data.match(/var\s+r\s*=\s*([\s\S]*?);/);
-  if (!match) return [];
-  return safeJsonParse(match[1]) || [];
+    const match = data.match(/var\s+r\s*=\s*([\s\S]*?);/);
+    const list = match ? safeJsonParse(match[1]) : null;
+    if (!Array.isArray(list) || list.length === 0) {
+      throw new Error('基金列表解析失败或为空');
+    }
+    return list;
+  }, { type: 'fund_list' });
 }
 
 // ═══════════════════════════════════════════
@@ -488,49 +481,45 @@ async function getFundHoldings(fundCode, isQDII = false) {
 }
 
 /**
- * 获取沪深300指数实时涨跌幅，用于填补缺失股票的收益假设
- * 超时2秒，失败返回0
+ * 腾讯指数实时行情原始拉取（字段布局与个股一致：[30]时间、[32]涨跌幅）。
+ * 解析失败抛错 —— 交给 getOrFetch 的"失败不写缓存"语义处理，避免把坏值缓存一个 TTL 周期。
  */
-async function getBenchmarkChange() {
-  try {
-    const { data } = await axios.get('http://qt.gtimg.cn/q=sh000300', {
-      timeout: 2000,
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      responseType: 'text',
-    });
-    const line = data.split('\n').find(l => l.includes('v_sh000300'));
-    if (line) {
-      const content = line.split('="')[1]?.replace(/";$/, '');
-      const fields = content?.split('~');
-      // 腾讯字段: [32]涨跌幅%
-      const changePercent = parseFloat(fields?.[32]);
-      if (!isNaN(changePercent)) return changePercent;
-    }
-  } catch (e) { /* fall through */ }
-  return 0;
+async function fetchTencentIndexQuote(indexCode) {
+  const { data } = await axios.get(`http://qt.gtimg.cn/q=${indexCode}`, {
+    timeout: 2000,
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+    responseType: 'text',
+  });
+  const line = data.split('\n').find(l => l.includes(`v_${indexCode}`));
+  if (!line) throw new Error(`指数行情无数据: ${indexCode}`);
+  const content = line.split('="')[1]?.replace(/";$/, '');
+  const fields = content?.split('~');
+  const changePercent = parseFloat(fields?.[32]);
+  if (isNaN(changePercent)) throw new Error(`指数行情解析失败: ${indexCode}`);
+  const date = (fields?.[30] || '').replace(/\//g, '-').slice(0, 10) || null;
+  return { changePercent, date };
 }
 
 /**
- * 获取国债指数（sh000012）实时涨跌幅，用于债券部分的基准收益率
- * 超时2秒，失败返回0
+ * 获取沪深300指数实时涨跌幅，用于填补缺失股票的收益假设
+ * 缓存：index_quote_{code}（type=stock_quote，盘中 28s 与个股行情同节奏），
+ * 复用 getOrFetch 的进程内 + 跨实例单飞；失败不缓存，本次返回 0（与原实现一致）
+ */
+async function getBenchmarkChange() {
+  try {
+    const q = await globalCache.getOrFetch('index_quote_sh000300', () => fetchTencentIndexQuote('sh000300'), { type: 'stock_quote' });
+    return q.changePercent;
+  } catch { return 0; }
+}
+
+/**
+ * 获取国债指数（sh000012）实时涨跌幅，用于债券部分的基准收益率（缓存/单飞策略同上）
  */
 async function getBondBenchmarkChange() {
   try {
-    const { data } = await axios.get('http://qt.gtimg.cn/q=sh000012', {
-      timeout: 2000,
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      responseType: 'text',
-    });
-    const line = data.split('\n').find(l => l.includes('v_sh000012'));
-    if (line) {
-      const content = line.split('="')[1]?.replace(/";$/, '');
-      const fields = content?.split('~');
-      // 腾讯字段: [32]涨跌幅%
-      const changePercent = parseFloat(fields?.[32]);
-      if (!isNaN(changePercent)) return changePercent;
-    }
-  } catch (e) { /* fall through */ }
-  return 0;
+    const q = await globalCache.getOrFetch('index_quote_sh000012', () => fetchTencentIndexQuote('sh000012'), { type: 'stock_quote' });
+    return q.changePercent;
+  } catch { return 0; }
 }
 
 /**
@@ -566,27 +555,13 @@ function isUsFundByName(fundName = '') {
 
 /**
  * 通用指数实时涨跌幅（腾讯 qt.gtimg.cn/q=indexCode，与A股字段布局一致：[3]现价、[30]时间、[32]涨跌幅）
+ * 缓存：index_quote_{code}（type=stock_quote，盘中 28s）+ getOrFetch 单飞；失败不缓存返回 null（与原实现一致）
  * @returns {{changePercent: number, date: string}|null} date=最新交易日（date-only，YYYY-MM-DD）
  */
 async function getIndexChange(indexCode) {
   try {
-    const { data } = await axios.get(`http://qt.gtimg.cn/q=${indexCode}`, {
-      timeout: 2000,
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      responseType: 'text',
-    });
-    const line = data.split('\n').find(l => l.includes(`v_${indexCode}`));
-    if (line) {
-      const content = line.split('="')[1]?.replace(/";$/, '');
-      const fields = content?.split('~');
-      const changePercent = parseFloat(fields?.[32]);
-      const rawTime = fields?.[30] || '';
-      // 腾讯时间戳格式：ISO(2026-08-27 17:15:59) 或 斜杠(2026/08/28 17:44:31)，统一归一
-      const date = rawTime.replace(/\//g, '-').slice(0, 10) || null;
-      if (!isNaN(changePercent)) return { changePercent, date };
-    }
-  } catch (e) { /* fall through */ }
-  return null;
+    return await globalCache.getOrFetch(`index_quote_${indexCode}`, () => fetchTencentIndexQuote(indexCode), { type: 'stock_quote' });
+  } catch { return null; }
 }
 
 // 美指日线累计涨跌缓存（同一"指数+起止日"短时间内复用；5 分钟足够——白天美股休市，收盘价不变）
@@ -629,24 +604,75 @@ async function getIndexCumulativeChange(indexCode, fromDate, toDate) {
 
 /**
  * 获取日经225指数当日涨跌（新浪 int_nikkei），用于日股缺失持仓的近似填充
- * 新浪格式: name,现价,涨跌额,涨跌幅
- * 超时2秒，失败返回 null
+ * 新浪格式: name,现价,涨跌额,涨跌幅；缓存/单飞策略同 getIndexChange（type=stock_quote），失败返回 0
  */
 async function getNikkeiIndexChange() {
   try {
-    const { data } = await axios.get('http://hq.sinajs.cn/list=int_nikkei', {
-      timeout: 2000,
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/' },
-      responseType: 'text',
-    });
-    const match = data.match(/int_nikkei="([^"]*)"/);
-    if (match) {
-      const fields = match[1].split(',');
+    return await globalCache.getOrFetch('index_quote_int_nikkei', async () => {
+      const { data } = await axios.get('http://hq.sinajs.cn/list=int_nikkei', {
+        timeout: 2000,
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/' },
+        responseType: 'text',
+      });
+      const fields = data.match(/int_nikkei="([^"]*)"/)?.[1]?.split(',') || [];
       const changePercent = parseFloat(fields[3]);
-      if (!isNaN(changePercent)) return changePercent;
-    }
-  } catch (e) { /* fall through */ }
-  return 0;
+      if (isNaN(changePercent)) throw new Error('日经行情解析失败');
+      return changePercent;
+    }, { type: 'stock_quote' });
+  } catch { return 0; }
+}
+
+// ── 股票行情批量单飞（进程内）──────────────────────────────
+// 问题背景：批量接口内 11 只基金的估值是 Promise.all 并行的，冷缓存瞬间所有基金的
+// getStocksRealtime 同时未命中、各自发起批量请求，重叠持仓被重复拉取。
+// 方案：并发未命中的代码在微批窗口（15ms）内合并为一次批量拉取，所有等待者共享同一结果；
+// 缓存回写收敛到唯一写入方，且受 guardFetch 全局外部并发护栏限制。
+const STOCK_BATCH_WINDOW_MS = 15;
+const STOCK_BATCH_SIZE = 50;
+let stockBatchWaiters = [];  // { codes: string[], resolve: Function }
+let stockBatchTimer = null;
+
+/**
+ * 把一批未命中代码登记进当前微批窗口，窗口到期后合并去重、批量拉取、统一回写缓存。
+ * @param {string[]} codes 未命中缓存的股票代码
+ * @returns {Promise<Object<string, {name,price,yesterdayClose,changePercent}>>} code -> 行情
+ */
+function scheduleStockBatchFetch(codes) {
+  return new Promise((resolve) => {
+    stockBatchWaiters.push({ codes, resolve });
+    if (stockBatchTimer) return; // 已有窗口在倒计时，等待合并
+
+    stockBatchTimer = setTimeout(async () => {
+      const waiters = stockBatchWaiters;
+      stockBatchWaiters = [];
+      stockBatchTimer = null;
+
+      let map = {};
+      try {
+        const allCodes = [...new Set(waiters.flatMap((w) => w.codes))];
+        const batches = [];
+        for (let i = 0; i < allCodes.length; i += STOCK_BATCH_SIZE) {
+          batches.push(allCodes.slice(i, i + STOCK_BATCH_SIZE));
+        }
+        logger.info(`请求腾讯qt.gtimg.cn: ${allCodes.join(',')} (分${batches.length}批, 合并${waiters.length}路并发)`);
+
+        const batchResults = await Promise.all(
+          batches.map((b) => globalCache.guardFetch(() => getStocksRealtimeBatch(b)).catch(() => ({})))
+        );
+        map = Object.assign({}, ...batchResults);
+
+        // 唯一写入方：整批只回写一次缓存（type: stock_quote）
+        for (const code of allCodes) {
+          if (map[code]) globalCache.set(`stock_quote_${code}`, map[code], 'stock_quote');
+        }
+      } catch (e) {
+        logger.error(`股票行情批量拉取失败: ${e.message}`);
+      }
+
+      // 无论成败都唤醒所有等待者（失败时 map 为空对象，调用方按缺行情兜底）
+      for (const w of waiters) w.resolve(map);
+    }, STOCK_BATCH_WINDOW_MS);
+  });
 }
 
 async function getStocksRealtime(stockCodes) {
@@ -679,30 +705,14 @@ async function getStocksRealtime(stockCodes) {
     return result;
   }
 
-  // 3. 对未命中的股票调用 getStocksRealtimeBatch 批量请求（保留原有分批逻辑，BATCH_SIZE=50）
-  const BATCH_SIZE = 50;
-  const batches = [];
-  if (needFetch.length <= BATCH_SIZE) {
-    batches.push(needFetch);
-  } else {
-    for (let i = 0; i < needFetch.length; i += BATCH_SIZE) {
-      batches.push(needFetch.slice(i, i + BATCH_SIZE));
-    }
-  }
-  logger.info(`请求腾讯qt.gtimg.cn: ${needFetch.join(',')} (分${batches.length}批)`);
+  // 3. 未命中代码交给微批单飞：并发波次合并、批量拉取、统一回写
+  const fetchedMap = await scheduleStockBatchFetch(needFetch);
 
-  const batchResults = await Promise.all(
-    batches.map(b => getStocksRealtimeBatch(b).catch(() => ({})))
-  );
-  const fetchedMap = Object.assign({}, ...batchResults);
-
-  // 4. 批量请求返回后，逐只写入缓存并合并到结果对象
+  // 4. 合并到结果对象（拉取失败的代码按缺行情兜底，不写入结果）
   let writeCount = 0;
   for (const code of needFetch) {
     const quote = fetchedMap[code];
     if (quote) {
-      // 写入单只股票独立缓存（type: stock_quote）
-      globalCache.set(`stock_quote_${code}`, quote, 'stock_quote');
       result[code] = quote;
       writeCount++;
     }
@@ -1737,7 +1747,6 @@ module.exports = {
   getSinaEstimatedValue,
   getHoldingsEstimatedOverlay,
   getHistoryNetValues,
-  getFundInfo,
   getAllFunds,
   isUsFundByName,
   // 批量接口

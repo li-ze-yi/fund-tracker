@@ -4,6 +4,7 @@ const fundService = require('./fundService');
 const globalCache = require('./globalCache');
 const settlementService = require('./settlementService');
 const pool = require('../config/database');
+const coordinator = require('./coordinator');
 const holidayService = require('./holidayService');
 const { getLocalToday, normalizeDateStr } = require('../utils/date');
 const { createLogger } = require('../utils/logger');
@@ -35,6 +36,17 @@ async function executeDuePlans() {
   let pendingCount = 0;
 
   for (const plan of plans) {
+    // ★ 跨实例抢占锁（Redis SET NX，60s 自动过期）：并发执行流（cron 与 startup job 同时
+    //   在队、stalled 作业重投）同时通过下方"先查后插"窗口时，会为同一计划各创建一笔交易
+    //   —— 两条不同 tx 行都会被独立结算（乐观锁按 tx.id 加锁拦不住不同行）→ 双倍加仓。
+    //   抢不到锁说明其他实例正在处理该计划，直接跳过；Redis 未启用时 acquire 放行，单进程行为不变。
+    const planLockKey = `lock:auto_plan:${plan.id}:${today}`;
+    const lockToken = await coordinator.acquire(planLockKey, 60 * 1000);
+    if (!lockToken) {
+      logger.info(`[Plan#${plan.id}] 其他实例正在处理该计划，跳过本次`);
+      skipCount++;
+      continue;
+    }
     try {
       // MySQL Decimal 类型返回字符串，必须 parseFloat 避免 + 运算时字符串拼接导致 NaN
       const planAmount = parseFloat(plan.amount);
@@ -218,6 +230,9 @@ async function executeDuePlans() {
     } catch (err) {
       logger.error(`◀── Plan#${plan.id} 执行失败: ${err.message}`, err.stack);
       failCount++;
+    } finally {
+      // 无论成败释放锁（release 内部吞错；Redis 禁用态为空操作）
+      await coordinator.release(planLockKey, lockToken);
     }
   }
 
