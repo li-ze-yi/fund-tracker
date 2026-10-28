@@ -1088,6 +1088,59 @@ class GlobalCache {
   }
 
   /**
+   * 清空当前激活后端的全部缓存条目（保留命中率等统计信息）。
+   * - Redis 模式：全量 SCAN 并仅删除取值为合法 `{data,timestamp,type}` 的键
+   *   （排除 gc:stats:* 统计、sf:* 单飞锁、BullMQ 等非 GlobalCache 数据），分批 DEL。
+   * - 内存模式：清空本地 Map（与旧 clearEntries 行为一致）。
+   * 多副本下 admin「清空条目」必须走本方法：条目真实存储在 Redis，
+   * 仅清本地镜像（clearEntries）在 Redis 模式下是空操作。
+   * @returns {Promise<number>} 实际删除的条目数
+   */
+  async clearAllEntries() {
+    const localSize = this.cache.size;
+    this.cache.clear(); // 本地镜像任何模式都清（Redis 模式下仅作镜像/兜底）
+
+    if (!this._redisAvailable()) {
+      logger.info(`缓存条目已清空: 移除${localSize}个条目 (统计保留)`);
+      return localSize;
+    }
+
+    const c = coordinator.getClient();
+    let deleted = 0;
+    let cursor = '0';
+    try {
+      do {
+        const [next, keys] = await c.scan(cursor, 'MATCH', '*', 'COUNT', 200);
+        cursor = next;
+        const pipe = c.pipeline();
+        for (const k of keys) pipe.get(k);
+        const results = await pipe.exec().catch(() => []);
+        const entryKeys = [];
+        for (let i = 0; i < keys.length; i++) {
+          const row = results && results[i];
+          const raw = row && !row[0] ? row[1] : null;
+          if (typeof raw !== 'string') continue;
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && 'data' in parsed && 'timestamp' in parsed && 'type' in parsed) {
+              entryKeys.push(keys[i]);
+            }
+          } catch { /* 非合法条目，跳过 */ }
+        }
+        if (entryKeys.length > 0) {
+          await c.del(...entryKeys);
+          deleted += entryKeys.length;
+        }
+      } while (cursor !== '0');
+    } catch (err) {
+      logger.error(`Redis 缓存条目清空失败（已删${deleted}条）: ${err.message}`);
+      return deleted; // 部分删除也算数，不向上抛
+    }
+    logger.info(`缓存条目已清空(Redis): 删除${deleted}个条目 (统计保留)`);
+    return deleted;
+  }
+
+  /**
    * 启动定时清理任务
    * Redis 模式下 Redis 自动处理过期，无需内存清理（本地 Map 仅作镜像），此处空操作。
    */

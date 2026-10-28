@@ -250,9 +250,9 @@ exports.cacheClear = async (req, res, next) => {
       await globalCache.delete(key);
       res.json({ message: `缓存key "${key}" 已清除` });
     } else {
-      // 仅清除缓存条目列表，保留命中率等统计信息
-      globalCache.clearEntries();
-      res.json({ message: '全部缓存条目已清除（统计信息保留）' });
+      // 清空全部缓存条目：多副本下条目真实存储在 Redis，需 SCAN+分批 DEL（仅清本地镜像是空操作），统计信息保留
+      const deleted = await globalCache.clearAllEntries();
+      res.json({ message: `全部缓存条目已清除（共${deleted}条，统计信息保留）` });
     }
   } catch (err) {
     next(err);
