@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect, useMemo } from 'react';
 import { Card, Segmented, Table, Skeleton, Empty, Tooltip } from 'antd';
 import { BarChartOutlined, CalendarOutlined, DollarOutlined, PercentageOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -850,7 +850,8 @@ export default function StatsPage() {
     }
   };
 
-  const chartOption = {
+  // useMemo：仅随数据/主题/周期变化重建 option
+  const chartOption = useMemo(() => ({
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
@@ -1063,9 +1064,10 @@ export default function StatsPage() {
       left: isMobile ? 42 : 55,
       right: isMobile ? 38 : 48,
     },
-  };
+  }), [data, showReturnRate, isLight, isMobile, period]);
 
-  const columns = [
+  // useMemo：仅随粒度/模式切换重建列配置
+  const columns = useMemo(() => [
     {
       title: period === 'daily' ? '日期' : period === 'monthly' ? '月份' : '年份',
       dataIndex: period === 'daily' ? 'date' : period === 'monthly' ? 'month' : 'year',
@@ -1143,7 +1145,7 @@ export default function StatsPage() {
         );
       },
     }] : []),
-  ];
+  ], [period, showReturnRate, hideAmount]);
 
   // 概览卡片数据源：date_table 模式使用日历视图联动统计，chart 模式使用全局 summary
   const activeSummary = viewMode === 'date_table' ? calendarSummary : summary;
@@ -1324,7 +1326,7 @@ export default function StatsPage() {
                   body: { padding: '20px 16px' },
                 }}
               >
-                <EChart option={chartOption} style={{ height: 'clamp(280px, 50vw, 380px)' }} className="stats-chart-container" opts={{ renderer: 'canvas' }} />
+                <EChart option={chartOption} notMerge style={{ height: 'clamp(280px, 50vw, 380px)' }} className="stats-chart-container" opts={{ renderer: 'canvas' }} />
               </Card>
 
               {/* 数据表格 */}
@@ -1350,12 +1352,11 @@ export default function StatsPage() {
                 <Table
                   dataSource={[...data].reverse()}
                   columns={columns}
-                  rowKey={(record) => {
+                  rowKey={(record, idx) => {
                     const keyValue = record.date || record.month || record.year;
                     if (keyValue) return String(keyValue);
-                    const fallbackKey = `row-${Math.random().toString(36).substr(2, 9)}`;
-                    Object.defineProperty(record, '_fallbackKey', { value: fallbackKey, enumerable: false });
-                    return fallbackKey;
+                    // 稳定兜底 key（原 Math.random 会在每次渲染生成新 key 导致重挂载）
+                    return `${period}-${idx}`;
                   }}
                   pagination={false}
                   size="middle"

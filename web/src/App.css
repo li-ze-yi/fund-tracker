@@ -1,5 +1,4 @@
-/* 使用国内 CDN 镜像替代 Google Fonts（原 fonts.googleapis.com 国内无法访问） */
-@import url('https://fonts.loli.net/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+/* 字体已迁移至 index.html（preconnect + stylesheet 并行加载，避免 CSS @import 串行阻塞） */
 
 /* ========== 主题切换过渡 ==========
    首选 View Transitions（整体交叉淡入，连 background-image 渐变、毛玻璃这类
@@ -454,18 +453,6 @@ a { color: var(--accent-gold); text-decoration: none; }
     opacity: 0.5;
     transform: scale(1.2);
   }
-}
-
-.fresh-indicator {
-  animation: pulse-green 2s ease-in-out infinite;
-}
-
-.fresh-indicator span {
-  animation: pulse-green 2s ease-in-out infinite;
-}
-
-.animate-fade-in-up {
-  animation: fadeInUp 0.4s ease-out both;
 }
 
 /* 页面内容外层包裹 - 滚动区域（透明以透出 body 氛围光晕，毛玻璃才有内容可模糊） */
@@ -1141,15 +1128,6 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   color: var(--accent-gold) !important;
 }
 
-/* ---- 工具类：金色发丝高光线 ---- */
-.gold-hairline {
-  display: block;
-  height: 1px;
-  border: 0;
-  background: linear-gradient(90deg, transparent, var(--accent-gold), transparent);
-  opacity: 0.55;
-}
-
 /* ---- 工具类：统一页面标题（金色小竖条） ---- */
 .page-title-gold {
   display: flex;
@@ -1538,35 +1516,10 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     font-size: clamp(13px, 3.2vw, 14px) !important;
   }
 
-  /* 文本溢出处理 */
-  .text-ellipsis {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* 响应式字体大小工具类 */
-  .text-responsive-sm { font-size: clamp(11px, 2.8vw, 12px) !important; }
-  .text-responsive-base { font-size: clamp(13px, 3.2vw, 14px) !important; }
-  .text-responsive-lg { font-size: clamp(15px, 4vw, 17px) !important; }
-  .text-responsive-xl { font-size: clamp(18px, 5vw, 22px) !important; }
-
-  /* 响应式间距工具类 */
-  .spacing-mobile-xs { margin: 4px !important; }
-  .spacing-mobile-sm { margin: 8px !important; }
-  .spacing-mobile-md { margin: 12px !important; }
-  .spacing-mobile-lg { margin: 16px !important; }
-
-  /* 响应式内边距工具类 */
-  .padding-mobile-xs { padding: 4px 8px !important; }
-  .padding-mobile-sm { padding: 8px 12px !important; }
-  .padding-mobile-md { padding: 12px 16px !important; }
-
   /* ========== ECharts Canvas 图表通用优化 ========== */
 
   /* 所有 ECharts 容器 */
-  div[class*="chart-container"],
-  .echarts-for-react {
+  div[class*="chart-container"] {
     width: 100% !important;
     max-width: 100vw !important;
     overflow: hidden !important;
@@ -1841,20 +1794,21 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     margin-top: -4px;
   }
 
-  .market-index-scroll > div {
+  .market-index-track > div {
     gap: 3px !important;
+    margin-right: 16px !important;
   }
 
-  .market-index-scroll > div > span:first-child {
+  .market-index-track > div > span:first-child {
     font-size: 11px !important;
   }
 
-  .market-index-scroll > div > span:nth-child(2) {
+  .market-index-track > div > span:nth-child(2) {
     font-size: 12px !important;
   }
 
-  .market-index-scroll > div > span:nth-child(3),
-  .market-index-scroll > div > span:nth-child(4) {
+  .market-index-track > div > span:nth-child(3),
+  .market-index-track > div > span:nth-child(4) {
     font-size: 10px !important;
   }
 
@@ -1892,6 +1846,28 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   .market-index-btn .anticon-down {
     font-size: 11px;
   }
+}
+
+/* ==================================================================
+   MarketIndexStrip 跑马灯（纯 CSS 无缝滚动，替代原 rAF 逐帧 scrollLeft）
+   内容渲染两份，track 位移 -50% 实现无缝循环；hover 暂停；
+   prefers-reduced-motion 由文末全局规则统一禁用。
+   ================================================================== */
+.market-index-scroll {
+  width: 100%;
+}
+.market-index-track {
+  display: flex;
+  width: max-content;
+  will-change: transform;
+  animation: index-marquee var(--marquee-duration, 30s) linear infinite;
+}
+.market-index-scroll:hover .market-index-track {
+  animation-play-state: paused;
+}
+@keyframes index-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
 }
 
 /* ========== WatchlistPage 滑动删除 ========== */
@@ -2107,13 +2083,6 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
 
   .header-user .anticon {
     font-size: 16px !important;
-  }
-
-  /* 能量按钮移动端优化 */
-  .header-energy-button {
-    width: 40px !important;
-    height: 40px !important;
-    touch-action: manipulation !important;
   }
 
   /* 搜索下拉框移动端优化 */
@@ -2666,21 +2635,12 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     flex-shrink: 0 !important;
   }
 
-  .fund-move-btn-group {
-    flex-direction: column !important;
-    gap: 3px !important;
-    width: 100% !important;
-    min-width: 60px !important;
-  }
-
-  .fund-move-btn,
   .fund-card-item .ant-select {
     width: 100% !important;
     max-width: none !important;
     min-width: unset !important;
   }
 
-  .fund-move-btn,
   .fund-card-item .ant-btn-dangerous {
     font-size: clamp(10px, 2.5vw, 11px) !important;
     padding: 3px 6px !important;
@@ -2793,7 +2753,6 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
     gap: 4px !important;
   }
 
-  .fund-move-btn,
   .fund-card-item .ant-btn-dangerous {
     height: 26px !important;
     min-height: 26px !important;
@@ -3966,20 +3925,6 @@ div#after3pm > label.ant-radio-wrapper:nth-child(2) > span.ant-radio-label {
   /* 单位字号在移动端缩小 */
   .stats-overview-item .stats-item-value .stats-item-unit {
     font-size: 9px !important;
-  }
-
-  .stats-segmented-wrapper {
-    margin-bottom: 12px !important;
-    padding: 0 4px !important;
-  }
-
-  .stats-segmented-wrapper .ant-segmented {
-    height: 36px !important;
-  }
-
-  .stats-segmented-wrapper .ant-segmented-item {
-    font-size: clamp(11px, 2.8vw, 13px) !important;
-    padding: 0 8px !important;
   }
 
   /* 第一行控件并排容器：移动端紧凑显示（缩宽不降高） */

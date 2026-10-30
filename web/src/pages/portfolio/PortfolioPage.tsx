@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Empty, Alert, Button, Skeleton } from 'antd';
 import { SearchOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { holdingService } from '@/services/holdingService';
@@ -137,20 +137,23 @@ export default function PortfolioPage() {
     }
   };
 
-  const sortedHoldings = [...holdings].sort((a, b) => {
+  // useMemo：避免每次渲染都重排序/重过滤/重汇总
+  const sortedHoldings = useMemo(() => [...holdings].sort((a, b) => {
     if (!sortField || !sortDir) return 0;
     const aVal = (a as unknown as Record<string, number>)[sortField] ?? 0;
     const bVal = (b as unknown as Record<string, number>)[sortField] ?? 0;
     return sortDir === 'desc' ? bVal - aVal : aVal - bVal;
-  });
+  }), [holdings, sortField, sortDir]);
 
-  const displayHoldings = activeGroup
+  const displayHoldings = useMemo(() => activeGroup
     ? sortedHoldings.filter(h => h.group_id === activeGroup)
-    : sortedHoldings;
+    : sortedHoldings, [sortedHoldings, activeGroup]);
 
-  const totalAsset = displayHoldings.reduce((s, h) => s + (h.market_value ?? 0), 0);
-  const totalDaily = displayHoldings.reduce((s, h) => s + (h.daily_profit ?? 0), 0);
-  const totalAccumulated = displayHoldings.reduce((s, h) => s + (h.accumulated_profit ?? 0), 0);
+  const { totalAsset, totalDaily, totalAccumulated } = useMemo(() => ({
+    totalAsset: displayHoldings.reduce((s, h) => s + (h.market_value ?? 0), 0),
+    totalDaily: displayHoldings.reduce((s, h) => s + (h.daily_profit ?? 0), 0),
+    totalAccumulated: displayHoldings.reduce((s, h) => s + (h.accumulated_profit ?? 0), 0),
+  }), [displayHoldings]);
 
   // 数字计数动画（总资产/当日收益/累计收益）
   const animatedAsset = useCountUp(totalAsset);

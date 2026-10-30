@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DownOutlined, CheckOutlined, SettingOutlined } from '@ant-design/icons';
 import { fetchIndexData, fetchMarketStatus, ALL_INDEX_META } from '@/services/indexService';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 interface IndexItem {
   code: string;
@@ -14,7 +15,7 @@ interface IndexItem {
 
 const DEFAULT_VISIBLE = ['000001', '399001', '399006', 'HSI'];
 
-export default function MarketIndexStrip() {
+function MarketIndexStrip() {
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const [selectorOpen, setSelectorOpen] = useState(false);
@@ -23,16 +24,9 @@ export default function MarketIndexStrip() {
     catch { return DEFAULT_VISIBLE; }
   });
   const [indices, setIndices] = useState<IndexItem[]>([]);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [isMobile, setIsMobile] = useState(
-    typeof window !== 'undefined' && window.innerWidth <= 1024
-  );
-
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth <= 1024);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
+  const trackRef = useRef<HTMLDivElement>(null);
+  // 统一断点：1024（与原手写 resize 断点一致，视觉行为不变）
+  const isMobile = useIsMobile(1024);
 
   useEffect(() => {
     localStorage.setItem('ft_visible_indices', JSON.stringify(visibleCodes));
@@ -87,28 +81,20 @@ export default function MarketIndexStrip() {
 
   const visibleIndices = indices.filter(i => visibleCodes.includes(i.code));
 
+  // 纯 CSS 跑马灯：仅测量内容宽度换算动画时长（恒速与原 rAF 版一致：20px/s），无逐帧 JS
+  const [marqueeDuration, setMarqueeDuration] = useState(30);
   useEffect(() => {
     if (expanded || selectorOpen) return;
-    const el = scrollRef.current;
+    const el = trackRef.current;
     if (!el) return;
-    let pos = 0;
-    let rafId: number;
-    let lastTime = 0;
-    const speed = 0.02;
-
-    const animate = (time: number) => {
-      if (lastTime) {
-        const delta = time - lastTime;
-        pos += speed * delta;
-        if (pos >= el.scrollWidth / 2) pos = 0;
-        el.scrollLeft = pos;
-      }
-      lastTime = time;
-      rafId = requestAnimationFrame(animate);
+    const measure = () => {
+      const w = el.scrollWidth;
+      if (w > 0) setMarqueeDuration(Math.max(10, w / 2 / 20));
     };
-
-    rafId = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(rafId);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [expanded, selectorOpen, visibleIndices.length]);
 
   const toggleIndex = (code: string) => {
@@ -137,12 +123,9 @@ export default function MarketIndexStrip() {
       }}>
         {!expanded && !selectorOpen && displayList.length > 0 ? (
           <div
-            ref={scrollRef}
             className="market-index-scroll"
             style={{
-              display: 'flex',
               overflow: 'hidden',
-              gap: isMobile ? 16 : 24,
               padding: isMobile ? '4px 6px' : '6px 16px',
               WebkitMaskImage: isMobile
                 ? 'linear-gradient(to right, transparent 0%, black 2%, black 98%, transparent 100%)'
@@ -152,6 +135,12 @@ export default function MarketIndexStrip() {
                 : 'linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%)',
             }}
           >
+            {/* 纯 CSS 无缝跑马灯：内容渲染两份，translateX(-50%) 循环；hover 暂停见 App.css */}
+            <div
+              ref={trackRef}
+              className="market-index-track"
+              style={{ '--marquee-duration': `${marqueeDuration}s` } as React.CSSProperties}
+            >
             {[...displayList, ...displayList].map((item, idx) => (
               <div
                 key={`${item.code}-${idx}`}
@@ -163,6 +152,7 @@ export default function MarketIndexStrip() {
                   alignItems: 'baseline',
                   gap: 5,
                   padding: '2px 0',
+                  marginRight: isMobile ? 16 : 24,
                 }}
               >
                 <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>
@@ -200,6 +190,7 @@ export default function MarketIndexStrip() {
                 )}
               </div>
             ))}
+            </div>
           </div>
         ) : expanded ? (
           <div className="market-index-expanded" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '10px 16px' }}>
@@ -338,3 +329,6 @@ export default function MarketIndexStrip() {
     </>
   );
 }
+
+// React.memo：父级重渲染时跳过无意义的子树重渲（数据轮询自持）
+export default memo(MarketIndexStrip);

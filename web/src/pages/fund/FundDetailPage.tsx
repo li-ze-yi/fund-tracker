@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import dayjs from 'dayjs';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Button, Table, Tag, Segmented, Skeleton, App, Space, Dropdown } from 'antd';
@@ -207,8 +207,11 @@ export default function FundDetailPage() {
     return { percentageData, baseNav, sortedDates, sortedHistory };
   };
 
-  // 获取转换后的百分比数据
-  const { percentageData, baseNav, sortedDates, sortedHistory } = convertToPercentage(navHistory);
+  // 获取转换后的百分比数据（useMemo：避免每次渲染重算全量净值转换）
+  const { percentageData, baseNav, sortedDates, sortedHistory } = useMemo(
+    () => convertToPercentage(navHistory),
+    [navHistory]
+  );
 
   /**
    * 根据时间周期获取X轴标签配置
@@ -326,7 +329,8 @@ export default function FundDetailPage() {
     }
   };
 
-  const xAxisConfig = getXAxisConfig();
+  // useMemo：仅随日期数据/周期变化重建
+  const xAxisConfig = useMemo(() => getXAxisConfig(), [sortedDates, period]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isMobile = useIsMobile();
   const themeMode = useThemeStore((s) => s.mode);
@@ -515,7 +519,8 @@ export default function FundDetailPage() {
     },
   ];
 
-  const chartOption = {
+  // useMemo：仅随数据/主题/周期变化重建 option（含 markPoint 交易标记）
+  const chartOption = useMemo(() => ({
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
@@ -620,54 +625,60 @@ export default function FundDetailPage() {
         ],
       },
       markPoint: {
-        data: transactions
-          .filter((t: any) => t && t.transaction_date)
-          .map((t: any) => {
-            // 标准化交易日期格式
-            const txDateStr = (t.transaction_date || '').toString().split('T')[0].split(' ')[0];
-            
-            // 1. 先尝试精确匹配
-            let index = sortedHistory.findIndex((h: any) => {
-              const historyDateStr = (h.date || h.日期 || '').toString().split('T')[0].split(' ')[0];
-              return historyDateStr === txDateStr;
-            });
+        data: (() => {
+          // 预建 日期→索引 Map（O(1) 查表），避免逐笔 findIndex 全量扫描
+          const dateIndexMap = new Map<string, number>();
+          sortedHistory.forEach((h: any, i: number) => {
+            const historyDateStr = (h.date || h.日期 || '').toString().split('T')[0].split(' ')[0];
+            if (!dateIndexMap.has(historyDateStr)) dateIndexMap.set(historyDateStr, i);
+          });
+          return transactions
+            .filter((t: any) => t && t.transaction_date)
+            .map((t: any) => {
+              // 标准化交易日期格式
+              const txDateStr = (t.transaction_date || '').toString().split('T')[0].split(' ')[0];
 
-            // 2. 如果精确匹配失败，尝试模糊匹配（找最近的交易日）
-            if (index < 0) {
-              const txDate = new Date(txDateStr);
-              let minDiff = Infinity;
-              
-              sortedHistory.forEach((h: any, i: number) => {
-                const historyDateStr = (h.date || h.日期 || '').toString().split('T')[0].split(' ')[0];
-                const historyDate = new Date(historyDateStr);
-                const diff = Math.abs(historyDate.getTime() - txDate.getTime());
-                
-                // 只查找前后3天内的最近交易日（避免匹配到太远的数据）
-                if (diff < minDiff && diff <= 3 * 24 * 60 * 60 * 1000) {
-                  minDiff = diff;
-                  index = i;
-                }
-              });
-            }
+              // 1. 先尝试精确匹配（Map 查表）
+              let index = dateIndexMap.get(txDateStr);
+              if (index === undefined) index = -1;
 
-            // 如果还是找不到，跳过该标记
-            if (index < 0 || index >= percentageData.length) return null;
+              // 2. 如果精确匹配失败，尝试模糊匹配（找最近的交易日）
+              if (index < 0) {
+                const txDate = new Date(txDateStr);
+                let minDiff = Infinity;
 
-            const coordValue = percentageData[index];
+                sortedHistory.forEach((h: any, i: number) => {
+                  const historyDateStr = (h.date || h.日期 || '').toString().split('T')[0].split(' ')[0];
+                  const historyDate = new Date(historyDateStr);
+                  const diff = Math.abs(historyDate.getTime() - txDate.getTime());
 
-            return {
-              name: t.type === 'buy' ? '买入' : '卖出',
-              coord: [index, coordValue],
-              symbol: 'circle',
-              symbolSize: isMobile ? 6 : 8,
-              itemStyle: {
-                color: t.type === 'buy' ? (isLight ? '#C0432E' : '#E0574E') : (isLight ? '#3E7A5A' : '#3FA46A'),
-                borderColor: isLight ? '#fff' : 'transparent',  // ✅ 去掉白边
-                borderWidth: 0,               // ✅ 无边框
-              },
-            };
-          })
-          .filter((point: any) => point !== null),
+                  // 只查找前后3天内的最近交易日（避免匹配到太远的数据）
+                  if (diff < minDiff && diff <= 3 * 24 * 60 * 60 * 1000) {
+                    minDiff = diff;
+                    index = i;
+                  }
+                });
+              }
+
+              // 如果还是找不到，跳过该标记
+              if (index < 0 || index >= percentageData.length) return null;
+
+              const coordValue = percentageData[index];
+
+              return {
+                name: t.type === 'buy' ? '买入' : '卖出',
+                coord: [index, coordValue],
+                symbol: 'circle',
+                symbolSize: isMobile ? 6 : 8,
+                itemStyle: {
+                  color: t.type === 'buy' ? (isLight ? '#C0432E' : '#E0574E') : (isLight ? '#3E7A5A' : '#3FA46A'),
+                  borderColor: isLight ? '#fff' : 'transparent',  // ✅ 去掉白边
+                  borderWidth: 0,               // ✅ 无边框
+                },
+              };
+            })
+            .filter((point: any) => point !== null);
+        })(),
       },
     }],
     grid: {
@@ -684,7 +695,7 @@ export default function FundDetailPage() {
         borderColor: 'transparent',
       },
     ],
-  };
+  }), [percentageData, sortedDates, sortedHistory, transactions, isLight, isMobile, xAxisConfig]);
 
   if (loading) {
     return (

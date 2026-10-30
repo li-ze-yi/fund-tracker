@@ -13,56 +13,26 @@ import AddHoldingModal from '@/components/modals/AddHoldingModal';
 import ImageImportModal from '@/components/modals/ImageImportModal';
 import BrandBadge from '@/components/BrandBadge';
 
-export default function Header() {
-  const { user, logout } = useAuthStore();
-  const themeMode = useThemeStore((s) => s.mode);
-  const toggleTheme = useThemeStore((s) => s.toggleMode);
-  const navigate = useNavigate();
+// ============================================================================
+// RefreshHourglass —— 自动刷新沙漏子组件
+// 持有倒计时/刷新动画状态与定时器，避免 Header 主体因每秒 countdown 变化整体重渲染
+// ============================================================================
+function RefreshHourglass({ refreshFreq, isMobile }: { refreshFreq: number; isMobile: boolean }) {
   const { message } = App.useApp();
-  const [searchValue, setSearchValue] = useState('');
-  const [searchResults, setSearchResults] = useState<FundInfo[]>([]);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [holdingOpen, setHoldingOpen] = useState(false);
-  const [imageImportOpen, setImageImportOpen] = useState(false);
-  const [selectedFund, setSelectedFund] = useState<FundInfo | null>(null);
-  const [favoritedCodes, setFavoritedCodes] = useState<Set<string>>(new Set());
-  const [animatingStar, setAnimatingStar] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState(30);
   const [refreshing, setRefreshing] = useState(false);
   const [burstKey, setBurstKey] = useState(0);
-  const [refreshFreq, setRefreshFreq] = useState(30);
-  const [countdown, setCountdown] = useState(30);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
-  const countdownRef = useRef<ReturnType<typeof setInterval>>();
   const countdownResetRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // 刷新频率变更（含首次设置加载）时同步重置倒计时
   useEffect(() => {
-    settingService.getSettings().then((data) => {
-      // 兼容两种响应结构：{ settings: {...} } 或直接返回设置对象
-      const settings = (data as { settings?: SettingsData })?.settings || data;
-      if (settings?.refresh_frequency != null) {
-        setRefreshFreq(settings.refresh_frequency);
-        setCountdown(settings.refresh_frequency);
-      }
-    }).catch(() => {});
-  }, []);
-
-  // 监听设置页面的刷新频率变更
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const freq = (e as CustomEvent).detail?.frequency;
-      if (freq != null) {
-        setRefreshFreq(freq);
-        setCountdown(freq);
-      }
-    };
-    window.addEventListener('refresh-frequency-changed', handler);
-    return () => window.removeEventListener('refresh-frequency-changed', handler);
-  }, []);
+    setCountdown(refreshFreq);
+  }, [refreshFreq]);
 
   useEffect(() => {
     if (refreshFreq <= 0) return;
 
-    countdownRef.current = setInterval(() => {
+    const timer = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
           // 自动刷新时触发动画
@@ -83,7 +53,7 @@ export default function Header() {
     }, 1000);
 
     return () => {
-      if (countdownRef.current) clearInterval(countdownRef.current);
+      clearInterval(timer);
       if (countdownResetRef.current) clearTimeout(countdownResetRef.current);
     };
   }, [refreshFreq]);
@@ -107,6 +77,154 @@ export default function Header() {
 
   const refreshProgress = refreshFreq > 0 ? (refreshFreq - countdown) / refreshFreq : 0;
 
+  return (
+          <span
+            className="header-countdown"
+            onClick={handleManualRefresh}
+            role="button"
+            aria-label={refreshing ? '正在刷新…' : '手动刷新'}
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleManualRefresh(); } }}
+            style={{
+              position: 'relative',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              whiteSpace: 'nowrap',
+              userSelect: 'none',
+              color: 'var(--text-dim)',
+              cursor: refreshing ? 'not-allowed' : 'pointer',
+              width: isMobile ? 36 : 42,
+              height: isMobile ? 36 : 42,
+              minWidth: isMobile ? 36 : 42,
+              minHeight: isMobile ? 36 : 42,
+              borderRadius: '10px',
+              border: '1.5px solid var(--border-strong)',
+              background: 'var(--bg-card)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+              justifyContent: 'center',
+              touchAction: 'manipulation',
+              WebkitTapHighlightColor: 'transparent',
+              transition: 'all var(--transition-fast)',
+            }}
+            onMouseEnter={(e) => {
+              if (!refreshing) { e.currentTarget.style.boxShadow = '0 0 10px var(--neon-glow-gold)'; e.currentTarget.style.borderColor = 'var(--border-strong)'; }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--bg-card)';
+              e.currentTarget.style.borderColor = 'var(--border-strong)';
+              e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.04)';
+            }}
+          >
+            {/* 沙漏：沙子随倒计时从上瓶漏到下瓶，刷新时多圈翻转 */}
+            <span className={`hourglass${countdown <= 5 && !refreshing ? ' urgent' : ''}`} style={{ display: 'inline-flex', position: 'relative', transform: refreshing ? 'rotate(1080deg)' : 'rotate(0deg)', transition: 'transform 0.9s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
+              <svg width={isMobile ? 24 : 30} height={isMobile ? 28 : 35} viewBox="0 0 24 28">
+                <defs>
+                  {/* 沙色：固定用深色主题的金色（--hg-sand-a/b 定义在 .hourglass 上），两个主题观感一致 */}
+                  <linearGradient id="hdrSand" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" style={{ stopColor: 'var(--hg-sand-a)' }} />
+                    <stop offset="1" style={{ stopColor: 'var(--hg-sand-b)' }} />
+                  </linearGradient>
+                  {/* 玻璃壁反光：上亮下透 */}
+                  <linearGradient id="hdrGlass" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" style={{ stopColor: '#fff', stopOpacity: 0.55 }} />
+                    <stop offset="1" style={{ stopColor: '#fff', stopOpacity: 0 }} />
+                  </linearGradient>
+                  {/* 玻璃内腔：沙子裁剪区，保证沙贴着弧形瓶壁而不是直线三角 */}
+                  <clipPath id="hdrCavity">
+                    <path d="M4.5 3.6 C 4.1 8.2, 8.4 11.7, 11.35 13.8 C 8.4 15.9, 4.1 19.6, 4.5 24.5 L 19.5 24.5 C 19.9 19.6, 15.6 15.9, 12.65 13.8 C 15.6 11.7, 19.9 8.2, 19.5 3.6 Z" />
+                  </clipPath>
+                </defs>
+
+                {/* 瓶身：弧形壁（真实沙漏的腰线是曲线，不是直三角） */}
+                <path d="M3.6 2.6 C 3.1 8, 7.9 11.7, 11.2 14 C 7.9 16.3, 3.1 20, 3.6 25.4 L 20.4 25.4 C 20.9 20, 16.1 16.3, 12.8 14 C 16.1 11.7, 20.9 8, 20.4 2.6 Z" fill="var(--bg-elevated)" />
+
+                {/* 沙：上瓶沙堆（坐在瓶颈上，沙面随倒计时下沉）/ 下瓶沙丘 / 中间细沙流 */}
+                {(() => {
+                  const p = refreshProgress;
+                  /* 上瓶沙面高度：3.6=满瓶，13.8=见底（瓶颈）；中间略凹模拟漏斗 */
+                  const surface = 3.6 + 10.2 * p;
+                  const pileTop = 24.5 - 10.3 * p;
+                  const streamH = Math.max(0, pileTop - 13.5);
+                  return (
+                    <g clipPath="url(#hdrCavity)">
+                      <polygon points={`2,${surface} 12,${surface + 0.55} 22,${surface} 12,13.8`} fill="url(#hdrSand)" />
+                      <polygon points={`3,24.5 21,24.5 13.2,${pileTop} 10.8,${pileTop}`} fill="url(#hdrSand)" />
+                      <rect className="hourglass-neck" x="11.5" y="13.5" width="1" height={streamH} rx="0.5" style={{ fill: 'var(--hg-sand-a)' }} />
+                    </g>
+                  );
+                })()}
+
+                {/* 玻璃壁高光（上下腔各一道） */}
+                <path d="M5.3 4.8 C 4.9 8.4, 8.5 11.6, 11.4 13.6" fill="none" stroke="url(#hdrGlass)" strokeWidth="1.1" strokeLinecap="round" />
+                <path d="M5.5 23.1 C 5.1 19.8, 8.2 16.8, 11.1 14.9" fill="none" stroke="url(#hdrGlass)" strokeWidth="0.9" strokeLinecap="round" opacity="0.55" />
+
+                {/* 瓶身金色描边 */}
+                <path d="M3.6 2.6 C 3.1 8, 7.9 11.7, 11.2 14 C 7.9 16.3, 3.1 20, 3.6 25.4 L 20.4 25.4 C 20.9 20, 16.1 16.3, 12.8 14 C 16.1 11.7, 20.9 8, 20.4 2.6 Z" fill="none" stroke="color-mix(in srgb, var(--hg-sand-b) 45%, transparent)" strokeWidth="1.1" strokeLinejoin="round" />
+
+                {/* 上下金属端盖（做薄，把视觉重心让给瓶身） */}
+                <rect x="2.6" y="1" width="18.8" height="1.7" rx="0.85" fill="url(#hdrSand)" stroke="color-mix(in srgb, var(--hg-sand-b) 60%, transparent)" strokeWidth="0.6" />
+                <rect x="2.6" y="25.3" width="18.8" height="1.7" rx="0.85" fill="url(#hdrSand)" stroke="color-mix(in srgb, var(--hg-sand-b) 60%, transparent)" strokeWidth="0.6" />
+              </svg>
+            </span>
+            {/* 刷新完成粒子爆发（只在刷新结束瞬间播放一次） */}
+            {burstKey > 0 && (
+              <span key={burstKey} className="refresh-burst">
+                {[...Array(8)].map((_, i) => (
+                  <span
+                    key={i}
+                    className="burst-particle"
+                    style={{ '--angle': `${i * 45}deg` } as React.CSSProperties}
+                  />
+                ))}
+              </span>
+            )}
+          </span>
+  );
+}
+
+export default function Header() {
+  // selector 订阅：只取实际用到的字段，避免整店订阅导致无关更新触发重渲染
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
+  const themeMode = useThemeStore((s) => s.mode);
+  const toggleTheme = useThemeStore((s) => s.toggleMode);
+  const navigate = useNavigate();
+  const { message } = App.useApp();
+  const [searchValue, setSearchValue] = useState('');
+  const [searchResults, setSearchResults] = useState<FundInfo[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [holdingOpen, setHoldingOpen] = useState(false);
+  const [imageImportOpen, setImageImportOpen] = useState(false);
+  const [selectedFund, setSelectedFund] = useState<FundInfo | null>(null);
+  const [favoritedCodes, setFavoritedCodes] = useState<Set<string>>(new Set());
+  const [animatingStar, setAnimatingStar] = useState<string | null>(null);
+  const [refreshFreq, setRefreshFreq] = useState(30);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const searchReqIdRef = useRef(0); // 搜索请求自增 id：竞态守卫，仅采纳最新请求结果
+
+  useEffect(() => {
+    settingService.getSettings().then((data) => {
+      // 兼容两种响应结构：{ settings: {...} } 或直接返回设置对象
+      const settings = (data as { settings?: SettingsData })?.settings || data;
+      if (settings?.refresh_frequency != null) {
+        setRefreshFreq(settings.refresh_frequency);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // 监听设置页面的刷新频率变更
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const freq = (e as CustomEvent).detail?.frequency;
+      if (freq != null) {
+        setRefreshFreq(freq);
+      }
+    };
+    window.addEventListener('refresh-frequency-changed', handler);
+    return () => window.removeEventListener('refresh-frequency-changed', handler);
+  }, []);
+
   const onSearchChange = (value: string) => {
     setSearchValue(value);
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -116,11 +234,15 @@ export default function Header() {
       return;
     }
     timerRef.current = setTimeout(() => {
+      const reqId = ++searchReqIdRef.current;
       fundService.searchFunds(value).then((data) => {
+        // 竞态守卫：仅采纳最新一次请求的结果，旧响应直接丢弃
+        if (reqId !== searchReqIdRef.current) return;
         const funds: FundInfo[] = data.funds || data || [];
         setSearchResults(funds.slice(0, 10));
         setSearchOpen(true);
       }).catch(() => {
+        if (reqId !== searchReqIdRef.current) return;
         setSearchResults([]);
         setSearchOpen(true);
       });
@@ -357,109 +479,8 @@ export default function Header() {
         </Dropdown>
 
         <div className="header-actions" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* 自动刷新沙漏（点击刷新，倒计时动画集成于此） */}
-          <span
-            className="header-countdown"
-            onClick={handleManualRefresh}
-            role="button"
-            aria-label={refreshing ? '正在刷新…' : '手动刷新'}
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleManualRefresh(); } }}
-            style={{
-              position: 'relative',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              whiteSpace: 'nowrap',
-              userSelect: 'none',
-              color: 'var(--text-dim)',
-              cursor: refreshing ? 'not-allowed' : 'pointer',
-              width: isMobile ? 36 : 42,
-              height: isMobile ? 36 : 42,
-              minWidth: isMobile ? 36 : 42,
-              minHeight: isMobile ? 36 : 42,
-              borderRadius: '10px',
-              border: '1.5px solid var(--border-strong)',
-              background: 'var(--bg-card)',
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
-              justifyContent: 'center',
-              touchAction: 'manipulation',
-              WebkitTapHighlightColor: 'transparent',
-              transition: 'all var(--transition-fast)',
-            }}
-            onMouseEnter={(e) => {
-              if (!refreshing) { e.currentTarget.style.boxShadow = '0 0 10px var(--neon-glow-gold)'; e.currentTarget.style.borderColor = 'var(--border-strong)'; }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'var(--bg-card)';
-              e.currentTarget.style.borderColor = 'var(--border-strong)';
-              e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.04)';
-            }}
-          >
-            {/* 沙漏：沙子随倒计时从上瓶漏到下瓶，刷新时多圈翻转 */}
-            <span className={`hourglass${countdown <= 5 && !refreshing ? ' urgent' : ''}`} style={{ display: 'inline-flex', position: 'relative', transform: refreshing ? 'rotate(1080deg)' : 'rotate(0deg)', transition: 'transform 0.9s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
-              <svg width={isMobile ? 24 : 30} height={isMobile ? 28 : 35} viewBox="0 0 24 28">
-                <defs>
-                  {/* 沙色：固定用深色主题的金色（--hg-sand-a/b 定义在 .hourglass 上），两个主题观感一致 */}
-                  <linearGradient id="hdrSand" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0" style={{ stopColor: 'var(--hg-sand-a)' }} />
-                    <stop offset="1" style={{ stopColor: 'var(--hg-sand-b)' }} />
-                  </linearGradient>
-                  {/* 玻璃壁反光：上亮下透 */}
-                  <linearGradient id="hdrGlass" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0" style={{ stopColor: '#fff', stopOpacity: 0.55 }} />
-                    <stop offset="1" style={{ stopColor: '#fff', stopOpacity: 0 }} />
-                  </linearGradient>
-                  {/* 玻璃内腔：沙子裁剪区，保证沙贴着弧形瓶壁而不是直线三角 */}
-                  <clipPath id="hdrCavity">
-                    <path d="M4.5 3.6 C 4.1 8.2, 8.4 11.7, 11.35 13.8 C 8.4 15.9, 4.1 19.6, 4.5 24.5 L 19.5 24.5 C 19.9 19.6, 15.6 15.9, 12.65 13.8 C 15.6 11.7, 19.9 8.2, 19.5 3.6 Z" />
-                  </clipPath>
-                </defs>
-
-                {/* 瓶身：弧形壁（真实沙漏的腰线是曲线，不是直三角） */}
-                <path d="M3.6 2.6 C 3.1 8, 7.9 11.7, 11.2 14 C 7.9 16.3, 3.1 20, 3.6 25.4 L 20.4 25.4 C 20.9 20, 16.1 16.3, 12.8 14 C 16.1 11.7, 20.9 8, 20.4 2.6 Z" fill="var(--bg-elevated)" />
-
-                {/* 沙：上瓶沙堆（坐在瓶颈上，沙面随倒计时下沉）/ 下瓶沙丘 / 中间细沙流 */}
-                {(() => {
-                  const p = refreshProgress;
-                  /* 上瓶沙面高度：3.6=满瓶，13.8=见底（瓶颈）；中间略凹模拟漏斗 */
-                  const surface = 3.6 + 10.2 * p;
-                  const pileTop = 24.5 - 10.3 * p;
-                  const streamH = Math.max(0, pileTop - 13.5);
-                  return (
-                    <g clipPath="url(#hdrCavity)">
-                      <polygon points={`2,${surface} 12,${surface + 0.55} 22,${surface} 12,13.8`} fill="url(#hdrSand)" />
-                      <polygon points={`3,24.5 21,24.5 13.2,${pileTop} 10.8,${pileTop}`} fill="url(#hdrSand)" />
-                      <rect className="hourglass-neck" x="11.5" y="13.5" width="1" height={streamH} rx="0.5" style={{ fill: 'var(--hg-sand-a)' }} />
-                    </g>
-                  );
-                })()}
-
-                {/* 玻璃壁高光（上下腔各一道） */}
-                <path d="M5.3 4.8 C 4.9 8.4, 8.5 11.6, 11.4 13.6" fill="none" stroke="url(#hdrGlass)" strokeWidth="1.1" strokeLinecap="round" />
-                <path d="M5.5 23.1 C 5.1 19.8, 8.2 16.8, 11.1 14.9" fill="none" stroke="url(#hdrGlass)" strokeWidth="0.9" strokeLinecap="round" opacity="0.55" />
-
-                {/* 瓶身金色描边 */}
-                <path d="M3.6 2.6 C 3.1 8, 7.9 11.7, 11.2 14 C 7.9 16.3, 3.1 20, 3.6 25.4 L 20.4 25.4 C 20.9 20, 16.1 16.3, 12.8 14 C 16.1 11.7, 20.9 8, 20.4 2.6 Z" fill="none" stroke="color-mix(in srgb, var(--hg-sand-b) 45%, transparent)" strokeWidth="1.1" strokeLinejoin="round" />
-
-                {/* 上下金属端盖（做薄，把视觉重心让给瓶身） */}
-                <rect x="2.6" y="1" width="18.8" height="1.7" rx="0.85" fill="url(#hdrSand)" stroke="color-mix(in srgb, var(--hg-sand-b) 60%, transparent)" strokeWidth="0.6" />
-                <rect x="2.6" y="25.3" width="18.8" height="1.7" rx="0.85" fill="url(#hdrSand)" stroke="color-mix(in srgb, var(--hg-sand-b) 60%, transparent)" strokeWidth="0.6" />
-              </svg>
-            </span>
-            {/* 刷新完成粒子爆发（只在刷新结束瞬间播放一次） */}
-            {burstKey > 0 && (
-              <span key={burstKey} className="refresh-burst">
-                {[...Array(8)].map((_, i) => (
-                  <span
-                    key={i}
-                    className="burst-particle"
-                    style={{ '--angle': `${i * 45}deg` } as React.CSSProperties}
-                  />
-                ))}
-              </span>
-            )}
-          </span>
+          {/* 自动刷新沙漏（点击刷新，倒计时动画集成于此；状态自持，不触发 Header 整体重渲染） */}
+          <RefreshHourglass refreshFreq={refreshFreq} isMobile={isMobile} />
 
           {/* 明暗主题切换：干净幽灵圆钮 */}
           <Tooltip title={themeMode === 'dark' ? '切换浅色模式' : '切换深色模式'}>

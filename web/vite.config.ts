@@ -13,11 +13,11 @@ export default defineConfig({
     rollupOptions: {
       output: {
         // 按模块 id 拆分大型依赖为独立 chunk，利于浏览器缓存
+        // 注意：antd 5 为 ESM，手动拆 vendor-antd 会导致其被 modulepreload 全量预载（反优化），
+        // 交给 Rollup 自动按需提升公共 chunk
         manualChunks(id: string) {
           // echarts 已按需引入（line/bar），统一归到 vendor-echarts
           if (id.includes('node_modules/echarts')) return 'vendor-echarts';
-          // Ant Design UI 库（全应用共用，已按需 tree-shake）
-          if (id.includes('node_modules/antd') || id.includes('node_modules/@ant-design')) return 'vendor-antd';
           // React 核心库
           if (id.includes('node_modules/react') || id.includes('node_modules/scheduler') || id.includes('node_modules/use-sync-external-store')) return 'vendor-react';
           // 其他工具库
@@ -27,8 +27,6 @@ export default defineConfig({
     },
     // 启用 gzip 压缩提示
     reportCompressedSize: true,
-    // antd 为全应用共用且已按需 tree-shake，体积接近最优，阈值调整消除告警
-    chunkSizeWarningLimit: 1100,
   },
   server: {
     host: '0.0.0.0',
@@ -43,9 +41,6 @@ export default defineConfig({
         configure: (proxy) => {
           proxy.on('error', (err) => {
             console.log('[proxy error]', err);
-          });
-          proxy.on('proxyReq', (proxyReq, req) => {
-            console.log('[proxy]', req.method, req.url);
           });
         },
       },

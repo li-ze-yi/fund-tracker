@@ -39,11 +39,16 @@ export function useMarketData(opts: UseMarketDataOpts): MarketDataState {
   const [refreshing, setRefreshing] = useState(false);
   const hasData = useRef(false); // 跟踪是否曾成功拿到数据，避免 stale-closure 误置 error
   const inFlight = useRef(false); // 防止轮询重叠：上一次 tick 未完成时跳过本次
+  // 用 ref 持有最新 fetchers：tick 保持空依赖稳定引用，
+  // 避免 effect 因 fetcher 每渲染变化而反复 clearInterval/重跑（请求风暴）
+  const fetchersRef = useRef<[MarketDataFetcher?, MarketDataFetcher?]>([primary, fallback]);
+  fetchersRef.current = [primary, fallback];
 
   const tick = useCallback(async () => {
     // 上一次轮询尚未完成则跳过本次，避免 async 请求重叠堆积
     if (inFlight.current) return;
     inFlight.current = true;
+    const [primary, fallback] = fetchersRef.current;
     const fetchers = [primary, fallback].filter(Boolean) as MarketDataFetcher[];
     let ok = false;
     try {
@@ -67,7 +72,7 @@ export function useMarketData(opts: UseMarketDataOpts): MarketDataState {
     } finally {
       inFlight.current = false;
     }
-  }, [primary, fallback]);
+  }, []);
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -77,7 +82,8 @@ export function useMarketData(opts: UseMarketDataOpts): MarketDataState {
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [tick, pollIntervalMs]);
+    // 仅在间隔变化时重建定时器；tick 为稳定引用无需依赖
+  }, [pollIntervalMs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = useCallback(() => {
     setRefreshing(true);

@@ -6,6 +6,7 @@
 // 兜底：生产服务器（机房 IP）被东财 push2 族域名连接级封锁，服务端 sectors / breadth
 // 会取空。仅当服务端确实取不到数时，才回退到浏览器 JSONP 直连（浏览器不在封锁范围）。
 // ============================================================================
+import { useCallback } from "react";
 import api from '@/services/api';
 import { useMarketData } from "../../features/industry-rotation";
 import {
@@ -15,8 +16,8 @@ import {
 import RotationTerminal from "../../features/industry-rotation/RotationTerminal";
 
 export default function IndustryRotationPage() {
-  const { data, error, lastUpdate, loading, refreshing, refresh } = useMarketData({
-    primary: async () => {
+  // useCallback 固化 fetcher 引用（双保险，hook 内部亦已 ref 化）
+  const fetchRotation = useCallback(async () => {
       const r = await api.get('/market/rotation');
       const server = r.data;
 
@@ -36,7 +37,10 @@ export default function IndustryRotationPage() {
       }
       if (breadth && (breadth.up || breadth.down)) server.breadth = breadth;
       return server;
-    },
+  }, []);
+
+  const { data, error, lastUpdate, loading, refreshing, refresh } = useMarketData({
+    primary: fetchRotation,
     pollIntervalMs: 30000,
   });
 
