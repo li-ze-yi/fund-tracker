@@ -16,6 +16,17 @@ function getLocalToday() {
 }
 
 /**
+ * 将 Date 对象格式化为本地时区日期字符串 'YYYY-MM-DD'
+ * 替代 toISOString().slice(0, 10)：后者按 UTC 截断，东八区 0-8 点会提前一天
+ */
+function formatLocalDate(d) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * 把各种 mysql2 / API 返回的日期值规范化为 'YYYY-MM-DD'
  * - Date 对象：用本地时间（getFullYear/getMonth/getDate）提取，避免 UTC 偏移
  * - 字符串：取前 10 字符（兼容 'YYYY-MM-DD HH:mm:ss' / 'YYYY-MM-DDTHH:mm:ss'）
@@ -35,4 +46,4 @@ function normalizeDateStr(dateVal) {
   return '';
 }
 
-module.exports = { getLocalToday, normalizeDateStr };
+module.exports = { getLocalToday, normalizeDateStr, formatLocalDate };

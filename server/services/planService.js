@@ -127,23 +127,21 @@ async function executeDuePlans() {
           // 今日确认净值未发布 → 判断是否为交易日
           logger.info(`[Plan#${plan.id}] 今日确认净值尚未发布，判断是否为交易日...`);
 
-          // 获取实时估值：有实时估值说明是交易日（盘中或收盘后），可以创建 pending
+          // ★ 交易日判定改用节假日服务：原"getRealTimeValue 返回 netValue>0"信号恒真
+          //   （lsjz 接口周末/节假日也返回最近确认净值），会导致非交易日创建永不结算的 pending。
+          //   实时净值不再参与交易日判定：今日净值已发布走上方分支立即结算，未发布且为交易日则创建 pending。
           let isTradingDay = false;
           try {
-            const realTime = await fundService.getRealTimeValue(plan.fund_code);
-            if (realTime && realTime.netValue > 0) {
-              isTradingDay = true; // 有实时估值 → 交易日
-              logger.info(`[Plan#${plan.id}] 实时估值可用 (netValue=${realTime.netValue})，判定为交易日`);
-            } else {
-              logger.info(`[Plan#${plan.id}] 实时估值不可用，判定为非交易日`);
-            }
+            isTradingDay = await holidayService.isTradingDay(today);
+            logger.info(`[Plan#${plan.id}] 交易日历判定 isTradingDay=${isTradingDay}`);
           } catch (e) {
-            logger.warn(`[Plan#${plan.id}] 实时估值获取失败: ${e.message}`);
+            logger.warn(`[Plan#${plan.id}] 交易日判定失败，按交易日处理: ${e.message}`);
+            isTradingDay = true;
           }
 
           if (!isTradingDay) {
-            // 无实时估值 → 非交易日（周末/节假日），不创建 pending，等待下次调度
-            logger.info(`[Plan#${plan.id}] 非交易日（无实时估值），跳过不创建 pending，等待下次调度`);
+            // 非交易日（周末/节假日），不创建 pending，等待下次调度
+            logger.info(`[Plan#${plan.id}] 非交易日，跳过不创建 pending，等待下次调度`);
             // 不更新 next_run_date，下次调度会再次拾取
             pendingCount++;
             continue;

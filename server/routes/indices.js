@@ -1,11 +1,20 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const globalCache = require('../services/globalCache');
 const { fetchWithTimeout } = require('../utils/http');
 const { createLogger } = require('../utils/logger');
 const { getLocalToday } = require('../utils/date');
 
 const logger = createLogger('Indices');
+
+// 匿名接口基础限流：60 次/分钟/IP（内存 store，防恶意刷外部行情接口）
+const anonLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false
+});
 
 var SINA = {
   '000001': 's_sh000001', '000016': 's_sh000016',
@@ -60,8 +69,15 @@ function getTxCode(code) {
   return null;
 }
 
-router.get('/', async (req, res) => {
-  var codes = req.query.codes ? req.query.codes.split(',') : Object.keys(TX_A).concat(Object.keys(TX));
+router.get('/', anonLimiter, async (req, res) => {
+  // codes 白名单过滤：仅保留新浪/腾讯映射中登记的指数代码，防拼接外部 API URL 的注入面；
+  // 传入的 codes 全部无效时回退全量（保持旧行为）
+  var codes = req.query.codes
+    ? req.query.codes.split(',').map(function(c) { return c.trim(); }).filter(function(c) { return SINA[c] || TX_A[c] || TX[c]; })
+    : Object.keys(TX_A).concat(Object.keys(TX));
+  if (codes.length === 0) {
+    codes = Object.keys(TX_A).concat(Object.keys(TX));
+  }
   var cacheKey = `indices:${codes.sort().join(',')}`;
 
   try {
@@ -131,7 +147,14 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/:code/intraday', async (req, res) => {
+// date 参数校验：仅接受 YYYYMMDD（未传默认今天）
+router.get('/:code/intraday', function(req, res, next) {
+  var date = req.query.date;
+  if (date && !/^\d{8}$/.test(date)) {
+    return res.status(400).json({ error: 'date 参数格式不正确，应为 YYYYMMDD', code: req.params.code });
+  }
+  next();
+}, async (req, res) => {
   const code = req.params.code;
   const date = req.query.date || getLocalToday().replace(/-/g, '');
   const cacheKey = `indices:intraday:${code}:${date}`;

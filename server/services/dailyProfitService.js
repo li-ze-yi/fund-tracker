@@ -133,47 +133,16 @@ class DailyProfitService {
       // ★ 第三步：仅基于已确认基金获取确认净值并计算
       const calculationResult = await this.calculateFromConfirmedFundsOnly(confirmedFunds, today);
 
-      // ★ 第四步：获取基准值并计算收益率
-      const yesterdayRecord = await DailyProfit.findYesterdayByUserId(userId);
-      let baselineValue = calculationResult.totalCost;
-      if (baselineValue <= 0) {
-        baselineValue = yesterdayRecord?.market_value || calculationResult.totalMarketValue;
-      }
-
-      const returnRate = baselineValue > 0 ? (calculationResult.totalDailyProfit / baselineValue) * 100 : 0;
-
-      // ★ 第五步：构建详细信息（仅包含已确认基金）
-      const details = this.buildDetails(calculationResult, confirmedFunds.length, holdingsWithRealTimeData.length);
-
-      // ★ 第六步：保存到数据库
-      await DailyProfit.upsert({
+      // ★ 第四~六步：基准收益率 + details 构建 + upsert + 节流时间戳 + 结果日志（与确认净值直算路径共用收尾段）
+      return await this._saveDailyProfitResult({
         userId,
-        date: today,
-        profit: Math.round(calculationResult.totalDailyProfit * 100) / 100,
-        returnRate: Math.round(returnRate * 10000) / 10000,
-        totalInvestment: calculationResult.totalCost,
-        marketValue: calculationResult.totalMarketValue,
-        details
-      });
-
-      this.lastUpdateCache.set(cacheKey, now);
-
-      const result = {
-        date: today,
-        profit: calculationResult.totalDailyProfit,
-        returnRate,
-        marketValue: calculationResult.totalMarketValue,
+        today,
+        now,
+        calculationResult,
         confirmedCount: confirmedFunds.length,
         totalCount: holdingsWithRealTimeData.length,
-        pendingCount: unconfirmedFunds.length,
-        details
-      };
-
-      logger.info(`✅ 日收益已更新 (仅基于${confirmedFunds.length}只确认基金):`);
-      logger.info(`收益: ¥${calculationResult.totalDailyProfit.toFixed(2)} (${returnRate.toFixed(2)}%)`);
-      logger.info(`待确认: ${unconfirmedFunds.length}只 (确认后将自动加入)`);
-
-      return result;
+        pendingCount: unconfirmedFunds.length
+      });
 
     } catch (error) {
       logger.error('失败:', error);
@@ -220,7 +189,8 @@ class DailyProfitService {
       const threeDaysAgo = await holdingService.getHistoryFallbackStartDate(today);
       const historyMap = {};
       const needFetch = [];
-      for (const code of fundCodes) {
+      // ★ Promise.all 并行预检（Redis 模式下避免逐只串行 RTT）
+      await Promise.all(fundCodes.map(async (code) => {
         const cacheKey = `history_${code}_3d_${today}`;
         const result = await globalCache.checkCache(cacheKey, 'history_recent');
         // ★ 要求缓存至少含"今日 + 昨日"两条：仅 1 条的缓存（长假窗口拉窄 / 单只基金详情接口写入的窄窗口）
@@ -230,7 +200,7 @@ class DailyProfitService {
         } else {
           needFetch.push(code);
         }
-      }
+      }));
 
       if (needFetch.length > 0) {
         const freshMap = await fundService.batchGetHistoryNetValues(needFetch, threeDaysAgo, today);
@@ -491,51 +461,81 @@ class DailyProfitService {
         fundCount: confirmedFunds.length
       };
 
-      // ★ 获取基准值并计算收益率
-      const yesterdayRecord = await DailyProfit.findYesterdayByUserId(userId);
-      let baselineValue = calculationResult.totalCost;
-      if (baselineValue <= 0) {
-        baselineValue = yesterdayRecord?.market_value || calculationResult.totalMarketValue;
-      }
-      const returnRate = baselineValue > 0 ? (calculationResult.totalDailyProfit / baselineValue) * 100 : 0;
-
-      // ★ 构建详细信息（仅包含已确认基金）
-      const details = this.buildDetails(calculationResult, confirmedFunds.length, holdings.length);
-
-      // ★ 保存到数据库
-      await DailyProfit.upsert({
+      // ★ 基准收益率 + details 构建 + upsert + 结果日志（与实时数据路径共用收尾段）
+      return await this._saveDailyProfitResult({
         userId,
-        date: today,
-        profit: Math.round(calculationResult.totalDailyProfit * 100) / 100,
-        returnRate: Math.round(returnRate * 10000) / 10000,
-        totalInvestment: calculationResult.totalCost,
-        marketValue: calculationResult.totalMarketValue,
-        details
-      });
-
-      this.lastUpdateCache.set(cacheKey, now);
-
-      const result = {
-        date: today,
-        profit: calculationResult.totalDailyProfit,
-        returnRate,
-        marketValue: calculationResult.totalMarketValue,
+        today,
+        now,
+        calculationResult,
         confirmedCount: confirmedFunds.length,
         totalCount: holdings.length,
-        pendingCount: unconfirmedFunds.length,
-        details
-      };
-
-      logger.info(`✅ 日收益已更新 (仅基于${confirmedFunds.length}只确认基金):`);
-      logger.info(`收益: ¥${calculationResult.totalDailyProfit.toFixed(2)} (${returnRate.toFixed(2)}%)`);
-      logger.info(`待确认: ${unconfirmedFunds.length}只 (确认后将自动加入)`);
-
-      return result;
+        pendingCount: unconfirmedFunds.length
+      });
 
     } catch (error) {
       logger.error('失败:', error);
       throw error;
     }
+  }
+
+  /**
+   * ★ 公共落库段：基准值/收益率计算 + details 构建 + upsert + 节流时间戳 + 结果日志。
+   * 两条计算路径（实时数据 / 确认净值直算）的收尾完全同构，收敛于此，改动只需改一处。
+   * 注意：details 内 funds[].gain_percent 的口径差异由各路径自行构建
+   * calculationResult.fundsDetails 原样保留（实时路径取 holdingService 的 estimated_change，
+   * 直算路径按今日/基准净值自行计算），本函数不介入、不改写。
+   * @param {object} p
+   * @param {number} p.userId 用户 ID
+   * @param {string} p.today 记账日期 YYYY-MM-DD
+   * @param {Date} p.now 节流时间戳基准（本次计算开始时间）
+   * @param {object} p.calculationResult { fundsDetails, totalMarketValue, totalCost, totalDailyProfit, fundCount }
+   * @param {number} p.confirmedCount 已确认基金数
+   * @param {number} p.totalCount 持仓总数
+   * @param {number} p.pendingCount 未确认基金数
+   * @returns {Promise<object>} 与原两路径返回结构完全一致的 result
+   */
+  async _saveDailyProfitResult({ userId, today, now, calculationResult, confirmedCount, totalCount, pendingCount }) {
+    // ★ 获取基准值并计算收益率
+    const yesterdayRecord = await DailyProfit.findYesterdayByUserId(userId);
+    let baselineValue = calculationResult.totalCost;
+    if (baselineValue <= 0) {
+      baselineValue = yesterdayRecord?.market_value || calculationResult.totalMarketValue;
+    }
+
+    const returnRate = baselineValue > 0 ? (calculationResult.totalDailyProfit / baselineValue) * 100 : 0;
+
+    // ★ 构建详细信息（仅包含已确认基金）
+    const details = this.buildDetails(calculationResult, confirmedCount, totalCount);
+
+    // ★ 保存到数据库
+    await DailyProfit.upsert({
+      userId,
+      date: today,
+      profit: Math.round(calculationResult.totalDailyProfit * 100) / 100,
+      returnRate: Math.round(returnRate * 10000) / 10000,
+      totalInvestment: calculationResult.totalCost,
+      marketValue: calculationResult.totalMarketValue,
+      details
+    });
+
+    this.lastUpdateCache.set(`${userId}_${today}`, now);
+
+    const result = {
+      date: today,
+      profit: calculationResult.totalDailyProfit,
+      returnRate,
+      marketValue: calculationResult.totalMarketValue,
+      confirmedCount,
+      totalCount,
+      pendingCount,
+      details
+    };
+
+    logger.info(`✅ 日收益已更新 (仅基于${confirmedCount}只确认基金):`);
+    logger.info(`收益: ¥${calculationResult.totalDailyProfit.toFixed(2)} (${returnRate.toFixed(2)}%)`);
+    logger.info(`待确认: ${pendingCount}只 (确认后将自动加入)`);
+
+    return result;
   }
 
   /**

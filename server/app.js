@@ -106,7 +106,10 @@ app.get('/health', (req, res) => {
 // 全局错误处理
 app.use((err, req, res, next) => {
   logger.error(`全局错误处理: ${err.message}`, err.stack);
-  res.status(err.status || 500).json({ message: err.message || '服务器内部错误' });
+  const status = err.status || 500;
+  // 500 统一脱敏：原始错误信息只入日志，不回传客户端（避免泄露 SQL/路径等内部细节）
+  const message = status < 500 ? err.message : '服务器内部错误';
+  res.status(status).json({ message });
 });
 
 const PORT = process.env.PORT || 3001;

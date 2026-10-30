@@ -36,10 +36,12 @@ const TIMEOUT = 3000; // 3秒超时（原8秒太长，失败时串行等待浪�
 let sinaAvailable = null;        // null=未检测, true=可用, false=不可用
 let sinaCheckTime = 0;           // 上次检测时间
 const SINA_CHECK_INTERVAL = 300000; // 每5分钟重新检测一次（避免临时故障后一直跳过）
+let sinaCheckInflight = null;    // 进行中的探测 promise（并发去重，参考 holidayService 的 inflight 模式）
 
 /**
  * 检测新浪接口是否可用（返回403则标记为不可用）
  * 如果不可用，后续所有新浪请求直接跳过，避免浪费5秒超时
+ * 并发调用在缓存过期窗口内共享同一次探测 promise，避免重复请求新浪
  */
 async function checkSinaAvailability() {
   const now = Date.now();
@@ -47,27 +49,34 @@ async function checkSinaAvailability() {
   if (sinaAvailable !== null && (now - sinaCheckTime) < SINA_CHECK_INTERVAL) {
     return sinaAvailable;
   }
-  try {
-    const { status } = await axios.get('http://hq.sinajs.cn/list=fu_000001', {
-      timeout: 3000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://finance.sina.com.cn/',
-      },
-      validateStatus: () => true, // 不抛异常，让我们自己判断状态码
-    });
-    sinaAvailable = status === 200;
-    sinaCheckTime = now;
-    if (!sinaAvailable) {
-      logger.warn(`新浪接口不可用(HTTP ${status})，已跳过所有新浪请求`);
-    }
-    return sinaAvailable;
-  } catch (e) {
-    sinaAvailable = false;
-    sinaCheckTime = now;
-    logger.warn(`新浪接口不可用(${e.message})，已跳过所有新浪请求`);
-    return false;
+  if (!sinaCheckInflight) {
+    sinaCheckInflight = (async () => {
+      try {
+        const { status } = await axios.get('http://hq.sinajs.cn/list=fu_000001', {
+          timeout: 3000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://finance.sina.com.cn/',
+          },
+          validateStatus: () => true, // 不抛异常，让我们自己判断状态码
+        });
+        sinaAvailable = status === 200;
+        sinaCheckTime = Date.now();
+        if (!sinaAvailable) {
+          logger.warn(`新浪接口不可用(HTTP ${status})，已跳过所有新浪请求`);
+        }
+        return sinaAvailable;
+      } catch (e) {
+        sinaAvailable = false;
+        sinaCheckTime = Date.now();
+        logger.warn(`新浪接口不可用(${e.message})，已跳过所有新浪请求`);
+        return false;
+      } finally {
+        sinaCheckInflight = null; // 探测结束，允许下一轮缓存过期后重新探测
+      }
+    })();
   }
+  return sinaCheckInflight;
 }
 
 function defaultHeaders(referer) {
@@ -112,17 +121,19 @@ function safeJsonParse(str) {
 
 async function getRealTimeValueRaw(fundCode) {
   const errors = [];
+  const RACE_TIMEOUT = 2000; // 竞速单次超时 2s（原三级串行各 3s，最坏 9s 占用 guardFetch 槽位）
 
   // 接口1: api.fund.eastmoney.com/f10/lsjz (东方财富最新确认净值, JSON)
   // 注：fundgz.1234567.com.cn 实时估值接口已于2026年因监管要求下线
-  try {
+  // 软失败（无有效数据）转为 rejection，供 Promise.any 竞速挑选
+  const fetchLsjz = async () => {
     const refererUrl = `http://fundf10.eastmoney.com/jjjz_${fundCode}.html`;
     const today = getLocalToday();
     // ★ 15 天窗口兜底：3 天窗口在"节前休市+周末"叠加后拉不到节前最后交易日净值（详见 getHistoryFetchStartDate）
     const historyStart = getHistoryFetchStartDate();
     const { data } = await axios.get(
       `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=2&startDate=${historyStart}&endDate=${today}`,
-      { timeout: TIMEOUT, headers: defaultHeaders(refererUrl) }
+      { timeout: RACE_TIMEOUT, headers: defaultHeaders(refererUrl) }
     );
     if (data && data.Data && data.Data.LSJZList && data.Data.LSJZList.length) {
       const list = data.Data.LSJZList;
@@ -149,12 +160,13 @@ async function getRealTimeValueRaw(fundCode) {
         };
       }
     }
-  } catch (e) { errors.push(`lsjz: ${e.message}`); }
+    throw new Error('lsjz: 无有效数据');
+  };
 
   // 接口2: fund.eastmoney.com/pingzhongdata (基金品种数据, JS变量)
-  try {
+  const fetchPingzhong = async () => {
     const { data: jsData } = await axios.get(`https://fund.eastmoney.com/pingzhongdata/${fundCode}.js`, {
-      timeout: TIMEOUT,
+      timeout: RACE_TIMEOUT,
       headers: defaultHeaders(`https://fund.eastmoney.com/${fundCode}.html`),
       responseType: 'text',
     });
@@ -179,7 +191,16 @@ async function getRealTimeValueRaw(fundCode) {
         }
       }
     }
-  } catch (e) { errors.push(`pingzhong: ${e.message}`); }
+    throw new Error('pingzhong: 无有效数据');
+  };
+
+  // 接口1/接口2 并行竞速：Promise.any 取先返回有效数据的一方，双方均失败才落入接口3串行兜底
+  // （两接口均为轻量 GET，竞速窗口 ≤2s，guardFetch 槽位内的瞬时并发翻倍有界且可接受）
+  try {
+    return await Promise.any([fetchLsjz(), fetchPingzhong()]);
+  } catch (e) {
+    errors.push(e instanceof AggregateError ? e.errors.map((x) => x.message).join('; ') : e.message);
+  }
 
   // 接口3: 东方财富push2接口 (场内ETF/LOF行情, 仅对上市基金有效)
   try {
@@ -373,38 +394,7 @@ async function getAllFunds() {
 }
 
 // ═══════════════════════════════════════════
-// 方案一：腾讯基金接口（qt.gtimg.cn）
-// ═══════════════════════════════════════════
-/* 【已废弃】死代码，仅被 getHoldingsEstimatedValue 调用，未导出。腾讯基金接口不提供盘中实时估值，仅返回前一日确认净值。
-async function getTencentValue(fundCode) {
-  try {
-    const { data } = await axios.get(`http://qt.gtimg.cn/q=jj${fundCode}`, {
-      timeout: TIMEOUT,
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      responseType: 'text',
-    });
-    const line = data.split('\n').find(l => l.includes('v_jj'));
-    if (!line) return null;
-    const content = line.split('="')[1]?.replace(/";$/, '');
-    if (!content) return null;
-    const fields = content.split('~');
-    // fields: [0]code, [1]name, [2-4]?, [5]unit_nav, [6]acc_nav, [7]change%, [8]date
-    const nav = parseFloat(fields[5]);
-    if (!isNaN(nav) && nav > 0) {
-      return {
-        netValue: nav,
-        gainPercent: parseFloat(fields[7]) || null,
-        updateTime: fields[8] || '',
-        source: 'tencent',
-      };
-    }
-  } catch (e) { // fall through }
-  return null;
-}
-*/
-
-// ═══════════════════════════════════════════
-// 方案二：持仓穿透法 - 自行计算基金估值
+// 持仓穿透法 - 自行计算基金估值
 // ═══════════════════════════════════════════
 
 function getStockPrefix(code) {
@@ -601,26 +591,6 @@ async function getIndexCumulativeChange(indexCode, fromDate, toDate) {
   }
 }
 
-/**
- * 获取日经225指数当日涨跌（新浪 int_nikkei），用于日股缺失持仓的近似填充
- * 新浪格式: name,现价,涨跌额,涨跌幅；缓存/单飞策略同 getIndexChange（type=stock_quote），失败返回 0
- */
-async function getNikkeiIndexChange() {
-  try {
-    return await globalCache.getOrFetch('index_quote_int_nikkei', async () => {
-      const { data } = await axios.get('http://hq.sinajs.cn/list=int_nikkei', {
-        timeout: 2000,
-        headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/' },
-        responseType: 'text',
-      });
-      const fields = data.match(/int_nikkei="([^"]*)"/)?.[1]?.split(',') || [];
-      const changePercent = parseFloat(fields[3]);
-      if (isNaN(changePercent)) throw new Error('日经行情解析失败');
-      return changePercent;
-    }, { type: 'stock_quote' });
-  } catch { return 0; }
-}
-
 // ── 股票行情批量单飞（进程内）──────────────────────────────
 // 问题背景：批量接口内 11 只基金的估值是 Promise.all 并行的，冷缓存瞬间所有基金的
 // getStocksRealtime 同时未命中、各自发起批量请求，重叠持仓被重复拉取。
@@ -753,125 +723,6 @@ async function getStocksRealtimeBatch(stockCodes) {
   }
 }
 
-/* 【已废弃】死代码，被 getHoldingsEstimatedOverlay 替代，未导出。
-async function getHoldingsEstimatedValue(fundCode) {
-  const errors = [];
-
-  // 获取持仓数据
-  let holdings = [];
-  try {
-    holdings = await getFundHoldings(fundCode);
-  } catch (e) { errors.push(`holdings_fetch: ${e.message}`); }
-
-  if (!holdings.length) {
-    // 无持仓数据时回退到腾讯接口
-    const tencentResult = await getTencentValue(fundCode);
-    if (tencentResult) return { ...tencentResult, source: 'holdings_fallback_tencent' };
-    return null;
-  }
-
-  // 获取持仓股票实时行情
-  const stockCodes = holdings.map(h => h.code);
-  let stockQuotes = {};
-  try {
-    stockQuotes = await getStocksRealtime(stockCodes);
-  } catch (e) { errors.push(`stocks_realtime: ${e.message}`); }
-
-  // 计算加权涨跌幅
-  let totalRatio = 0;
-  let weightedChange = 0;
-
-  for (const holding of holdings) {
-    const quote = stockQuotes[holding.code];
-    if (!quote || quote.changePercent === null || quote.changePercent === undefined) continue;
-
-    weightedChange += quote.changePercent * holding.ratio;
-    totalRatio += holding.ratio;
-  }
-
-  // 覆盖率太低则不可信
-  const coverage = totalRatio; // 总占比即覆盖率
-  if (coverage < 30) {
-    // 覆盖率不足，回退到腾讯接口
-    const tencentResult = await getTencentValue(fundCode);
-    if (tencentResult) return { ...tencentResult, source: 'holdings_low_coverage', coverage };
-    return null;
-  }
-
-  // 基于加权涨跌幅估算净值：需要前一日确认净值
-  try {
-    const today = getLocalToday();
-    // ★ 15 天窗口兜底：3 天窗口在"节前休市+周末"叠加后取不到节前最后交易日确认净值，估算失去基准
-    const historyStart = getHistoryFetchStartDate();
-    const { data } = await axios.get(
-      `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=1&startDate=${historyStart}&endDate=${today}`,
-      { timeout: TIMEOUT, headers: defaultHeaders(`http://fundf10.eastmoney.com/jjjz_${fundCode}.html`) }
-    );
-    if (data && data.Data && data.Data.LSJZList && data.Data.LSJZList.length) {
-      const latest = data.Data.LSJZList[0];
-      const yesterdayNav = parseFloat(latest.DWJZ);
-
-      if (!isNaN(yesterdayNav) && yesterdayNav > 0) {
-        // 归一化加权涨跌幅（按实际覆盖率折算）
-        const normalizedChange = totalRatio > 0
-          ? parseFloat((weightedChange / totalRatio * coverage / 100).toFixed(2))
-          : 0;
-        const estimatedNav = parseFloat((yesterdayNav * (1 + normalizedChange / 100)).toFixed(4));
-
-        return {
-          netValue: estimatedNav,
-          gainPercent: normalizedChange,
-          updateTime: latest.FSRQ || '',
-          source: 'holdings',
-          coverage: parseFloat(coverage.toFixed(1)),
-          holdingsCount: holdings.length,
-        };
-      }
-    }
-  } catch (e) { errors.push(`yesterday_nav: ${e.message}`); }
-
-  return null;
-}
-*/
-
-// ═══════════════════════════════════════════
-// 盘中实时估算（天天基金移动端估值走势接口 - 新浪替代方案）
-// fundmobapi.eastmoney.com 是天天基金APP使用的接口，不会403封禁
-// 交易时段返回盘中分时估值数据，非交易时段返回空
-// ═══════════════════════════════════════════
-/* 【已废弃】实测(2026-07-23交易时段)总返回null，天天基金估值走势接口已不再提供盘中实时估值数据。
-async function getFundgzEstimatedValue(fundCode) {
-  try {
-    const { data } = await axios.get(
-      `https://fundmobapi.eastmoney.com/FundMApi/FundVarietieValuationDetail.ashx?FCODE=${fundCode}&deviceid=Wap&plat=Wap&product=EFund&version=2.0.0&_=${Date.now()}`,
-      { timeout: TIMEOUT, headers: MOBILE_HEADERS }
-    );
-
-    if (!data?.Datas || !data.Datas.length) return null;
-
-    const expansion = data.Expansion || {};
-    // 取最后一条分时数据作为当前估值
-    const lastItem = data.Datas[data.Datas.length - 1];
-    const parts = lastItem.split(',');
-    // parts: [0]时间, [1]估算净值, [2]估算涨跌幅
-    const estimatedNav = parseFloat(parts[1]);
-    const estimatedChange = parseFloat(parts[2]);
-    const confirmedNav = parseFloat(expansion.DWJZ);
-
-    if (!isNaN(estimatedNav) && estimatedNav > 0) {
-      return {
-        estimatedValue: estimatedNav,
-        estimatedChange: !isNaN(estimatedChange) ? estimatedChange : null,
-        estimationMethod: 'fundmobapi',
-        netValue: !isNaN(confirmedNav) ? confirmedNav : null,
-        updateTime: parts[0] || null,
-      };
-    }
-  } catch (e) { // fall through }
-  return null;
-}
-*/
-
 // ═══════════════════════════════════════════
 // 盘中实时估算（新浪财经接口 - 备用方案）
 // 新浪提供基金盘中实时估值数据（含估算净值和估算涨幅）
@@ -898,8 +749,7 @@ async function getSinaEstimatedValue(fundCode) {
     const timeStr = fields[1] || '';
 
     // 检查数据日期是否为今天
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const todayStr = getLocalToday();
     if (dateStr && dateStr !== todayStr) {
       return null;
     }
@@ -1078,9 +928,17 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
     return null;
   }
 
-  // 3. 获取所有持仓股票实时行情
+  // 3. 并行获取互不依赖的外部数据：持仓股票行情 + 债券基准(按需) + 资产配置(仅ETF联接) + 母ETF行情(仅ETF联接)
+  //    （原四处串行 await，冷缓存时逐个排队；相互无依赖，一次 Promise.all 后再进入计算段）
   const stockCodes = holdings.length > 0 ? holdings.map(h => h.code) : [];
-  const stockQuotes = stockCodes.length > 0 ? await getStocksRealtime(stockCodes) : {};
+  const needBondBenchmark = benchmarks.bondBenchmarkChange == null;
+  const [stockQuotes, bondBenchmark, assetAlloc, etfQuote] = await Promise.all([
+    stockCodes.length > 0 ? getStocksRealtime(stockCodes) : Promise.resolve({}),
+    needBondBenchmark ? getBondBenchmarkChange() : Promise.resolve(null),
+    etfCode ? getFundAssetAllocation(fundCode) : Promise.resolve(null),
+    etfCode ? getETFRealtimeQuote(etfCode).catch(() => null) : Promise.resolve(null),
+  ]);
+  const bondBenchmarkChange = needBondBenchmark ? bondBenchmark : benchmarks.bondBenchmarkChange;
 
   // 统计成功的行情数
   let successCount = 0;
@@ -1166,12 +1024,7 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
       logger.info(`${fundCode} 缺失股票权重=${missingStockWeight.toFixed(2)}%, 沪深300=${benchmarkReturn}%`);
     }
   }
-  const bondBenchmarkChange = benchmarks.bondBenchmarkChange != null
-    ? benchmarks.bondBenchmarkChange
-    : await getBondBenchmarkChange();
-
-  // 6. 获取资产配置
-  const assetAlloc = await getFundAssetAllocation(fundCode);
+  // （债券基准 bondBenchmarkChange 与资产配置 assetAlloc 已在第 3 步并行获取，此处直接使用）
 
   let bondWeight = 0;
   let missingContribution = 0;
@@ -1200,9 +1053,8 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
       missingContribution = missingStockWeight * benchmarkReturn;
       bondContribution = bondWeight * bondBenchmarkChange;
 
-      // 母ETF贡献
+      // 母ETF贡献（行情已在第 3 步并行预取）
       if (etfWeight > 0) {
-        const etfQuote = await getETFRealtimeQuote(etfCode).catch(() => null);
         if (etfQuote && etfQuote.estimatedChange != null) {
           etfContribution = etfWeight * etfQuote.estimatedChange;
           logger.info(`${fundCode} 母ETF=${etfCode} 涨跌幅=${etfQuote.estimatedChange}% 占比=${etfWeight.toFixed(2)}%`);
@@ -1214,7 +1066,6 @@ async function getHoldingsEstimatedOverlay(fundCode, confirmedNav, benchmarks = 
   } else if (etfCode && !assetAlloc) {
     // 资产配置获取失败，近似处理：母ETF涨跌幅 × 100%
     logger.warn(`${fundCode} 资产配置获取失败，回退母ETF近似估值`);
-    const etfQuote = await getETFRealtimeQuote(etfCode).catch(() => null);
     if (etfQuote && etfQuote.estimatedChange != null) {
       logger.info(`${fundCode} ETF联接近似估值完成: change=${etfQuote.estimatedChange}%`);
       return {
@@ -1409,53 +1260,6 @@ async function batchGetFundmobapiInfo(fundCodes) {
 }
 
 /**
- * 批量获取fundgz盘中估值（天天基金官方估值接口）
- * fundgz不支持批量，需逐个请求，但响应极快（~100ms/只）
- */
-/* 【已废弃】依赖 getFundgzEstimatedValue，该接口已不可用。
-async function batchGetFundgzEstimatedValues(fundCodes) {
-  const result = {};
-  if (!fundCodes || !fundCodes.length) return result;
-
-  const promises = fundCodes.map(async (code) => {
-    try {
-      const data = await getFundgzEstimatedValue(code);
-      return { code, data };
-    } catch (e) {
-      return { code, data: null };
-    }
-  });
-
-  const responses = await Promise.allSettled(promises);
-  const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-
-  for (const resp of responses) {
-    if (resp.status === 'fulfilled' && resp.value.data) {
-      const { code, data } = resp.value;
-      // 只保留今天的数据
-      if (data.updateTime && data.updateTime.includes(todayStr)) {
-        result[code] = data;
-      } else {
-        result[code] = null;
-      }
-    } else if (resp.status === 'fulfilled') {
-      result[resp.value.code] = null;
-    }
-  }
-
-  // 补 null
-  for (const code of fundCodes) {
-    if (!(code in result)) {
-      result[code] = null;
-    }
-  }
-
-  return result;
-}
-*/
-
-/**
  * 批量获取新浪盘中估值
  * 新浪接口支持一次查询多只基金：hq.sinajs.cn/list=fu_001234,fu_005678
  * 原来N只基金需要N次请求，现在只需1次
@@ -1482,8 +1286,7 @@ async function batchGetSinaEstimatedValues(fundCodes) {
       responseType: 'text',
     });
 
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const todayStr = getLocalToday();
 
     // 解析每行数据
     const lines = data.split('\n').filter(l => l.includes('="'));
@@ -1523,40 +1326,6 @@ async function batchGetSinaEstimatedValues(fundCodes) {
   }
 
   // 对未获取到数据的基金补 null
-  for (const code of fundCodes) {
-    if (!(code in result)) {
-      result[code] = null;
-    }
-  }
-
-  return result;
-}
-
-/**
- * 批量获取确认净值（东方财富API不支持批量，改为并行请求）
- * 相比逐个串行等待8秒超时，并行请求总耗时仅为最慢的那个
- */
-async function batchGetRealTimeValues(fundCodes) {
-  const result = {};
-  if (!fundCodes || !fundCodes.length) return result;
-
-  const promises = fundCodes.map(async (fundCode) => {
-    try {
-      const data = await getRealTimeValue(fundCode);
-      return { fundCode, data };
-    } catch (e) {
-      return { fundCode, data: null };
-    }
-  });
-
-  const responses = await Promise.allSettled(promises);
-  for (const resp of responses) {
-    if (resp.status === 'fulfilled') {
-      result[resp.value.fundCode] = resp.value.data;
-    }
-  }
-
-  // 补 null
   for (const code of fundCodes) {
     if (!(code in result)) {
       result[code] = null;
@@ -1643,15 +1412,24 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina', opti
 
   const startTime = Date.now();
 
-  // 1. fundmobapi 批量获取确认净值
-  const mobapiMap = await batchGetFundmobapiInfo(fundCodes);
+  // 1. fundmobapi 批量获取确认净值；持仓穿透法所需的基准指数与其无依赖，一并并行获取
+  //    （sina/auto 模式不预取基准：auto 仅在回退持仓穿透时才按需获取）
+  let mobapiMap;
+  let benchmarks = null;
+  if (method === 'holdings') {
+    // 基准涨跌幅只计算一次，供所有基金复用，避免每只基金重复请求
+    [mobapiMap, benchmarks] = await Promise.all([
+      batchGetFundmobapiInfo(fundCodes),
+      getBenchmarks(needsUsHk),
+    ]);
+  } else {
+    mobapiMap = await batchGetFundmobapiInfo(fundCodes);
+  }
 
   // 2. 根据 method 批量获取盘中估算
   let estimatedMap = {};
   if (method === 'holdings') {
     // 持仓穿透法：并行调用
-    // 基准涨跌幅只计算一次，供所有基金复用，避免每只基金重复请求
-    const benchmarks = await getBenchmarks(needsUsHk);
     const promises = fundCodes.map(async (code) => {
       try {
         return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue, benchmarks, {
@@ -1671,10 +1449,10 @@ async function batchGetRealTimeValuesWithMethod(fundCodes, method = 'sina', opti
     const fallbackCodes = fundCodes.filter(code => !estimatedMap[code]);
     if (fallbackCodes.length) {
       logger.info(`${fallbackCodes.length}只基金回退持仓穿透`);
-      const benchmarks = await getBenchmarks(needsUsHk);
+      const fallbackBenchmarks = await getBenchmarks(needsUsHk);
       const fallbackPromises = fallbackCodes.map(async (code) => {
         try {
-          return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue, benchmarks, {
+          return { code, data: await getHoldingsEstimatedOverlay(code, mobapiMap[code]?.netValue, fallbackBenchmarks, {
             isQDII: !!isQdiiMap[code],
             fundName: fundNameMap[code] || '',
             confirmedNavDate: mobapiMap[code]?.updateTime || null,
@@ -1741,7 +1519,6 @@ module.exports = {
   // 批量接口
   batchGetSinaEstimatedValues,
   batchGetFundmobapiInfo,
-  batchGetRealTimeValues,
   batchGetRealTimeValuesWithMethod,
   batchGetHistoryNetValues,
 };

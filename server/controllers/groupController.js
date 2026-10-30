@@ -56,8 +56,8 @@ exports.update = async (req, res, next) => {
 exports.delete = async (req, res, next) => {
   try {
     const { id } = req.params;
-    // 将分组的持仓移入默认分组
-    await Holding.updateByGroupId(id, req.user.id, { group_id: null });
+    // holdings.group_id 外键为 ON DELETE SET NULL（见 doc/init_db.sql），
+    // 删除分组时由 DB 自动将持仓的 group_id 置空，无需应用层冗余 UPDATE
     await Group.delete(id, req.user.id);
     res.json({ message: '删除成功' });
   } catch (err) {

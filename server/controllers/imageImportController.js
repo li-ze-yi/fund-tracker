@@ -4,11 +4,10 @@ const fs = require('fs');
 const Fund = require('../models/fund');
 const Holding = require('../models/holding');
 const Transaction = require('../models/transaction');
-const fundService = require('../services/fundService');
-const globalCache = require('../services/globalCache');
+const holdingService = require('../services/holdingService');
 const ocrService = require('../services/ocrService');
 const { createLogger } = require('../utils/logger');
-const { getLocalToday, normalizeDateStr } = require('../utils/date');
+const { getLocalToday } = require('../utils/date');
 const { toPositiveNumber, toOptionalNumber } = require('../utils/validate');
 
 const logger = createLogger('ImageImportController');
@@ -244,140 +243,111 @@ exports.confirmImport = async (req, res, next) => {
 
     const results = { success: 0, failed: 0, errors: [] };
 
+    // 逐项预校验入参（单项失败不影响其他项）
+    const validItems = [];
     for (const item of items) {
-      try {
-        const { fundCode, amount, totalReturn, groupId } = item;
+      const { fundCode, amount, totalReturn } = item;
 
-        // 基本验证
-        if (!fundCode || !amount) {
-          results.failed++;
-          results.errors.push({ fundCode: fundCode || '未知', error: '基金代码和持仓金额为必填项' });
-          continue;
-        }
-
-        // 入参校验：金额必须为正数；累计收益可选但须为有限数（允许负数）
-        const amountNum = toPositiveNumber(amount);
-        const totalReturnNum = toOptionalNumber(totalReturn);
-        if (Number.isNaN(amountNum) || Number.isNaN(totalReturnNum)) {
-          results.failed++;
-          results.errors.push({ fundCode, error: '持仓金额必须为正数，累计收益必须为数字' });
-          continue;
-        }
-
-        // 验证基金代码存在
-        const fund = await Fund.findByCode(fundCode);
-        if (!fund) {
-          results.failed++;
-          results.errors.push({ fundCode, error: '基金代码不存在' });
-          continue;
-        }
-
-        // 检查是否已在持仓中
-        const existing = await Holding.findByUserAndFund(req.user.id, fundCode);
-        if (existing) {
-          results.failed++;
-          results.errors.push({ fundCode, error: '该基金已在持仓中' });
-          continue;
-        }
-
-        // 获取净值（参考 holdingController.js 的 create 方法）
-        let netValue = 0;
-        let netValueSource = 'unknown';
-        let confirmedNavDate = null;
-
-        try {
-          const today = getLocalToday();
-          const thirtyDaysAgo = normalizeDateStr(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
-          const historyCacheKey = `history_${fundCode}_30d_${today}`;
-
-          try {
-            const recentHistory = await globalCache.getOrFetch(
-              historyCacheKey,
-              () => fundService.getHistoryNetValues(fundCode, thirtyDaysAgo, today),
-              { type: 'history_older' } // 远期历史净值缓存，72h TTL
-            );
-
-            if (recentHistory && recentHistory.length > 0) {
-              const latestConfirmed = recentHistory[0];
-              if (latestConfirmed.nav) {
-                netValue = parseFloat(latestConfirmed.nav) || 0;
-              } else if (latestConfirmed.netValue) {
-                netValue = parseFloat(latestConfirmed.netValue) || 0;
-              }
-
-              if (netValue > 0) {
-                netValueSource = `confirmed(${latestConfirmed.date})`;
-                confirmedNavDate = latestConfirmed.date;
-              }
-            }
-          } catch (e) {
-            logger.warn(`获取历史净值失败: ${e.message}`);
-          }
-
-          if (netValue <= 0) {
-            const realtimeCacheKey = `realtime_${fundCode}_auto`; // 基金实时估值缓存，auto=自动选择数据源
-            try {
-              const realTime = await globalCache.getOrFetch(
-                realtimeCacheKey,
-                () => fundService.getRealTimeValue(fundCode),
-                { type: 'realtime' }
-              );
-              if (realTime && realTime.netValue > 0) {
-                netValue = realTime.netValue;
-                netValueSource = 'realtime';
-              }
-            } catch (e) {
-              logger.warn(`获取实时估值失败: ${e.message}`);
-            }
-          }
-        } catch (error) {
-          logger.error(`获取净值失败: ${error.message}`);
-        }
-
-        if (netValue <= 0) {
-          results.failed++;
-          results.errors.push({ fundCode, error: '无法获取有效的基金净值，请稍后重试' });
-          continue;
-        }
-
-        // 计算份额和成本（与 holdingController.js 逻辑一致）
-        const currentValue = amountNum;
-        const shares = currentValue / netValue;
-        const totalCost = amountNum - totalReturnNum;
-        const costPrice = shares > 0 ? totalCost / shares : 0;
-
-        logger.info(`创建持仓: fund=${fundCode}, shares=${shares.toFixed(2)}, costPrice=${costPrice.toFixed(4)}, netValue=${netValue}`);
-
-        // 创建持仓记录
-        const id = await Holding.create({
-          userId: req.user.id,
-          fundCode,
-          shares,
-          costPrice,
-          groupId: groupId || null,
-          confirmedNav: netValue,
-          confirmedNavDate,
-          totalCost
-        });
-
-        // 创建交易记录
-        await Transaction.create({
-          userId: req.user.id,
-          fundCode,
-          type: 'buy',
-          shares,
-          price: netValue,
-          amount: amountNum,
-          fee: 0,
-          transactionDate: confirmedNavDate || getLocalToday()
-        });
-
-        logger.info(`持仓创建成功: id=${id}, fund=${fundCode}`);
-        results.success++;
-      } catch (err) {
-        logger.error(`导入单条持仓失败: ${err.message}`);
+      // 基本验证
+      if (!fundCode || !amount) {
         results.failed++;
-        results.errors.push({ fundCode: item.fundCode || '未知', error: err.message });
+        results.errors.push({ fundCode: fundCode || '未知', error: '基金代码和持仓金额为必填项' });
+        continue;
+      }
+
+      // 入参校验：金额必须为正数；累计收益可选但须为有限数（允许负数）
+      const amountNum = toPositiveNumber(amount);
+      const totalReturnNum = toOptionalNumber(totalReturn);
+      if (Number.isNaN(amountNum) || Number.isNaN(totalReturnNum)) {
+        results.failed++;
+        results.errors.push({ fundCode, error: '持仓金额必须为正数，累计收益必须为数字' });
+        continue;
+      }
+
+      validItems.push({ fundCode, amountNum, totalReturnNum, groupId: item.groupId });
+    }
+
+    if (validItems.length > 0) {
+      // Fund/Holding 批量查询（消除逐项 N+1）
+      const codes = [...new Set(validItems.map(it => it.fundCode))];
+      const [funds, existingHoldings] = await Promise.all([
+        Fund.findByCodes(codes),
+        Holding.findByUserAndCodes(req.user.id, codes)
+      ]);
+      const fundMap = new Map(funds.map(f => [f.code, f]));
+      const existingSet = new Set(existingHoldings.map(h => h.fund_code));
+
+      // 净值解析共享函数（与 holdingController.create 一致）；按 10/批并行获取
+      const navMap = new Map();
+      for (let i = 0; i < validItems.length; i += 10) {
+        const batch = validItems.slice(i, i + 10);
+        const navs = await Promise.all(batch.map(it => holdingService.resolveLatestNetValue(it.fundCode)));
+        batch.forEach((it, idx) => navMap.set(it.fundCode, navs[idx]));
+      }
+
+      for (const item of validItems) {
+        const { fundCode, amountNum, totalReturnNum, groupId } = item;
+        try {
+          // 验证基金代码存在
+          if (!fundMap.has(fundCode)) {
+            results.failed++;
+            results.errors.push({ fundCode, error: '基金代码不存在' });
+            continue;
+          }
+
+          // 检查是否已在持仓中
+          if (existingSet.has(fundCode)) {
+            results.failed++;
+            results.errors.push({ fundCode, error: '该基金已在持仓中' });
+            continue;
+          }
+
+          const { netValue, confirmedNavDate } = navMap.get(fundCode) || {};
+          if (!netValue || netValue <= 0) {
+            results.failed++;
+            results.errors.push({ fundCode, error: '无法获取有效的基金净值，请稍后重试' });
+            continue;
+          }
+
+          // 计算份额和成本（与 holdingController.js 逻辑一致）
+          const currentValue = amountNum;
+          const shares = currentValue / netValue;
+          const totalCost = amountNum - totalReturnNum;
+          const costPrice = shares > 0 ? totalCost / shares : 0;
+
+          logger.info(`创建持仓: fund=${fundCode}, shares=${shares.toFixed(2)}, costPrice=${costPrice.toFixed(4)}, netValue=${netValue}`);
+
+          // 创建持仓记录
+          const id = await Holding.create({
+            userId: req.user.id,
+            fundCode,
+            shares,
+            costPrice,
+            groupId: groupId || null,
+            confirmedNav: netValue,
+            confirmedNavDate,
+            totalCost
+          });
+
+          // 创建交易记录
+          await Transaction.create({
+            userId: req.user.id,
+            fundCode,
+            type: 'buy',
+            shares,
+            price: netValue,
+            amount: amountNum,
+            fee: 0,
+            transactionDate: confirmedNavDate || getLocalToday()
+          });
+
+          logger.info(`持仓创建成功: id=${id}, fund=${fundCode}`);
+          results.success++;
+        } catch (err) {
+          logger.error(`导入单条持仓失败: ${err.message}`);
+          results.failed++;
+          results.errors.push({ fundCode: item.fundCode || '未知', error: err.message });
+        }
       }
     }
 

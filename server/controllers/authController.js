@@ -11,6 +11,9 @@ exports.register = async (req, res, next) => {
     if (!username || username.trim() === '') {
       return res.status(400).json({ message: '用户名不能为空' });
     }
+    if (username.trim().length > 50) {
+      return res.status(400).json({ message: '用户名不能超过50个字符' });
+    }
     if (!password || password.length < 6) {
       return res.status(400).json({ message: '密码至少6位' });
     }
@@ -33,6 +36,10 @@ exports.register = async (req, res, next) => {
     touchActive(userId, req.ip); // 注册即活跃，记入 DAU 统计（含客户端 IP）
     res.json({ token, user: { id: newUser.id, username: newUser.username, role, created_at: newUser.created_at } });
   } catch (err) {
+    // 并发注册同名用户触发唯一约束，返回 400 而非 500
+    if (err && err.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ message: '用户名已存在' });
+    }
     next(err);
   }
 };

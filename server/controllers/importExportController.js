@@ -7,6 +7,7 @@ const Holding = require('../models/holding');
 const Transaction = require('../models/transaction');
 const fundService = require('../services/fundService');
 const { getLocalToday } = require('../utils/date');
+const { toPositiveNumber, toOptionalNumber } = require('../utils/validate');
 
 // 仅允许 Excel 格式文件（同时校验 mimetype 与扩展名）
 const upload = multer({
@@ -23,6 +24,9 @@ const upload = multer({
   }
 });
 
+// 单次导入行数上限（防止超大文件拖垮 DB 与外部净值接口）
+const MAX_IMPORT_ROWS = 500;
+
 exports.importData = [upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) {
@@ -33,63 +37,98 @@ exports.importData = [upload.single('file'), async (req, res, next) => {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet);
 
+    if (rows.length > MAX_IMPORT_ROWS) {
+      return res.status(400).json({ message: `导入行数超过上限（最多 ${MAX_IMPORT_ROWS} 行）` });
+    }
+
     const results = { success: 0, failed: 0, errors: [] };
 
+    // 逐行解析校验（amount 必须为正数、total_return 须为有限数），非法值记为该行失败，不影响其他行
+    const validRows = [];
     for (const row of rows) {
-      try {
-        const fundCode = String(row.fund_code || row.code);
-        const fund = await Fund.findByCode(fundCode);
-        if (!fund) {
-          results.failed++;
-          results.errors.push(`基金代码 ${fundCode} 不存在`);
-          continue;
-        }
-
-        const amount = parseFloat(row.amount || row.total_cost);
-        const totalReturn = parseFloat(row.total_return || 0);
-
-        // 当前市值 = 持仓金额 + 累计收益
-        const currentValue = amount + totalReturn;
-
-        // 获取最新净值用于计算份额
-        const realTime = await fundService.getRealTimeValue(fundCode);
-        const netValue = realTime ? realTime.netValue : 0;
-
-        // 持有份额 = 当前市值 / 最新净值
-        const shares = netValue ? currentValue / netValue : 0;
-
-        // 成本单价 = 持仓金额 / 持有份额
-        const costPrice = shares ? amount / shares : 0;
-
-        const existing = await Holding.findByUserAndFund(req.user.id, fundCode);
-        if (existing) {
-          results.failed++;
-          results.errors.push(`基金 ${fundCode} 已在持仓中`);
-          continue;
-        }
-
-        await Holding.create({
-          userId: req.user.id,
-          fundCode,
-          shares,
-          costPrice
-        });
-
-        await Transaction.create({
-          userId: req.user.id,
-          fundCode,
-          type: 'buy',
-          shares,
-          price: netValue,
-          amount,
-          fee: 0,
-          transactionDate: (realTime?.updateTime?.split(' ')[0]) || getLocalToday()
-        });
-
-        results.success++;
-      } catch (e) {
+      const fundCode = String(row.fund_code || row.code || '').trim();
+      if (!fundCode) {
         results.failed++;
-        results.errors.push(e.message);
+        results.errors.push('缺少基金代码');
+        continue;
+      }
+      const amount = toPositiveNumber(row.amount || row.total_cost);
+      const totalReturn = toOptionalNumber(row.total_return);
+      if (Number.isNaN(amount) || Number.isNaN(totalReturn)) {
+        results.failed++;
+        results.errors.push(`基金 ${fundCode} 的金额必须为正数且累计收益必须为数字`);
+        continue;
+      }
+      validRows.push({ fundCode, amount, totalReturn });
+    }
+
+    if (validRows.length > 0) {
+      // 批量查询基金与已有持仓（消除逐行 N+1）
+      const codes = [...new Set(validRows.map(r => r.fundCode))];
+      const [funds, existingHoldings] = await Promise.all([
+        Fund.findByCodes(codes),
+        Holding.findByUserAndCodes(req.user.id, codes)
+      ]);
+      const fundMap = new Map(funds.map(f => [f.code, f]));
+      const existingSet = new Set(existingHoldings.map(h => h.fund_code));
+
+      // 净值获取按 10/批并行（getRealTimeValue 为外部请求；单行失败不影响其他行）
+      const navMap = new Map();
+      for (let i = 0; i < validRows.length; i += 10) {
+        const batch = validRows.slice(i, i + 10);
+        const navs = await Promise.all(batch.map(r => fundService.getRealTimeValue(r.fundCode).catch(() => null)));
+        batch.forEach((r, idx) => navMap.set(r.fundCode, navs[idx]));
+      }
+
+      for (const row of validRows) {
+        try {
+          const { fundCode, amount, totalReturn } = row;
+          if (!fundMap.has(fundCode)) {
+            results.failed++;
+            results.errors.push(`基金代码 ${fundCode} 不存在`);
+            continue;
+          }
+          if (existingSet.has(fundCode)) {
+            results.failed++;
+            results.errors.push(`基金 ${fundCode} 已在持仓中`);
+            continue;
+          }
+
+          const realTime = navMap.get(fundCode);
+          const netValue = realTime ? realTime.netValue : 0;
+
+          // 当前市值 = 持仓金额 + 累计收益
+          const currentValue = amount + totalReturn;
+
+          // 持有份额 = 当前市值 / 最新净值
+          const shares = netValue ? currentValue / netValue : 0;
+
+          // 成本单价 = 持仓金额 / 持有份额
+          const costPrice = shares ? amount / shares : 0;
+
+          await Holding.create({
+            userId: req.user.id,
+            fundCode,
+            shares,
+            costPrice
+          });
+
+          await Transaction.create({
+            userId: req.user.id,
+            fundCode,
+            type: 'buy',
+            shares,
+            price: netValue,
+            amount,
+            fee: 0,
+            transactionDate: (realTime?.updateTime?.split(' ')[0]) || getLocalToday()
+          });
+
+          results.success++;
+        } catch (e) {
+          results.failed++;
+          results.errors.push(e.message);
+        }
       }
     }
 

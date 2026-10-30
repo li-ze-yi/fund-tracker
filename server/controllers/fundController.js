@@ -89,7 +89,7 @@ exports.getByCode = async (req, res, next) => {
           estimationCoverage: null,
         };
       }
-      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值（不查询缓存）(${code})`);
+      logger.debug(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值（不查询缓存）(${code})`);
     } else {
       // ★ 开市：真实请求按 checkCache 统计（命中 hit / 未命中 miss），未命中才外部拉取，拉取后写回缓存下次命中
       const cacheKey = `realtime_${code}_${valuationMethod}`;
@@ -171,7 +171,7 @@ exports.getByCode = async (req, res, next) => {
             if (history.length > 1) {
               yesterdayNav = parseFloat(history[1].nav) || 0;
             }
-            logger.info(`基金 ${code} 已有确认净值: ${confirmedNav} (净值日 ${latestRecord.date}), 昨日净值: ${yesterdayNav}`);
+            logger.debug(`基金 ${code} 已有确认净值: ${confirmedNav} (净值日 ${latestRecord.date}), 昨日净值: ${yesterdayNav}`);
           }
         }
       } catch (error) {
@@ -292,10 +292,10 @@ exports.getByCode = async (req, res, next) => {
         result.holding_id = holding.id;
 
         // 可用份额 = 持仓份额 - 该基金 pending 卖出订单份额合计（挂起卖单未结算不能重复卖）
+        // ★ 按 user+fund 精确查询（命中 idx_user_fund 索引），替代全量 pending 拉取后 JS filter
         try {
-          const pendingSells = await Transaction.findPendingByUserId(req.user.id);
-          const pendingSellShares = pendingSells
-            .filter(tx => tx.type === 'sell' && tx.fund_code === code)
+          const pendingSellRows = await Transaction.findPendingByUserAndFund(req.user.id, code, 'sell');
+          const pendingSellShares = pendingSellRows
             .reduce((sum, tx) => sum + (parseFloat(tx.shares) || 0), 0);
           result.available_shares = Math.max(0, (parseFloat(holding.shares) || 0) - pendingSellShares);
         } catch {
@@ -364,7 +364,7 @@ exports.batchGetInfo = async (req, res, next) => {
     // 开市：真实数据请求按 checkCache 统计（命中 hit / 未命中 miss）；未命中才外部拉取，拉取后写回缓存下次命中
     let realtimeMap = {};
     if (isFullDayClosed || isPreMarket) {
-      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值（不查询缓存）(${fundCodes.length} 只)`);
+      logger.debug(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过实时估值（不查询缓存）(${fundCodes.length} 只)`);
     } else {
       // 开市：逐只查缓存，未命中按 effectiveMethod 分组批量拉取，拉取后写回
       // QDII 类型标记与基金名称（供持仓穿透板块化/成分加权分支；纯 A 股基金不受影响）
@@ -389,14 +389,14 @@ exports.batchGetInfo = async (req, res, next) => {
         if (data === null || data === undefined) fetchCount++;
         realtimeMap[code] = data;
       }));
-      logger.info(`实时估值: 处理 ${fundCodes.length} 只, 失败 ${fetchCount} 只`);
+      logger.debug(`实时估值: 处理 ${fundCodes.length} 只, 失败 ${fetchCount} 只`);
     }
 
     // 历史净值：全天休市或待开市时不预查 3d 历史（确认净值优先走 confirmed_nav/DB，仅组装阶段按需兜底）
     // 开市：真实请求按 checkCache 统计，未命中才批量拉取，拉取后写回缓存下次命中
     let historyMap = {};
     if (isFullDayClosed || isPreMarket) {
-      logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过历史净值预取（按需兜底）(${fundCodes.length} 只)`);
+      logger.debug(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过历史净值预取（按需兜底）(${fundCodes.length} 只)`);
     } else {
       // 开市/待开市：逐只改用 getOrFetch（单飞 + 全局并发护栏），命中直接复用缓存
       let failCount = 0;
@@ -413,7 +413,7 @@ exports.batchGetInfo = async (req, res, next) => {
         if (data === null || data === undefined) failCount++;
         historyMap[code] = data;
       }));
-      logger.info(`历史净值: 处理 ${fundCodes.length} 只, 失败 ${failCount} 只`);
+      logger.debug(`历史净值: 处理 ${fundCodes.length} 只, 失败 ${failCount} 只`);
     }
 
     // 市场状态（用前3只基金检测）
@@ -623,30 +623,26 @@ exports.getNavHistory = async (req, res, next) => {
     const cacheKey = `history_${code}_${startDate || ''}_${endDate || ''}`; // 走势图历史净值缓存键
     const today = getLocalToday();
     const yesterday = normalizeDateStr(new Date(Date.now() - 24 * 60 * 60 * 1000));
+
+    // latestDate 新鲜度判断：缓存数据已是最新（今天净值已确认 / 今天未确认且缓存到昨天）直接返回；
+    // 缓存落后（最新 < 昨天）或今天净值已确认但缓存停在昨天 → 需重新拉取完整日期范围
+    let forceRefresh = false;
     // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
     const cacheResult = await globalCache.checkCache(cacheKey, 'history_chart');
-
-    // 检查缓存是否命中且未过期（history_chart 类型，固定 24h TTL）
-    if (cacheResult.hit) {
-      // 缓存命中，取最新记录日期（借鉴 getByCode L82-106）
-      const latestDate = cacheResult.data && cacheResult.data.length > 0 ? cacheResult.data[0].date : null;
-
+    if (cacheResult.hit && Array.isArray(cacheResult.data) && cacheResult.data.length > 0) {
+      const latestDate = cacheResult.data[0].date;
       if (latestDate === today) {
         // 情况1：缓存最新 = 今天 → 今天净值已确认，数据完整，直接返回缓存
-        logger.info(`走势图缓存命中: ${code} (latestDate=${latestDate}=今天)`);
+        logger.debug(`走势图缓存命中: ${code} (latestDate=${latestDate}=今天)`);
         return res.json({ records: cacheResult.data });
       }
-
       if (latestDate === yesterday) {
-        // 情况2：缓存最新 = 昨天 → 检查今天是否已确认
+        // 情况2：缓存最新 = 昨天 → 检查今天净值是否已确认
         try {
           const todayCheck = await fundService.getHistoryNetValues(code, today, today); // 轻量查询（仅查1天，极小开销）
-          if (todayCheck && todayCheck.length > 0) {
-            // 今天净值已确认，缓存过期，重新请求完整日期范围
-            logger.info(`走势图缓存过期: ${code} (latestDate=${latestDate}=昨天, 今天净值已确认)`);
-          } else {
+          if (!(todayCheck && todayCheck.length > 0)) {
             // 今天净值未确认，返回缓存（昨天数据仍是当前最新）
-            logger.info(`走势图缓存命中: ${code} (latestDate=${latestDate}=昨天, 今天净值未确认)`);
+            logger.debug(`走势图缓存命中: ${code} (latestDate=${latestDate}=昨天, 今天净值未确认)`);
             return res.json({ records: cacheResult.data });
           }
         } catch (e) {
@@ -654,18 +650,26 @@ exports.getNavHistory = async (req, res, next) => {
           logger.warn(`走势图确认检查失败: ${code}, ${e.message}, 降级使用缓存`);
           return res.json({ records: cacheResult.data });
         }
-      } else if (latestDate && latestDate < yesterday) {
-        // 情况3：缓存最新 < 昨天 → 缓存落后（至少缺了昨天的确认净值），直接重新请求
-        logger.info(`走势图缓存落后: ${code} (latestDate=${latestDate} < 昨天=${yesterday}), 重新请求`);
+        logger.debug(`走势图缓存过期: ${code} (latestDate=${latestDate}=昨天, 今天净值已确认)`);
+        forceRefresh = true;
+      } else {
+        // 情况3：缓存最新 < 昨天（落后）或异常 → 重新请求
+        logger.debug(`走势图缓存落后: ${code} (latestDate=${latestDate} < 昨天=${yesterday}), 重新请求`);
+        forceRefresh = true;
       }
     }
 
-    // 缓存未命中/已过期/落后 → 重新请求完整日期范围（eastmoney/lsjz）
-    const records = await fundService.getHistoryNetValues(code, startDate || '', endDate || '');
-    if (records && records.length > 0) {
-      globalCache.set(cacheKey, records, 'history_chart'); // 走势图专用缓存，固定 24h TTL
-    }
-    res.json({ records });
+    // ★ 缓存未命中/落后 → getOrFetch 单飞：并发请求同一 key 只触发一次外部拉取，
+    // 受全局并发护栏限制；空数组返回 null 以便不写缓存（与原逻辑一致）
+    const records = await globalCache.getOrFetch(
+      cacheKey,
+      async () => {
+        const rows = await fundService.getHistoryNetValues(code, startDate || '', endDate || '');
+        return rows && rows.length > 0 ? rows : null;
+      },
+      { type: 'history_chart', forceRefresh } // 走势图专用缓存，固定 24h TTL
+    );
+    res.json({ records: records || [] });
   } catch (err) {
     next(err);
   }

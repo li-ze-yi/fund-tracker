@@ -16,6 +16,9 @@ const UserSetting = {
   },
 
   async upsert(userId, refreshFrequency, valuationMethod, valuationOverrides) {
+    // 防御：refreshFrequency 仅接受 5-300 整数，非法值回退 30（控制器已做 400 校验，这里兜底其他调用方）
+    const freqNum = Number(refreshFrequency);
+    const safeFrequency = Number.isInteger(freqNum) && freqNum >= 5 && freqNum <= 300 ? freqNum : 30;
     let overridesJson;
     let effectiveMethod = valuationMethod;
     if (valuationOverrides === undefined || valuationMethod === undefined) {
@@ -36,7 +39,7 @@ const UserSetting = {
     await pool.query(
       `INSERT INTO user_settings (user_id, refresh_frequency, valuation_method, valuation_overrides) VALUES (?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE refresh_frequency = VALUES(refresh_frequency), valuation_method = VALUES(valuation_method), valuation_overrides = VALUES(valuation_overrides)`,
-      [userId, refreshFrequency || 30, effectiveMethod || 'holdings', overridesJson]
+      [userId, safeFrequency, effectiveMethod || 'holdings', overridesJson]
     );
   },
 

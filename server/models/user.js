@@ -52,7 +52,8 @@ const User = {
   },
 
   async deleteById(id) {
-    await pool.query('DELETE FROM users WHERE id = ?', [id]);
+    const [result] = await pool.query('DELETE FROM users WHERE id = ?', [id]);
+    return result.affectedRows > 0;
   },
 
   async count() {

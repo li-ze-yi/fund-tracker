@@ -25,6 +25,15 @@ const metrics = {
 // 需要排除计数的请求路径：系统监控页自身的轮询拉取
 const EXCLUDED_PATHS = new Set(['/api/admin/system/metrics']);
 
+// 待 flush 的增量计数：每请求只累加内存，每 10s 批量 INCRBY/HINCRBY 到 Redis
+// （替代逐请求 3-4 条 Redis 写，削减高频路径开销；flush 失败保留增量下轮重试）
+const pending = {
+  total: 0,
+  error: 0,
+  respTime: 0,
+  status: {}, // { code: n }
+};
+
 /**
  * Express 中间件：记录每个请求的耗时与状态（跳过监控页自身轮询请求）。
  */
@@ -48,19 +57,61 @@ function metricsMiddleware(req, res, next) {
       metrics.errorRequests += 1;
     }
 
-    // Redis 跨实例聚合（best-effort，不阻塞响应、不抛错）
-    if (coordinator.isEnabled()) {
-      const c = coordinator.getClient();
-      c.incr(API_KEY('total')).catch(() => {});
-      if (code >= 400) c.incr(API_KEY('error')).catch(() => {});
-      c.incrby(API_KEY('respTime'), Math.round(durationMs)).catch(() => {});
-      c.hincrby(API_STATUS_KEY, String(code), 1).catch(() => {});
-      // 全局启动时间：首个实例写入后保持不变，供跨实例展示统一"运行时长"
-      c.set(API_START_KEY, String(metrics.startTime), 'NX').catch(() => {});
+    // Redis 跨实例聚合：仅累加本地增量，由 10s 定时器批量 flush（见 flushMetricsToRedis）
+    pending.total += 1;
+    pending.respTime += Math.round(durationMs);
+    pending.status[code] = (pending.status[code] || 0) + 1;
+    if (code >= 400) {
+      pending.error += 1;
     }
   });
   next();
 }
+
+/**
+ * 把本实例增量计数批量合并到 Redis（pipeline 一次往返）。
+ * key 结构与原逐请求写入完全一致（api_metrics:total/error/respTime + api_metrics:status Hash），
+ * admin 查询侧无感知；best-effort 不抛错，失败时增量保留到下一轮重试（Redis 恢复后自动补同步）。
+ */
+async function flushMetricsToRedis() {
+  if (!coordinator.isEnabled()) return;
+  const hasStatus = Object.keys(pending.status).length > 0;
+  if (pending.total === 0 && pending.error === 0 && pending.respTime === 0 && !hasStatus) return;
+
+  const c = coordinator.getClient();
+  const pipe = c.pipeline();
+  if (pending.total > 0) pipe.incrby(API_KEY('total'), pending.total);
+  if (pending.error > 0) pipe.incrby(API_KEY('error'), pending.error);
+  if (pending.respTime > 0) pipe.incrby(API_KEY('respTime'), pending.respTime);
+  for (const [code, n] of Object.entries(pending.status)) {
+    if (n > 0) pipe.hincrby(API_STATUS_KEY, code, n);
+  }
+  try {
+    await pipe.exec();
+    pending.total = 0;
+    pending.error = 0;
+    pending.respTime = 0;
+    pending.status = {};
+  } catch { /* 保留增量，下一轮 flush 重试 */ }
+}
+
+// 每 10s 批量 flush（unref 不阻止进程退出）；进程退出前尽力 flush 一次
+setInterval(() => { flushMetricsToRedis().catch(() => {}); }, 10 * 1000).unref?.();
+process.once('SIGINT', () => { flushMetricsToRedis().catch(() => {}); });
+process.once('SIGTERM', () => { flushMetricsToRedis().catch(() => {}); });
+
+// 全局启动时间：进程启动时写一次（NX 保证多副本下首个实例的值生效，供跨实例展示统一"运行时长"）
+// 模块加载时 Redis 可能尚未就绪 → 挂 ready 事件补写一次
+(function initStartTimeKey() {
+  const client = coordinator.getClient();
+  if (!client) return; // 未配置 REDIS_URL：仅本实例内存统计
+  const write = () => client.set(API_START_KEY, String(metrics.startTime), 'NX').catch(() => {});
+  if (client.status === 'ready') {
+    write();
+  } else {
+    client.once('ready', write);
+  }
+})();
 
 /**
  * 读取当前激活统计值。Redis 可用时返回跨实例聚合值；否则返回本实例内存值。

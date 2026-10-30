@@ -139,6 +139,20 @@ class GlobalCache {
     this.saveInterval = null;   // 周期落盘定时器
     this.saving = false;        // 防并发写标志
 
+    // 缓存统计跨实例合并定时器：每 15s 把本地计数增量（stats - synced）INCRBY 批量合并到 Redis，
+    // 替代逐事件 INCR（高频路径每次 hit/miss 3 条 Redis 写的开销）。无 Redis 时 _mergeLocalStatsToRedis
+    // 直接返回，定时器空转，内存模式行为完全不变。
+    this._statsSyncInterval = setInterval(() => {
+      this._mergeLocalStatsToRedis().catch(() => {});
+    }, 15 * 1000);
+    this._statsSyncInterval.unref?.(); // 不阻止进程退出
+
+    // 进程退出前 flush 一次统计增量（best-effort：异步合并，尽力送达）
+    const flushStatsOnExit = () => { this._mergeLocalStatsToRedis().catch(() => {}); };
+    process.once('SIGINT', flushStatsOnExit);
+    process.once('SIGTERM', flushStatsOnExit);
+    process.once('beforeExit', flushStatsOnExit);
+
     logger.info('初始化完成');
   }
 
@@ -222,28 +236,25 @@ class GlobalCache {
 
   /**
    * 自增一项统计：总是更新本实例计数（供性能/命中率即时判断与无 Redis 兜底）；
-   * Redis 可用时额外用 INCR 累计到全局计数器，供跨实例聚合统计。
-   * 异步写 Redis，best-effort 不抛错。
+   * Redis 侧由 15s 定时器批量 INCRBY 合并到全局计数器（见 _mergeLocalStatsToRedis）。
    * @param {'hits'|'misses'|'evictions'|'totalRequests'|'forcedRefreshes'} field
    */
   _bumpStats(field) {
+    // 仅累加本实例内存计数；Redis 侧由 15s 定时器经 _mergeLocalStatsToRedis 用 INCRBY
+    // 批量合并（替代逐事件 INCR，削减高频路径的 Redis 写入；合并失败下轮重推不丢数）
     this.stats[field] = (this.stats[field] || 0) + 1;
-    if (this._redisAvailable()) {
-      coordinator.getClient().incr(STATS_KEY(field)).catch(() => {});
-      // 正常运行期把已同步计数与本地计数对齐，使 ready 时仅推送"断连期间"增量
-      this._syncedStats[field] = (this._syncedStats[field] || 0) + 1;
-    }
   }
 
   /**
-   * 把断连期间本地累积的计数增量合并回 Redis（INCRBY）。
+   * 把本地累积的计数增量批量合并回 Redis（INCRBY）。
    *
-   * 仅在 Redis 由不可用翻转为可用（ready）时调用。由于正常运行期每次事件都同时
-   * INCR 了 Redis 并把 _syncedStats 与本地对齐，这里只推送 stats - synced 的差额，
-   * 即"Redis 不可用期间新累计"的部分，避免把正常运行期的计数重复累加。
+   * 调用时机：① 15s 统计同步定时器（正常运行期的批量合并，替代逐事件 INCR）；
+   * ② Redis 由不可用翻转为可用（ready）时（补同步断连期间增量）。
+   * 两次调用间本地新累计的差额（stats - synced）被一次性推送，成功后 _syncedStats
+   * 对齐本地，不会重复累加。
    *
    * 失败处理：best-effort。若 INCRBY 失败，回滚 _syncedStats 到推送前的值，
-   * 使下一次 ready（再次翻转）时重新推送这部分增量，不丢失。
+   * 使下一轮定时器或下次 ready（再次翻转）时重新推送这部分增量，不丢失。
    * @returns {Promise<void>}
    */
   async _mergeLocalStatsToRedis() {
@@ -331,12 +342,14 @@ class GlobalCache {
    */
   async _pollForEntry(key, type, timeoutMs = 2000) {
     const start = Date.now();
+    let interval = 50; // 50ms 起步，指数退避至 200ms 封顶（减少持锁实例写入前的无效 Redis 读）
     while (Date.now() - start < timeoutMs) {
       const entry = await this._redisGetEntry(key);
       if (entry && Date.now() - entry.timestamp < this.getTTL(entry.type || type)) {
         return entry.data;
       }
-      await this._sleep(50);
+      await this._sleep(interval);
+      interval = Math.min(interval * 2, 200);
     }
     return null;
   }
@@ -433,6 +446,7 @@ class GlobalCache {
         // 第二层：跨实例 singleflight（仅在真实未命中后兜底生效）
         // 未配置 Redis 时 coordinator 直接放行 → 行为与旧版单进程一致
         const lockTtl = Math.min(this.getTTL(type), 30000) || 30000;
+        const acquireStart = Date.now();
         const tok = await coordinator.acquire(`sf:${key}`, lockTtl);
 
         let data;
@@ -446,7 +460,10 @@ class GlobalCache {
           await coordinator.release(`sf:${key}`, tok);
         } else {
           // ⏳ 其他实例正在拉取 → 有界轮询等待其写入结果
-          data = await this._pollForEntry(key, type, 2000);
+          // 轮询窗口 = min(锁 TTL 剩余, 15s)：持锁实例必然在锁 TTL 内完成拉取并回写，
+          // 超窗后仍未出现条目则走原有降级路径（自行 guardFetch 兜底拉取）
+          const remainingLockMs = Math.max(0, lockTtl - (Date.now() - acquireStart));
+          data = await this._pollForEntry(key, type, Math.min(remainingLockMs, 15000));
           if (data === null || data === undefined) {
             // 超时兜底：有界的重复请求，保证请求成功
             data = await this.guardFetch(() => fetchFn());
@@ -482,7 +499,8 @@ class GlobalCache {
       this.recentMisses.shift();
     }
     // 跨实例：同步到 Redis 定长列表，供管理后台查看全副本最近未命中明细
-    if (this._redisAvailable()) {
+    // （高频 miss 下逐条 LPUSH+LTRIM 开销大 → 10% 采样；本实例 recentMisses 明细仍全量保留）
+    if (this._redisAvailable() && Math.random() < 0.1) {
       const c = coordinator.getClient();
       const e = JSON.stringify({ key, type, at: new Date().toISOString() });
       c.lpush(MISSES_KEY, e).catch(() => {});
@@ -536,7 +554,8 @@ class GlobalCache {
     // 非 Redis 模式：内存行为（与旧版完全一致）
     const cached = this.cache.get(key);
     if (cached) {
-      const ttl = this.getTTL(type);
+      // 用存储条目的 type 计算 TTL（与 getOrFetch / Redis 路径口径一致，避免调用方传错 type 时误判过期）
+      const ttl = this.getTTL(cached.type);
       const age = Date.now() - cached.timestamp;
       if (age < ttl) {
         // ✅ 命中且未过期
@@ -1170,41 +1189,6 @@ class GlobalCache {
       this.cleanupInterval = null;
       logger.info('定时清理已停止');
     }
-  }
-
-  /**
-   * 预热缓存（批量预加载热门数据）
-   */
-  async prewarm(keysAndFetchers) {
-    logger.info(`开始预热: ${keysAndFetchers.length}个条目`);
-    
-    let successCount = 0;
-    let failCount = 0;
-
-    const results = await Promise.allSettled(
-      keysAndFetchers.map(async ({ key, fetchFn }) => {
-        try {
-          const data = await fetchFn();
-          if (data !== null && data !== undefined) {
-            this.set(key, data);
-            successCount++;
-            return { key, status: 'success' };
-          }
-          failCount++;
-          return { key, status: 'empty' };
-        } catch (error) {
-          failCount++;
-          return { key, status: 'error', error: error.message };
-        }
-      })
-    );
-
-    logger.info(
-      `预热完成: 成功${successCount}个, 失败${failCount}个, ` +
-      `当前缓存数: ${this.cache.size}`
-    );
-
-    return { successCount, failCount, results };
   }
 
   /**

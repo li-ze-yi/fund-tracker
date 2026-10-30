@@ -68,27 +68,30 @@ exports.buy = async (req, res, next) => {
 
     if (confirmedNav > 0) {
       // 有确认净值 → 立即结算（加仓，买入费率为 0）
+      // ★ 事务化：持仓更新与交易记录同事务提交，避免中途崩溃产生"持仓已加但交易缺失"的不一致
       const { actualShares, costPrice } = settlementService.computeBuySettlement(amountNum, 0, confirmedNav);
-      await settlementService.applyBuyHolding({
-        userId: req.user.id,
-        fundCode,
-        shares: actualShares,
-        costPrice,
-        totalCost: amountNum,
-        confirmedNav,
-        navDate
-      });
+      await settlementService.withTransaction(async (conn) => {
+        await settlementService.applyBuyHolding({
+          userId: req.user.id,
+          fundCode,
+          shares: actualShares,
+          costPrice,
+          totalCost: amountNum,
+          confirmedNav,
+          navDate
+        }, conn);
 
-      await Transaction.create({
-        userId: req.user.id,
-        fundCode,
-        type: 'buy',
-        shares: actualShares,
-        price: confirmedNav,
-        amount: amountNum,
-        fee: 0,
-        transactionDate: navDate,
-        status: 'confirmed'
+        await Transaction.create({
+          userId: req.user.id,
+          fundCode,
+          type: 'buy',
+          shares: actualShares,
+          price: confirmedNav,
+          amount: amountNum,
+          fee: 0,
+          transactionDate: navDate,
+          status: 'confirmed'
+        }, conn);
       });
 
       logger.info(`加仓已确认: userId=${req.user.id}, fundCode=${fundCode}, shares=${actualShares.toFixed(4)}, nav=${confirmedNav}, navDate=${navDate}`);
@@ -155,9 +158,9 @@ exports.sell = async (req, res, next) => {
     }
 
     // 可用份额 = 持仓份额 - 该基金 pending 卖出订单份额合计（挂起卖单未结算，不能重复卖）
-    const pendingSells = await Transaction.findPendingByUserId(req.user.id);
-    const pendingSellShares = pendingSells
-      .filter(tx => tx.type === 'sell' && tx.fund_code === fundCode)
+    // ★ 按 user+fund 精确查询（命中 idx_user_fund 索引），替代全量 pending 拉取后 JS filter
+    const pendingSellRows = await Transaction.findPendingByUserAndFund(req.user.id, fundCode, 'sell');
+    const pendingSellShares = pendingSellRows
       .reduce((sum, tx) => sum + (parseFloat(tx.shares) || 0), 0);
     const availableShares = Math.max(0, holdingShares - pendingSellShares);
 
@@ -180,20 +183,37 @@ exports.sell = async (req, res, next) => {
 
     if (confirmedNav > 0) {
       // 有确认净值 → 立即结算
+      // ★ 事务化：事务内复核可用份额（FOR UPDATE 行锁防并发超卖），持仓更新与交易记录同事务提交
       const { feeAmount, netAmount } = settlementService.computeSellSettlement(actualShares, feeRateNum, confirmedNav);
-      await settlementService.applySellHolding({ userId: req.user.id, fundCode, sellShares: actualShares, netAmount });
+      try {
+        await settlementService.withTransaction(async (conn) => {
+          const lockedHolding = await Holding.findByUserAndFund(req.user.id, fundCode, conn);
+          if (!lockedHolding || (parseFloat(lockedHolding.shares) || 0) < actualShares) {
+            const err = new Error('持有份额不足，无法卖出');
+            err.status = 400;
+            throw err;
+          }
+          await settlementService.applySellHolding({ userId: req.user.id, fundCode, sellShares: actualShares, netAmount }, conn);
 
-      await Transaction.create({
-        userId: req.user.id,
-        fundCode,
-        type: 'sell',
-        shares: actualShares,
-        price: confirmedNav,
-        amount: netAmount,
-        fee: feeAmount,
-        transactionDate: navDate,
-        status: 'confirmed'
-      });
+          await Transaction.create({
+            userId: req.user.id,
+            fundCode,
+            type: 'sell',
+            shares: actualShares,
+            price: confirmedNav,
+            amount: netAmount,
+            fee: feeAmount,
+            transactionDate: navDate,
+            status: 'confirmed'
+          }, conn);
+        });
+      } catch (txErr) {
+        // 份额复核失败：事务已回滚，直接返回 400
+        if (txErr && txErr.status === 400) {
+          return res.status(400).json({ message: txErr.message });
+        }
+        throw txErr;
+      }
 
       logger.info(`卖出已确认: userId=${req.user.id}, fundCode=${fundCode}, shares=${actualShares}, nav=${confirmedNav}, navDate=${navDate}`);
       res.json({ message: '卖出成功', shares: actualShares, amount: netAmount, fee: feeAmount, tradeDate: navDate, status: 'confirmed' });

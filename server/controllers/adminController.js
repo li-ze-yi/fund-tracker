@@ -7,6 +7,7 @@ const Fund = require('../models/fund');
 const fundService = require('../services/fundService');
 const globalCache = require('../services/globalCache');
 const { getMetrics } = require('../services/requestMetrics');
+const { formatLocalDate } = require('../utils/date');
 
 exports.dashboard = async (req, res, next) => {
   try {
@@ -14,7 +15,7 @@ exports.dashboard = async (req, res, next) => {
       (async () => {
         const [totalRows] = await pool.query('SELECT COUNT(*) AS total FROM users');
         const [todayRows] = await pool.query(
-          "SELECT COUNT(*) AS today_new FROM users WHERE DATE(created_at) = CURDATE()"
+          'SELECT COUNT(*) AS today_new FROM users WHERE created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY'
         );
         const [activeRows] = await pool.query(
           'SELECT COUNT(*) AS active_count FROM users WHERE last_active_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)'
@@ -87,6 +88,10 @@ exports.updateUserRole = async (req, res, next) => {
     if (!['user', 'admin'].includes(role)) {
       return res.status(400).json({ message: '无效的角色' });
     }
+    // 自我保护：禁止管理员修改自己的角色（避免误操作失去管理员权限）
+    if (Number(id) === req.user.id) {
+      return res.status(400).json({ message: '不能修改自己的角色' });
+    }
     await User.updateRole(id, role);
     res.json({ message: '角色更新成功' });
   } catch (err) {
@@ -99,6 +104,9 @@ exports.createUser = async (req, res, next) => {
     const { username, password, role = 'user' } = req.body;
     if (!username || username.trim() === '') {
       return res.status(400).json({ message: '用户名不能为空' });
+    }
+    if (username.trim().length > 50) {
+      return res.status(400).json({ message: '用户名不能超过50个字符' });
     }
     if (!password || password.length < 6) {
       return res.status(400).json({ message: '密码至少6位' });
@@ -116,6 +124,10 @@ exports.createUser = async (req, res, next) => {
     await User.updateRole(userId, role);
     res.json({ message: '用户创建成功', id: userId });
   } catch (err) {
+    // 并发创建同名用户触发唯一约束，返回 400 而非 500
+    if (err && err.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ message: '用户名已存在' });
+    }
     next(err);
   }
 };
@@ -145,7 +157,10 @@ exports.deleteUser = async (req, res, next) => {
     if (Number(id) === req.user.id) {
       return res.status(400).json({ message: '不能删除自己' });
     }
-    await User.deleteById(id);
+    const deleted = await User.deleteById(id);
+    if (!deleted) {
+      return res.status(404).json({ message: '用户不存在' });
+    }
     res.json({ message: '用户删除成功' });
   } catch (err) {
     next(err);
@@ -171,6 +186,7 @@ exports.syncFunds = async (req, res, next) => {
 
     const batchSize = 1000;
     let inserted = 0;
+    let updated = 0;
 
     for (let i = 0; i < values.length; i += batchSize) {
       const batch = values.slice(i, i + batchSize);
@@ -180,10 +196,12 @@ exports.syncFunds = async (req, res, next) => {
         `INSERT INTO funds (code, name, type) VALUES ${placeholders} ON DUPLICATE KEY UPDATE name=VALUES(name), type=VALUES(type)`,
         flatValues
       );
-      inserted += result.affectedRows;
+      // ON DUPLICATE KEY UPDATE 语义：affectedRows 1=新增、2=更新、0=重复且无变化
+      inserted += result.affectedRows === 1 ? 1 : 0;
+      updated += result.affectedRows === 2 ? 1 : 0;
     }
 
-    res.json({ total: values.length, inserted });
+    res.json({ total: values.length, inserted, updated });
   } catch (err) {
     next(err);
   }
@@ -346,10 +364,10 @@ exports.dbHealth = async (req, res, next) => {
 exports.transactionTrend = async (req, res, next) => {
   try {
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
-    // 预计算起始日期（YYYY-MM-DD），避免 INTERVAL ? DAY 参数化不生效
+    // 预计算起始日期（YYYY-MM-DD，本地时区），避免 INTERVAL ? DAY 参数化不生效
     const start = new Date();
     start.setDate(start.getDate() - (days - 1));
-    const startDate = start.toISOString().slice(0, 10);
+    const startDate = formatLocalDate(start);
     const [rows] = await pool.query(
       `SELECT DATE_FORMAT(transaction_date, '%Y-%m-%d') AS date,
               COALESCE(SUM(amount), 0) AS total_amount,
@@ -368,7 +386,8 @@ exports.transactionTrend = async (req, res, next) => {
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
+      // 本地时区生成桶 key，与 DATE_FORMAT 的库端时区一致（toISOString 会按 UTC 截断错位）
+      const key = formatLocalDate(d);
       const r = map.get(key);
       result.push({
         date: key,
@@ -389,7 +408,7 @@ exports.userGrowth = async (req, res, next) => {
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
     const start = new Date();
     start.setDate(start.getDate() - (days - 1));
-    const startDate = start.toISOString().slice(0, 10);
+    const startDate = formatLocalDate(start);
     const [rows] = await pool.query(
       `SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS date, COUNT(*) AS new_users
        FROM users
@@ -410,7 +429,7 @@ exports.userGrowth = async (req, res, next) => {
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
+      const key = formatLocalDate(d);
       const newUsers = map.get(key) ? parseInt(map.get(key), 10) : 0;
       cumulative += newUsers;
       result.push({ date: key, newUsers, cumulative });
@@ -427,7 +446,7 @@ exports.dailyActive = async (req, res, next) => {
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 90);
     const start = new Date();
     start.setDate(start.getDate() - (days - 1));
-    const startDate = start.toISOString().slice(0, 10);
+    const startDate = formatLocalDate(start);
     const [rows] = await pool.query(
       `SELECT DATE_FORMAT(login_time, '%Y-%m-%d') AS date,
               COUNT(DISTINCT user_id) AS active_users
@@ -443,7 +462,7 @@ exports.dailyActive = async (req, res, next) => {
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
+      const key = formatLocalDate(d);
       result.push({ date: key, activeUsers: map.get(key) ? parseInt(map.get(key), 10) : 0 });
     }
     res.json({ days, list: result });

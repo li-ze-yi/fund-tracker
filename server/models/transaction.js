@@ -1,8 +1,13 @@
 const pool = require('../config/database');
 
 const Transaction = {
-  async create({ userId, fundCode, type, shares, price, amount, fee, transactionDate, note, status }) {
-    const [result] = await pool.query(
+  /**
+   * 创建交易记录。
+   * @param {*} conn 可选：事务连接。传入时走 conn.query（参与事务回滚），无 conn 走 pool 自动提交
+   */
+  async create({ userId, fundCode, type, shares, price, amount, fee, transactionDate, note, status }, conn = null) {
+    const exec = conn || pool;
+    const [result] = await exec.query(
       `INSERT INTO transactions (user_id, fund_code, type, shares, price, amount, fee, transaction_date, note, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [userId, fundCode, type, shares, price, amount, fee || 0, transactionDate, note || null, status || 'confirmed']
@@ -44,6 +49,25 @@ const Transaction = {
        ORDER BY t.transaction_date ASC, t.created_at ASC`,
       [userId]
     );
+    return rows;
+  },
+
+  /**
+   * 按 user + fund 精确查询 pending 订单（可选按 type 过滤）。
+   * 命中 idx_user_fund 索引，避免 findPendingByUserId 全量拉取后 JS filter
+   */
+  async findPendingByUserAndFund(userId, fundCode, type = null) {
+    let sql = `SELECT t.*, f.name as fund_name
+       FROM transactions t
+       JOIN funds f ON t.fund_code = f.code
+       WHERE t.user_id = ? AND t.fund_code = ? AND t.status = 'pending'`;
+    const params = [userId, fundCode];
+    if (type) {
+      sql += ' AND t.type = ?';
+      params.push(type);
+    }
+    sql += ' ORDER BY t.transaction_date ASC, t.created_at ASC';
+    const [rows] = await pool.query(sql, params);
     return rows;
   },
 

@@ -359,8 +359,7 @@ async function resolveConfirmedNav(fundCode, holding, historyData, realTimeData,
   const dbNav = parseFloat(holding && holding.confirmed_nav) || 0;
   const dbNavDate = normalizeDate(holding && holding.confirmed_nav_date);
   // 本地今日字符串（YYYY-MM-DD，用本地时间拼，避免 UTC 偏移）
-  const nowDate = new Date();
-  const todayStr = `${nowDate.getFullYear()}-${String(nowDate.getMonth() + 1).padStart(2, '0')}-${String(nowDate.getDate()).padStart(2, '0')}`;
+  const todayStr = getLocalToday();
   let dbFresh = false;
   if (latestHistoryDate) {
     // 盘后正常拉取到历史：日期须与最近确认交易日一致
@@ -482,8 +481,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
   const marketStatus = await checkMarketStatus(holdings);
 
   // ★ 查询今日交易份额（使用北京时间，避免凌晨 UTC 日期偏移导致 yesterdayShares=0）
-  const _now = new Date();
-  const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
+  const today = getLocalToday();
   // 今天的前一个 A 股交易日：QDII（美股等披露晚一个交易日）的"已确认"判定基准，整个请求只回溯一次
   const anchorOfToday = await getLatestTradingDayAnchor(today);
 
@@ -568,17 +566,18 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
         needFetch = codes;
       } else {
         needFetch = [];
-        for (const code of codes) {
+        // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）；
+        //   Promise.all 并行预检，Redis 模式下避免 N 只基金 N 次串行 RTT 拉长批量接口延迟
+        await Promise.all(codes.map(async (code) => {
           const effectiveMethod = valuationOverrides[code] || valuationMethod || 'sina';
           const cacheKey = `realtime_${code}_${effectiveMethod}`;
-          // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
           const result = await globalCache.checkCache(cacheKey, 'realtime');
           if (result.hit) {
             realtimeDataMap[code] = result.data;
           } else {
             needFetch.push(code);
           }
-        }
+        }));
       }
     }
 
@@ -619,13 +618,14 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
       logger.info(`${isFullDayClosed ? '全天休市' : '待开市'}，跳过历史净值预取（按需兜底）(${codes.length} 只)`);
     } else if (isTradingHours) {
       // 交易时段（含 forceRefresh）跳过 API 拉取，只复用缓存命中项
-      for (const code of codes) {
+      // ★ Promise.all 并行预检（Redis 模式下避免逐只串行 RTT）
+      await Promise.all(codes.map(async (code) => {
         const cacheKey = `history_${code}_3d_${today}`;
         const result = await globalCache.checkCache(cacheKey, 'history_recent');
         if (result.hit) {
           historyDataMap[code] = result.data;
         }
-      }
+      }));
       historyNeedFetch = [];
       logger.info(`盘中（9:00-15:00）跳过 ${codes.length} 只基金的历史净值拉取`);
     } else {
@@ -634,16 +634,17 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
         historyNeedFetch = codes;
       } else {
         historyNeedFetch = [];
-        for (const code of codes) {
+        // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）；
+        //   Promise.all 并行预检，Redis 模式下避免逐只串行 RTT
+        await Promise.all(codes.map(async (code) => {
           const cacheKey = `history_${code}_3d_${today}`;
-          // ★ 改用 checkCache 统一统计口径（命中/未命中/过期均计入 stats）
           const result = await globalCache.checkCache(cacheKey, 'history_recent');
           if (result.hit) {
             historyDataMap[code] = result.data;
           } else {
             historyNeedFetch.push(code);
           }
-        }
+        }));
       }
     }
 
@@ -803,9 +804,7 @@ async function enrichHoldingsWithRealTimeData(holdings, forceRefresh = false, va
 
   const endTime = Date.now();
   const duration = endTime - startTime;
-  const stats = await globalCache.getStats();
   logger.info(`批量处理完成: ${holdings.length}只基金, 耗时${duration}ms`);
-  logger.info(`GlobalCache 统计: 命中率=${stats.hitRate}, 缓存数=${stats.size}/${stats.maxSize}`);
 
   return result;
 }
@@ -857,8 +856,7 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
       const dt = d instanceof Date ? d : new Date(d);
       return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
     };
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const todayStr = getLocalToday();
     const soldDateStr = fmtDate(holding.sold_date);
     if (soldDateStr < todayStr) {
       return {
@@ -998,10 +996,8 @@ function calculateHoldingMetrics(holding, realTimeData, isConfirmed = false, con
     // 此时 yesterdayShares = todayTxShares.sell，dailyGain 已在前面基于 isConfirmed 分支计算
     let isSoldOutTodayException = false;
     if (shares === 0 && holding.sold_date && isConfirmed && confirmedNav > 0) {
-      const _now = new Date();
-      const _todayStr = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
-      const _soldDate = holding.sold_date instanceof Date ? holding.sold_date : new Date(holding.sold_date);
-      const _soldDateStr = `${_soldDate.getFullYear()}-${String(_soldDate.getMonth() + 1).padStart(2, '0')}-${String(_soldDate.getDate()).padStart(2, '0')}`;
+      const _todayStr = getLocalToday();
+      const _soldDateStr = normalizeDateStr(holding.sold_date);
       isSoldOutTodayException = (_soldDateStr === _todayStr);
     }
 
@@ -1090,6 +1086,72 @@ function clearAllCache() {
   logger.info('所有缓存已清空');
 }
 
+/**
+ * 解析最新可用净值（添加持仓 / 图片导入共享）：
+ * ① 近 30 天确认净值（history_30d 缓存优先，72h TTL）→ ② 实时估值兜底（realtime 缓存）
+ * @param {string} fundCode 基金代码
+ * @returns {Promise<{ netValue: number, netValueSource: string, confirmedNavDate: string|null }>}
+ *   netValue<=0 表示未能获取有效净值
+ */
+async function resolveLatestNetValue(fundCode) {
+  let netValue = 0;
+  let netValueSource = 'unknown';
+  let confirmedNavDate = null;
+
+  try {
+    const today = getLocalToday();
+    const thirtyDaysAgo = normalizeDateStr(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+    const historyCacheKey = `history_${fundCode}_30d_${today}`;
+
+    try {
+      const recentHistory = await globalCache.getOrFetch(
+        historyCacheKey,
+        () => fundService.getHistoryNetValues(fundCode, thirtyDaysAgo, today),
+        { type: 'history_older' } // 远期历史净值缓存，72h TTL
+      );
+
+      if (recentHistory && recentHistory.length > 0) {
+        const latestConfirmed = recentHistory[0];
+        if (latestConfirmed.nav) {
+          netValue = parseFloat(latestConfirmed.nav) || 0;
+        } else if (latestConfirmed.netValue) {
+          netValue = parseFloat(latestConfirmed.netValue) || 0;
+        }
+
+        if (netValue > 0) {
+          netValueSource = `confirmed(${latestConfirmed.date})`;
+          confirmedNavDate = latestConfirmed.date;
+          logger.debug(`使用确认净值: ${fundCode}=${netValue} (${latestConfirmed.date})`);
+        }
+      }
+    } catch (e) {
+      logger.warn(`获取历史净值失败: ${e.message}`);
+    }
+
+    if (netValue <= 0) {
+      const realtimeCacheKey = `realtime_${fundCode}_auto`; // 基金实时估值缓存，auto=自动选择数据源
+      try {
+        const realTime = await globalCache.getOrFetch(
+          realtimeCacheKey,
+          () => fundService.getRealTimeValue(fundCode),
+          { type: 'realtime' }
+        );
+        if (realTime && realTime.netValue > 0) {
+          netValue = realTime.netValue;
+          netValueSource = 'realtime';
+          logger.debug(`无确认净值，使用实时估值: ${fundCode}=${netValue}`);
+        }
+      } catch (e) {
+        logger.warn(`获取实时估值失败: ${e.message}`);
+      }
+    }
+  } catch (error) {
+    logger.error(`获取净值失败: ${error.message}`);
+  }
+
+  return { netValue, netValueSource, confirmedNavDate };
+}
+
 module.exports = {
   enrichHoldingsWithRealTimeData,
   calculateHoldingMetrics,
@@ -1097,6 +1159,7 @@ module.exports = {
   clearAllCache,
   getFundMarketStatus,
   resolveConfirmedNav,
+  resolveLatestNetValue,
   resolveUpdateStatus,
   getHistoryFallbackStartDate,
   getLatestTradingDayAnchor,

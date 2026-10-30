@@ -314,7 +314,8 @@ async function fetchNorthboundTop() {
       { market: 'sz', fs: 'm:0+t:23' },
     ];
     const out = [];
-    for (const c of chans) {
+    // 两市场并行拉取（各自 try/catch 互不影响），结果按 sh→sz 顺序合并，与原串行输出一致
+    const chanResults = await Promise.all(chans.map(async (c) => {
       try {
         const j = await emGet(
           '/api/qt/clist/get?pn=1&pz=10&po=1&np=1&fltt=2&invt=2&fs=' +
@@ -323,21 +324,21 @@ async function fetchNorthboundTop() {
           6000
         );
         const diff = j?.data?.diff ?? [];
-        diff.forEach((d) => {
-          if (d.f14) {
-            out.push({
-              name: d.f14,
-              code: String(d.f12),
-              market: c.market,
-              amount: d.f6 != null ? Number(d.f6) / 1e8 : undefined,
-              pct: Number(d.f3) || 0,
-            });
-          }
-        });
+        return diff
+          .filter((d) => d.f14)
+          .map((d) => ({
+            name: d.f14,
+            code: String(d.f12),
+            market: c.market,
+            amount: d.f6 != null ? Number(d.f6) / 1e8 : undefined,
+            pct: Number(d.f3) || 0,
+          }));
       } catch (e) {
         logger.warn(`北向${c.market}十大成交获取失败: ${e.message}`);
+        return [];
       }
-    }
+    }));
+    for (const rows of chanResults) out.push(...rows);
     if (out.length >= 6) return out;
   } catch (e) {
     logger.warn(`北向十大成交获取失败，回退基线: ${e.message}`);

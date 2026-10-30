@@ -38,6 +38,20 @@ function msUntilMidnight() {
 }
 
 /**
+ * Map 满时淘汰最早插入的 10%（Map 保序，keys() 迭代器按插入序输出）。
+ * 替代原先的整体 clear()：避免缓存瞬间清空后所有用户同时重复写库造成写放大
+ */
+function evictOldest(map) {
+  const evictCount = Math.ceil(map.size * 0.1);
+  let removed = 0;
+  for (const key of map.keys()) {
+    map.delete(key);
+    removed++;
+    if (removed >= evictCount) break;
+  }
+}
+
+/**
  * 记录用户每日活跃（DAU）：同一用户同一天只写一条 user_logins，并保存客户端 IP。
  * 多副本两级去重：
  *   1) 实例内内存 Map（热点路径零 Redis RTT）；
@@ -54,7 +68,7 @@ async function recordDailyActive(userId, ip) {
 
   // 一级：实例内内存去重
   if (dailyRecorded.has(key)) return;
-  if (dailyRecorded.size >= MAX_DAILY_CACHE_SIZE) dailyRecorded.clear();
+  if (dailyRecorded.size >= MAX_DAILY_CACHE_SIZE) evictOldest(dailyRecorded);
   dailyRecorded.set(key, true);
 
   // 二级：跨实例 Redis NX 去重（拿到写入权的副本才继续 INSERT）
@@ -90,7 +104,7 @@ function touchActive(userId, ip) {
   const now = Date.now();
   const last = touchCache.get(userId) || 0;
   if (now - last < ACTIVITY_TOUCH_INTERVAL_MS) return;
-  if (touchCache.size >= MAX_TOUCH_CACHE_SIZE) touchCache.clear();
+  if (touchCache.size >= MAX_TOUCH_CACHE_SIZE) evictOldest(touchCache);
   touchCache.set(userId, now);
   User.touchActive(userId).catch(() => {});
   recordDailyActive(userId, ip); // 记录 DAU（每日去重，含 IP）

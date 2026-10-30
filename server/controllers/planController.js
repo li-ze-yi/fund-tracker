@@ -1,5 +1,38 @@
 const InvestmentPlan = require('../models/investmentPlan');
-const { getLocalToday, normalizeDateStr } = require('../utils/date');
+const Fund = require('../models/fund');
+const { normalizeDateStr } = require('../utils/date');
+const { toPositiveNumber } = require('../utils/validate');
+
+// 定投频率白名单（与 calcNextRunDate 支持的取值一致）
+const VALID_FREQUENCIES = ['daily', 'weekly', 'biweekly', 'monthly'];
+
+/**
+ * 定投计划入参校验：返回错误文案，null 表示通过
+ */
+function validatePlanParams({ amount, frequency, dayOfWeek, dayOfMonth }) {
+  const amountNum = toPositiveNumber(amount);
+  if (Number.isNaN(amountNum)) {
+    return '定投金额必须为正数';
+  }
+  if (!VALID_FREQUENCIES.includes(frequency)) {
+    return '无效的定投频率，可选: daily, weekly, biweekly, monthly';
+  }
+  // weekly 的 dayOfWeek：1-7 整数（1=周一），可选（缺省按 7 天后执行）
+  if (dayOfWeek != null && dayOfWeek !== '') {
+    const n = Number(dayOfWeek);
+    if (!Number.isInteger(n) || n < 1 || n > 7) {
+      return 'dayOfWeek 必须为 1-7 的整数（1=周一）';
+    }
+  }
+  // monthly 的 dayOfMonth：1-31 整数，可选（缺省按同日次月执行）
+  if (dayOfMonth != null && dayOfMonth !== '') {
+    const n = Number(dayOfMonth);
+    if (!Number.isInteger(n) || n < 1 || n > 31) {
+      return 'dayOfMonth 必须为 1-31 的整数';
+    }
+  }
+  return null;
+}
 
 exports.list = async (req, res, next) => {
   try {
@@ -14,11 +47,27 @@ exports.create = async (req, res, next) => {
   try {
     const { fundCode, amount, frequency, dayOfWeek, dayOfMonth } = req.body;
 
+    // 入参校验：金额正数、频率白名单、日期字段范围
+    const invalidMsg = validatePlanParams({ amount, frequency, dayOfWeek, dayOfMonth });
+    if (invalidMsg) {
+      return res.status(400).json({ message: invalidMsg });
+    }
+
+    // 基金代码必须真实存在
+    if (!fundCode) {
+      return res.status(400).json({ message: '基金代码不能为空' });
+    }
+    const fund = await Fund.findByCode(fundCode);
+    if (!fund) {
+      return res.status(400).json({ message: '基金代码不存在' });
+    }
+
+    const amountNum = toPositiveNumber(amount);
     const nextRunDate = calcNextRunDate(new Date(), frequency, dayOfWeek, dayOfMonth);
     const id = await InvestmentPlan.create({
       userId: req.user.id,
       fundCode,
-      amount,
+      amount: amountNum,
       frequency,
       dayOfWeek,
       dayOfMonth,
@@ -36,8 +85,28 @@ exports.update = async (req, res, next) => {
     const { id } = req.params;
     const { amount, frequency, dayOfWeek, dayOfMonth } = req.body;
 
+    // 入参校验：仅校验传入字段（金额正数、频率白名单、日期字段范围）
+    if (amount !== undefined && Number.isNaN(toPositiveNumber(amount))) {
+      return res.status(400).json({ message: '定投金额必须为正数' });
+    }
+    if (frequency !== undefined && !VALID_FREQUENCIES.includes(frequency)) {
+      return res.status(400).json({ message: '无效的定投频率，可选: daily, weekly, biweekly, monthly' });
+    }
+    if (dayOfWeek != null && dayOfWeek !== '') {
+      const n = Number(dayOfWeek);
+      if (!Number.isInteger(n) || n < 1 || n > 7) {
+        return res.status(400).json({ message: 'dayOfWeek 必须为 1-7 的整数（1=周一）' });
+      }
+    }
+    if (dayOfMonth != null && dayOfMonth !== '') {
+      const n = Number(dayOfMonth);
+      if (!Number.isInteger(n) || n < 1 || n > 31) {
+        return res.status(400).json({ message: 'dayOfMonth 必须为 1-31 的整数' });
+      }
+    }
+
     const data = {};
-    if (amount !== undefined) data.amount = amount;
+    if (amount !== undefined) data.amount = toPositiveNumber(amount);
     if (frequency !== undefined) {
       data.frequency = frequency;
       data.day_of_week = dayOfWeek || null;

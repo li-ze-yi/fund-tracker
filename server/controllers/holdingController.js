@@ -6,7 +6,6 @@ const fundService = require('../services/fundService');
 const settlementService = require('../services/settlementService');
 const holidayService = require('../services/holidayService');
 const dailyProfitService = require('../services/dailyProfitService');
-const globalCache = require('../services/globalCache');
 const UserSetting = require('../models/userSetting');
 const { createLogger } = require('../utils/logger');
 const { getLocalToday, normalizeDateStr } = require('../utils/date');
@@ -167,60 +166,8 @@ exports.create = async (req, res, next) => {
       return res.status(400).json({ message: '该基金已在持仓中' });
     }
 
-    let netValue = 0;
-    let netValueSource = 'unknown';
-    let confirmedNavDate = null;
-    
-    try {
-      const today = getLocalToday();
-      const thirtyDaysAgo = normalizeDateStr(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
-      const historyCacheKey = `history_${fundCode}_30d_${today}`;
-      
-      try {
-        const recentHistory = await globalCache.getOrFetch(
-          historyCacheKey,
-          () => fundService.getHistoryNetValues(fundCode, thirtyDaysAgo, today),
-          { type: 'history_older' } // 远期历史净值缓存，72h TTL
-        );
-        
-        if (recentHistory && recentHistory.length > 0) {
-          const latestConfirmed = recentHistory[0];
-          if (latestConfirmed.nav) {
-            netValue = parseFloat(latestConfirmed.nav) || 0;
-          } else if (latestConfirmed.netValue) {
-            netValue = parseFloat(latestConfirmed.netValue) || 0;
-          }
-          
-          if (netValue > 0) {
-            netValueSource = `confirmed(${latestConfirmed.date})`;
-            confirmedNavDate = latestConfirmed.date;
-            logger.info(`使用确认净值: ${netValue} (${latestConfirmed.date})`);
-          }
-        }
-      } catch (e) {
-        logger.warn(`获取历史净值失败: ${e.message}`);
-      }
-      
-      if (netValue <= 0) {
-        const realtimeCacheKey = `realtime_${fundCode}_auto`; // 基金实时估值缓存，auto=自动选择数据源
-        try {
-          const realTime = await globalCache.getOrFetch(
-            realtimeCacheKey,
-            () => fundService.getRealTimeValue(fundCode),
-            { type: 'realtime' }
-          );
-          if (realTime && realTime.netValue > 0) {
-            netValue = realTime.netValue;
-            netValueSource = 'realtime';
-            logger.info(`无确认净值，使用实时估值: ${netValue}`);
-          }
-        } catch (e) {
-          logger.warn(`获取实时估值也失败: ${e.message}`);
-        }
-      }
-    } catch (error) {
-      logger.error(`获取净值失败: ${error.message}`);
-    }
+    // 获取净值（确认净值优先，实时估值兜底；与图片导入共享 holdingService.resolveLatestNetValue）
+    const { netValue, netValueSource, confirmedNavDate } = await holdingService.resolveLatestNetValue(fundCode);
 
     if (netValue <= 0) {
       logger.error(`无法获取有效净值: source=${netValueSource}, value=${netValue}`);
@@ -293,6 +240,10 @@ exports.create = async (req, res, next) => {
 
     res.json({ id, message: '添加成功' });
   } catch (err) {
+    // 并发添加同一基金触发 uk_user_fund 唯一约束，返回 400 而非 500
+    if (err && err.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ message: '该基金已在持仓中' });
+    }
     logger.error(`创建持仓异常: ${err.message}`);
     next(err);
   }

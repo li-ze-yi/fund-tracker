@@ -284,6 +284,7 @@ async function settleTransaction({ userId, tx, confirmedNav, navDate }) {
 }
 
 module.exports = {
+  withTransaction,
   computeBuySettlement,
   computeSellSettlement,
   computeSharesAndCost,
