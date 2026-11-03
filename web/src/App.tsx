@@ -3,6 +3,8 @@ import { ConfigProvider, App as AntApp, theme as antTheme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { useEffect, useLayoutEffect, lazy, Suspense } from 'react';
 import { useAuthStore } from './store/authStore';
+import type { AuthUser } from './store/authStore';
+import { authService } from './services/authService';
 import { useThemeStore } from './store/themeStore';
 import MainLayout from './layouts/MainLayout';
 import AuthLayout from './layouts/AuthLayout';
@@ -40,6 +42,28 @@ export default function App() {
   useEffect(() => {
     restoreSession();
   }, [restoreSession]);
+
+  // 身份校准：token 是唯一凭证，本地缓存的 user 可能因历史脏数据或并发写入而与 token 不一致。
+  // 恢复会话后调用 /auth/me 以服务端结果覆盖本地身份，既能让脏数据自愈，也不再把用户踢下线。
+  useEffect(() => {
+    if (!isInitialized) return;
+    const { isAuthenticated, user } = useAuthStore.getState();
+    if (!isAuthenticated || !user) return;
+    let cancelled = false;
+    authService
+      .getMe()
+      .then((data: { user?: AuthUser }) => {
+        if (!cancelled && data?.user) {
+          useAuthStore.getState().setUser(data.user);
+        }
+      })
+      .catch(() => {
+        // 401 由响应拦截器统一登出；其他异常（如网络抖动）保持本地状态不变
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isInitialized]);
 
   // 用 useLayoutEffect 在首帧绘制前同步 data-theme，确保界面主题与切换图标（store.mode）始终一致，
   // 避免刷新/恢复页面时出现“界面浅色、图标深色”之类的脱节。

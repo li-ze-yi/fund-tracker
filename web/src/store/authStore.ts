@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import { resetSession } from '../services/sessionGuard';
 
-interface AuthUser {
+export interface AuthUser {
   id: number;
   username: string;
+  role?: string;
   created_at: string;
 }
 
@@ -14,24 +15,9 @@ interface AuthState {
   isInitialized: boolean;
   login: (token: string, user: AuthUser) => void;
   setToken: (token: string) => void;
+  setUser: (user: AuthUser) => void;
   logout: () => void;
   restoreSession: () => void;
-}
-
-/**
- * 解码 JWT 载荷（仅取 payload 做客户端身份一致性校验，不做签名校验）。
- * 解码失败返回 null，交由调用方按「无法校验」处理，避免误清合法会话。
- */
-function decodeTokenPayload(token: string): { id?: number } | null {
-  try {
-    const part = token.split('.')[1];
-    if (!part) return null;
-    const base64 = part.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
-    return JSON.parse(atob(padded));
-  } catch {
-    return null;
-  }
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -53,6 +39,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ token });
   },
 
+  // 以服务端返回的身份覆盖本地缓存（应用启动时的身份校准，或令牌身份更新时使用）
+  setUser: (user) => {
+    localStorage.setItem('user', JSON.stringify(user));
+    set({ user });
+  },
+
   logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -67,16 +59,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (token && userStr) {
       try {
         const user = JSON.parse(userStr) as AuthUser;
-        // 身份一致性校验：token 与 user 必须属于同一账号。
-        // 若不一致，说明本地会话曾被上一账号的迟到续期覆盖，清空强制重新登录，
-        // 避免出现「用户名是用户二、数据却是用户一」的混合状态。
-        const payload = decodeTokenPayload(token);
-        if (payload?.id && user?.id && payload.id !== user.id) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          set({ token: null, user: null, isAuthenticated: false, isInitialized: true });
-          return;
-        }
+        // 这里只做本地快速恢复，不在此处校验身份一致性：
+        // 本地缓存的 user 仅作为首屏占位，真正的身份以 App 启动后调用 /auth/me
+        // 返回的结果为准（见 App.tsx 的身份校准），避免因历史脏数据把用户踢下线。
         set({ token, user, isAuthenticated: true, isInitialized: true });
       } catch {
         localStorage.removeItem('token');

@@ -15,6 +15,7 @@ import {
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
 import { useAuthStore } from '@/store/authStore';
+import { authService } from '@/services/authService';
 import FeedbackModal from '@/components/modals/FeedbackModal';
 
 export default function ProfilePage() {
@@ -32,7 +33,13 @@ export default function ProfilePage() {
     { key: 'about', icon: <InfoCircleOutlined />, label: '关于', onClick: () => navigate('/settings') },
   ];
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // 先让服务端撤销当前 token（失败不阻塞本地登出）
+    try {
+      await authService.logout();
+    } catch {
+      // 网络异常时忽略，本地仍按登出处理
+    }
     logout();
     message.success('已退出登录');
     navigate('/login');

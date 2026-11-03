@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/user');
 const UserSetting = require('../models/userSetting');
 const { touchActive } = require('../middlewares/auth');
+const { revokeToken } = require('../services/tokenRevocation');
 
 exports.register = async (req, res, next) => {
   try {
@@ -78,6 +79,24 @@ exports.me = async (req, res, next) => {
       return res.status(404).json({ message: '用户不存在' });
     }
     res.json({ user: { id: user.id, username: user.username, role: user.role || 'user', created_at: user.created_at } });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * 登出：将当前 token 加入撤销名单，使其在剩余有效期内立即失效。
+ * 前端随后清除本地会话；即便本地清理失败，旧 token 也已不可用。
+ */
+exports.logout = async (req, res, next) => {
+  try {
+    if (req.token && req.tokenExp) {
+      await revokeToken(req.token, req.tokenExp * 1000);
+    }
+    // 登出请求经过 authenticate 时可能已触发滑动续期（maybeRenew 设置了 X-Auth-Token 响应头），
+    // 该新 token 未被撤销且完全有效，凭空留在响应里不干净——登出场景必须移除
+    res.removeHeader('X-Auth-Token');
+    res.json({ message: '已退出登录' });
   } catch (err) {
     next(err);
   }

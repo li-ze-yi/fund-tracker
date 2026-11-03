@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/user');
 const pool = require('../config/database');
 const coordinator = require('../services/coordinator');
+const { isTokenRevoked } = require('../services/tokenRevocation');
 
 // JWT 密钥校验：未配置时给出清晰报错，避免用 undefined 静默验签
 if (!process.env.JWT_SECRET) {
@@ -138,7 +139,7 @@ function maybeRenew(decoded, res) {
   }
 }
 
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
     return res.status(401).json({ message: '未提供认证令牌' });
@@ -147,7 +148,13 @@ function authenticate(req, res, next) {
   const token = header.split(' ')[1];
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // 已撤销（已登出）的 token 立即失效，避免登出后旧 token 继续可用
+    if (await isTokenRevoked(token)) {
+      return res.status(401).json({ message: '令牌已失效，请重新登录' });
+    }
     req.user = { id: decoded.id, username: decoded.username, role: decoded.role };
+    req.token = token; // 供登出接口撤销原始 token
+    req.tokenExp = decoded.exp;
     touchActive(decoded.id, req.ip); // 记录活跃（节流，含客户端 IP）
     maybeRenew(decoded, res); // 滑动续期
     next();
@@ -156,13 +163,17 @@ function authenticate(req, res, next) {
   }
 }
 
-function optionalAuth(req, res, next) {
+async function optionalAuth(req, res, next) {
   const header = req.headers.authorization;
   if (header && header.startsWith('Bearer ')) {
     try {
       const token = header.split(' ')[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      // 已撤销的 token 按匿名处理（公开接口不应因登出态报错）
+      if (await isTokenRevoked(token)) return next();
       req.user = { id: decoded.id, username: decoded.username, role: decoded.role };
+      req.token = token;
+      req.tokenExp = decoded.exp;
       touchActive(decoded.id, req.ip); // 记录活跃（节流，含客户端 IP）
       maybeRenew(decoded, res); // 滑动续期
     } catch {}

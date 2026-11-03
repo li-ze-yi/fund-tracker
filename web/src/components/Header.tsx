@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Input, Dropdown, Space, Button, Tag, App, Tooltip } from 'antd';
 import { LogoutOutlined, UserOutlined, SearchOutlined, PlusOutlined, StarOutlined, StarFilled, CameraOutlined, SunOutlined, MoonOutlined } from '@ant-design/icons';
 import { useAuthStore } from '@/store/authStore';
+import { authService } from '@/services/authService';
 import { useThemeStore } from '@/store/themeStore';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { fundService } from '@/services/fundService';
@@ -280,7 +281,13 @@ export default function Header() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // 先让服务端撤销当前 token（失败不阻塞本地登出）
+    try {
+      await authService.logout();
+    } catch {
+      // 网络异常时忽略，本地仍按登出处理
+    }
     logout();
     navigate('/login');
   };
