@@ -52,10 +52,40 @@ api.interceptors.response.use(
     if (axios.isCancel(error)) {
       return Promise.reject(error);
     }
+
     if (error.response?.status === 401) {
+      const cfg = error.config as (typeof error.config & SessionMeta) | undefined;
+      const url = cfg?.url || '';
+      const currentToken = localStorage.getItem('token');
+
+      // 登录/登出接口自身的 401 不参与会话清理：
+      // 登出时 token 可能已失效，若在这里清会话会把刚登录的新会话一并带走
+      if (url.includes('/auth/login') || url.includes('/auth/logout')) {
+        return Promise.reject(error);
+      }
+
+      if (!currentToken) {
+        // 本地已无 token：会话本就不存在，引导到登录页即可（避免在登录页重复整页跳转）
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
+        return Promise.reject(error);
+      }
+
+      // 仅当「发出该请求时所用的 token 仍是当前 token」才判定为当前会话失效。
+      // 否则这是上一会话的迟到响应（其 token 已被服务端撤销），必须忽略——
+      // 否则一条旧 token 的 401 就会把刚登录成功的新会话杀掉并弹回登录页。
+      const isCurrentSession = Boolean(cfg?.__authToken) && cfg!.__authToken === currentToken;
+      if (!isCurrentSession) {
+        console.warn('[auth] 已忽略陈旧会话的 401 响应:', url);
+        return Promise.reject(error);
+      }
+
       // 同时重置 authStore 状态（仅清 localStorage 会残留 isAuthenticated，UI 仍显示已登录）
       useAuthStore.getState().logout();
-      window.location.href = '/login';
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }
