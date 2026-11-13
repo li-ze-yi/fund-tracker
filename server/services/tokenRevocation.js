@@ -95,4 +95,30 @@ async function isTokenRevoked(token) {
   return false;
 }
 
-module.exports = { revokeToken, isTokenRevoked };
+/**
+ * 查询某 token 撤销记录的剩余有效期（毫秒），未被撤销返回 null。
+ * 仅用于 401 诊断日志，帮助判断「是否刚被登出撤销」。
+ * @param {string} token 原始 JWT
+ * @returns {Promise<number|null>}
+ */
+async function getRevokedTTL(token) {
+  if (!token) return null;
+  const key = REDIS_PREFIX + hashToken(token);
+
+  const localExpiresAt = localRevoked.get(key);
+  if (localExpiresAt && localExpiresAt > Date.now()) {
+    return localExpiresAt - Date.now();
+  }
+
+  if (coordinator.isEnabled()) {
+    try {
+      const ttl = await coordinator.getClient().pttl(key);
+      return ttl > 0 ? ttl : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+module.exports = { revokeToken, isTokenRevoked, getRevokedTTL };

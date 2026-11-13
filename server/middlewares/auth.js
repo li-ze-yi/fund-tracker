@@ -2,7 +2,27 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/user');
 const pool = require('../config/database');
 const coordinator = require('../services/coordinator');
-const { isTokenRevoked } = require('../services/tokenRevocation');
+const { isTokenRevoked, getRevokedTTL } = require('../services/tokenRevocation');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('Auth');
+
+/**
+ * 401 诊断日志：记录拒绝原因、路径、实例端口与客户端特征。
+ * 登出类问题（用户被莫名踢下线）只能靠这条日志定位原因，热路径不触发（仅 401 时打印）。
+ * 注意：只记录 token 前 12 位用于关联，不落完整凭证。
+ */
+function log401(req, reason, extra = {}) {
+  const ua = String(req.headers['user-agent'] || '').slice(0, 120);
+  const tokenPrefix = extra.token ? `${String(extra.token).slice(0, 12)}…` : '-';
+  const hadHeader = Boolean(req.headers.authorization);
+  logger.warn(
+    `[AUTH-401] reason=${reason} method=${req.method} path=${req.originalUrl || req.url}` +
+    ` ip=${req.ip} port=${process.env.PORT || '-'} hasHeader=${hadHeader} tokenPrefix=${tokenPrefix}` +
+    (extra.detail ? ` detail=${extra.detail}` : '') +
+    ` ua="${ua}"`
+  );
+}
 
 // JWT 密钥校验：未配置时给出清晰报错，避免用 undefined 静默验签
 if (!process.env.JWT_SECRET) {
@@ -142,6 +162,7 @@ function maybeRenew(decoded, res) {
 async function authenticate(req, res, next) {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
+    log401(req, 'no_token');
     return res.status(401).json({ message: '未提供认证令牌' });
   }
 
@@ -150,6 +171,8 @@ async function authenticate(req, res, next) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     // 已撤销（已登出）的 token 立即失效，避免登出后旧 token 继续可用
     if (await isTokenRevoked(token)) {
+      const ttl = await getRevokedTTL(token);
+      log401(req, 'revoked', { token, detail: `uid=${decoded.id} revokedRemainMs=${ttl ?? 'unknown'}` });
       return res.status(401).json({ message: '令牌已失效，请重新登录' });
     }
     req.user = { id: decoded.id, username: decoded.username, role: decoded.role };
@@ -159,6 +182,7 @@ async function authenticate(req, res, next) {
     maybeRenew(decoded, res); // 滑动续期
     next();
   } catch (err) {
+    log401(req, 'invalid', { token, detail: `${err.name}:${err.message}` });
     return res.status(401).json({ message: '令牌无效或已过期' });
   }
 }
@@ -170,13 +194,19 @@ async function optionalAuth(req, res, next) {
       const token = header.split(' ')[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       // 已撤销的 token 按匿名处理（公开接口不应因登出态报错）
-      if (await isTokenRevoked(token)) return next();
+      if (await isTokenRevoked(token)) {
+        log401(req, 'revoked', { token, detail: `uid=${decoded.id} scope=optional` });
+        return next();
+      }
       req.user = { id: decoded.id, username: decoded.username, role: decoded.role };
       req.token = token;
       req.tokenExp = decoded.exp;
       touchActive(decoded.id, req.ip); // 记录活跃（节流，含客户端 IP）
       maybeRenew(decoded, res); // 滑动续期
-    } catch {}
+    } catch (err) {
+      // 匿名接口携带无效 token 不阻断请求，但记录以便排查
+      log401(req, 'invalid', { token: header.split(' ')[1], detail: `${err.name}:${err.message} scope=optional` });
+    }
   }
   next();
 }
