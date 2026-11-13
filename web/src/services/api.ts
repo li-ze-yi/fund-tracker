@@ -8,13 +8,24 @@ interface SessionMeta {
   __authToken: string | null;
 }
 
+/**
+ * 当前会话实际应使用的 token。
+ * 以内存中的 store 为准：APK WebView 的 localStorage 可能在整页重载时读回磁盘旧值，
+ * 只有内存状态可靠，否则请求会继续携带早已过期的旧凭证。
+ * 未登录时不回退读取 localStorage，避免读到登出后残留的旧值。
+ */
+function getEffectiveToken(): string | null {
+  const { token, isAuthenticated } = useAuthStore.getState();
+  return isAuthenticated ? token : null;
+}
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
   timeout: 15000,
 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = getEffectiveToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -39,7 +50,7 @@ api.interceptors.response.use(
       // 切换账号后本地 token 已变（或会话代际已递增），此时迟到的续期头属于
       // 上一个账号，必须丢弃，否则会把当前账号的 token 覆盖成上一个账号的。
       const sameSession = meta.__sessionEpoch === getSessionEpoch();
-      const tokenUnchanged = Boolean(meta.__authToken) && localStorage.getItem('token') === meta.__authToken;
+      const tokenUnchanged = Boolean(meta.__authToken) && meta.__authToken === getEffectiveToken();
       if (sameSession && tokenUnchanged) {
         const { setToken } = useAuthStore.getState();
         setToken(renewed);
@@ -56,7 +67,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       const cfg = error.config as (typeof error.config & SessionMeta) | undefined;
       const url = cfg?.url || '';
-      const currentToken = localStorage.getItem('token');
+      const currentToken = getEffectiveToken();
 
       // 登录/登出接口自身的 401 不参与会话清理：
       // 登出时 token 可能已失效，若在这里清会话会把刚登录的新会话一并带走
