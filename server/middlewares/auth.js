@@ -14,7 +14,11 @@ const logger = createLogger('Auth');
  */
 function log401(req, reason, extra = {}) {
   const ua = String(req.headers['user-agent'] || '').slice(0, 120);
-  const tokenPrefix = extra.token ? `${String(extra.token).slice(0, 12)}…` : '-';
+  // 取头部 + 尾部片段：JWT 头部（alg/typ）几乎相同，只看前 12 位无法区分不同 token，
+  // 尾部来自签名，可用于关联同一 token
+  const tokenPrefix = extra.token
+    ? `${String(extra.token).slice(0, 12)}…${String(extra.token).slice(-8)}`
+    : '-';
   const hadHeader = Boolean(req.headers.authorization);
   logger.warn(
     `[AUTH-401] reason=${reason} method=${req.method} path=${req.originalUrl || req.url}` +
@@ -22,6 +26,23 @@ function log401(req, reason, extra = {}) {
     (extra.detail ? ` detail=${extra.detail}` : '') +
     ` ua="${ua}"`
   );
+}
+
+/**
+ * 从 token 中提取签发/过期时间（不校验签名），用于判断过期 token 是何时签发的。
+ * 若 iat 是今天 → 登录签发的 token 立即失效（配置问题）；
+ * 若 iat 是若干天前 → 客户端仍在用旧 token（保存/覆盖问题）。
+ */
+function describeTokenTimes(token) {
+  try {
+    const raw = jwt.decode(token) || {};
+    const parts = [];
+    if (raw.iat) parts.push(`iat=${new Date(raw.iat * 1000).toISOString()}`);
+    if (raw.exp) parts.push(`exp=${new Date(raw.exp * 1000).toISOString()}`);
+    return parts.length ? ` ${parts.join(' ')}` : '';
+  } catch {
+    return '';
+  }
 }
 
 // JWT 密钥校验：未配置时给出清晰报错，避免用 undefined 静默验签
@@ -182,7 +203,10 @@ async function authenticate(req, res, next) {
     maybeRenew(decoded, res); // 滑动续期
     next();
   } catch (err) {
-    log401(req, 'invalid', { token, detail: `${err.name}:${err.message}` });
+    log401(req, 'invalid', {
+      token,
+      detail: `${err.name}:${err.message}${describeTokenTimes(token)}`
+    });
     return res.status(401).json({ message: '令牌无效或已过期' });
   }
 }
@@ -205,7 +229,11 @@ async function optionalAuth(req, res, next) {
       maybeRenew(decoded, res); // 滑动续期
     } catch (err) {
       // 匿名接口携带无效 token 不阻断请求，但记录以便排查
-      log401(req, 'invalid', { token: header.split(' ')[1], detail: `${err.name}:${err.message} scope=optional` });
+      const bad = header.split(' ')[1];
+      log401(req, 'invalid', {
+        token: bad,
+        detail: `${err.name}:${err.message}${describeTokenTimes(bad)} scope=optional`
+      });
     }
   }
   next();
